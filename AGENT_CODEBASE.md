@@ -23,12 +23,13 @@
 | State | `AppContext` (large central store) + `mockData` fallback |
 | Backend | Cloudflare Worker (`src/worker/`) |
 | Database | Cloudflare D1 (`pgwalo-db`) — schema in `database/schema.sql` |
-| Media | R2 (commented out in `wrangler.toml`; handler exists) |
+| Media | R2 (`pgwalo-media` — enable R2 in dashboard, then uncomment binding) |
+| Cache | KV (`CACHE` namespace) for property search |
 | Auth | JWT via Worker (`/api/auth/*`), stored in `localStorage` |
 | PWA | `vite-plugin-pwa` (Workbox, offline shell) |
 | Deploy | `wrangler deploy` — Worker serves `/api/*` + static `dist/` via `[assets]` |
 
-**Not used in code (can remove later):** `@google/genai`, legacy Express `server.ts`, Supabase, Pages Functions proxy.
+**Cloudflare-only:** No Google OAuth, no Supabase, no external fonts. Auth = D1 + JWT (PBKDF2). API = same-origin `/api` in production.
 
 ---
 
@@ -170,13 +171,16 @@ npm run d1:migrate            # apply schema.sql to remote D1
 
 ---
 
-## Known Gaps / Inconsistencies
+## Demo credentials (production D1)
 
-1. **DEFAULT_ORGANIZATION_ID** — `wrangler.toml` uses `org-demo-pgwalo`; `productionWorkflow.ts` uses `org-demo-blue-haven`
-2. **Auth** — login issues JWT without D1 password check (stub)
-3. **Dual data paths** — `AppContext` still heavy on client mock; production sync via bootstrap snapshot
-4. **R2** — handler present, binding commented out
-5. **Rebrand residue** — some "PGNest" strings in schema comments / scripts (`pgnest-db` in test script)
+- `owner@pgwalo.com` / `PGWalo@2026`
+- `admin@pgwalo.com` / `PGWalo@2026`
+
+## Known gaps
+
+1. **R2** — enable in Cloudflare Dashboard, create bucket, uncomment `wrangler.toml` binding
+2. **AppContext** — still syncs owner snapshots; bootstrap is role-scoped with row limits
+3. **TypeScript** — pre-existing errors in mockData/types (non-blocking for Vite build)
 
 ---
 

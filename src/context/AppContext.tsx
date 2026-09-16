@@ -124,6 +124,14 @@ interface AppContextType {
   setAuthInitialRole?: (role: UserRole) => void;
   openAuthModal: (mode?: 'login' | 'register', targetRole?: UserRole) => void;
   login: (email: string, password?: string, requestedRole?: UserRole, isDemo?: boolean) => { success: boolean; message?: string };
+  applyApiSession: (user: {
+    id: string;
+    name?: string;
+    email?: string;
+    phone?: string;
+    role: UserRole;
+    organizationId?: string;
+  }) => void;
   register: (accountData: {
     name: string;
     email: string;
@@ -1710,6 +1718,33 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return { success: true, message: `Welcome back, ${user.name}!` };
   };
 
+  const applyApiSession = (user: {
+    id: string;
+    name?: string;
+    email?: string;
+    phone?: string;
+    role: UserRole;
+    organizationId?: string;
+  }) => {
+    const account: UserAccount = {
+      id: user.id,
+      name: user.name || user.email || 'User',
+      email: user.email || '',
+      phone: user.phone || '',
+      role: user.role,
+      organizationId: user.organizationId || DEFAULT_ORGANIZATION_ID,
+      isProfileCompleted: true,
+      createdAt: new Date().toISOString().split('T')[0],
+    };
+    setUsers((prev) => {
+      const exists = prev.some((u) => u.id === account.id);
+      return exists ? prev.map((u) => (u.id === account.id ? account : u)) : [...prev, account];
+    });
+    setCurrentUser(account);
+    setRoleState(account.role);
+    setAuthModalOpen(false);
+  };
+
   const register = (accountData: {
     name: string;
     email: string;
@@ -2769,6 +2804,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setAuthInitialRole,
         openAuthModal,
         login,
+        applyApiSession,
         register,
         logout,
         profileModalOpen,

@@ -1,60 +1,76 @@
-import { Env, User } from '../types';
+import { Env } from '../types';
 import { addCorsHeaders } from '../utils/cors';
 import { generateJWT } from '../utils/jwt';
+import { hashPassword, verifyPassword } from '../utils/password';
+
+interface DbUser {
+  id: string;
+  organization_id: string | null;
+  name: string;
+  email: string;
+  phone: string;
+  role: string;
+  password_hash: string | null;
+}
+
+async function findUserByEmail(env: Env, email: string): Promise<DbUser | null> {
+  const row = await env.DB.prepare(
+    'SELECT id, organization_id, name, email, phone, role, password_hash FROM users WHERE LOWER(email) = LOWER(?) LIMIT 1'
+  ).bind(email.trim()).first<DbUser>();
+  return row ?? null;
+}
 
 export async function authHandler(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
   const path = url.pathname;
 
-  // Login endpoint
   if (path === '/api/auth/login' && request.method === 'POST') {
     try {
-      const body = await request.json() as {
-        email: string;
-        password: string;
-        role?: string;
-      };
+      const body = await request.json() as { email: string; password: string; role?: string };
+      if (!body.email || !body.password) {
+        return addCorsHeaders(new Response(JSON.stringify({ success: false, error: 'Email and password required' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        }));
+      }
 
-      // Simple authentication - in production, validate against D1 users table
-      // For now, we'll generate a JWT token based on the provided role
-      const role = body.role || 'public';
-      const userId = `user-${Date.now()}`;
-      
-      // Generate JWT token
+      const user = await findUserByEmail(env, body.email);
+      if (!user?.password_hash || !(await verifyPassword(body.password, user.password_hash))) {
+        return addCorsHeaders(new Response(JSON.stringify({ success: false, error: 'Invalid credentials' }), {
+          status: 401,
+          headers: { 'Content-Type': 'application/json' },
+        }));
+      }
+
+      const role = user.role || body.role || 'public';
       const token = await generateJWT({
-        userId,
+        userId: user.id,
         role,
-        organizationId: env.DEFAULT_ORGANIZATION_ID,
-        name: body.email.split('@')[0],
+        organizationId: user.organization_id || env.DEFAULT_ORGANIZATION_ID,
+        name: user.name,
       }, env.JWT_SECRET || 'default-secret');
 
-      const response = new Response(JSON.stringify({
+      return addCorsHeaders(new Response(JSON.stringify({
         success: true,
         token,
         user: {
-          id: userId,
+          id: user.id,
           role,
-          name: body.email.split('@')[0],
-          organizationId: env.DEFAULT_ORGANIZATION_ID,
+          name: user.name,
+          email: user.email,
+          phone: user.phone,
+          organizationId: user.organization_id || env.DEFAULT_ORGANIZATION_ID,
         },
-      }), {
-        headers: { 'Content-Type': 'application/json' }
-      });
-      return addCorsHeaders(response);
+      }), { headers: { 'Content-Type': 'application/json' } }));
     } catch (error) {
       console.error('Login error:', error);
-      const response = new Response(JSON.stringify({ 
-        success: false,
-        error: 'Login failed' 
-      }), {
+      return addCorsHeaders(new Response(JSON.stringify({ success: false, error: 'Login failed' }), {
         status: 400,
-        headers: { 'Content-Type': 'application/json' }
-      });
-      return addCorsHeaders(response);
+        headers: { 'Content-Type': 'application/json' },
+      }));
     }
   }
 
-  // Register endpoint
   if (path === '/api/auth/register' && request.method === 'POST') {
     try {
       const body = await request.json() as {
@@ -65,55 +81,74 @@ export async function authHandler(request: Request, env: Env): Promise<Response>
         password?: string;
       };
 
-      // In production, create user in D1 database
-      // For now, generate a JWT token
+      if (!body.email || !body.password || !body.name || !body.phone) {
+        return addCorsHeaders(new Response(JSON.stringify({ success: false, error: 'All fields required' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        }));
+      }
+
+      const existing = await findUserByEmail(env, body.email);
+      if (existing) {
+        return addCorsHeaders(new Response(JSON.stringify({ success: false, error: 'Email already registered' }), {
+          status: 409,
+          headers: { 'Content-Type': 'application/json' },
+        }));
+      }
+
       const userId = `user-${Date.now()}`;
-      
+      const passwordHash = await hashPassword(body.password);
+      const role = ['owner', 'resident', 'staff'].includes(body.role) ? body.role : 'resident';
+
+      await env.DB.prepare(`
+        INSERT INTO users (id, organization_id, name, email, phone, role, is_profile_completed, status, password_hash)
+        VALUES (?, ?, ?, ?, ?, ?, 0, 'Active', ?)
+      `).bind(
+        userId,
+        env.DEFAULT_ORGANIZATION_ID,
+        body.name,
+        body.email.trim().toLowerCase(),
+        body.phone,
+        role,
+        passwordHash
+      ).run();
+
       const token = await generateJWT({
         userId,
-        role: body.role,
+        role,
         organizationId: env.DEFAULT_ORGANIZATION_ID,
         name: body.name,
       }, env.JWT_SECRET || 'default-secret');
 
-      const response = new Response(JSON.stringify({
+      return addCorsHeaders(new Response(JSON.stringify({
         success: true,
         token,
         user: {
           id: userId,
-          role: body.role,
+          role,
           name: body.name,
+          email: body.email,
+          phone: body.phone,
           organizationId: env.DEFAULT_ORGANIZATION_ID,
         },
-      }), {
-        status: 201,
-        headers: { 'Content-Type': 'application/json' }
-      });
-      return addCorsHeaders(response);
+      }), { status: 201, headers: { 'Content-Type': 'application/json' } }));
     } catch (error) {
       console.error('Registration error:', error);
-      const response = new Response(JSON.stringify({ 
-        success: false,
-        error: 'Registration failed' 
-      }), {
+      return addCorsHeaders(new Response(JSON.stringify({ success: false, error: 'Registration failed' }), {
         status: 400,
-        headers: { 'Content-Type': 'application/json' }
-      });
-      return addCorsHeaders(response);
+        headers: { 'Content-Type': 'application/json' },
+      }));
     }
   }
 
-  // Logout endpoint
   if (path === '/api/auth/logout' && request.method === 'POST') {
-    const response = new Response(JSON.stringify({ success: true }), {
-      headers: { 'Content-Type': 'application/json' }
-    });
-    return addCorsHeaders(response);
+    return addCorsHeaders(new Response(JSON.stringify({ success: true }), {
+      headers: { 'Content-Type': 'application/json' },
+    }));
   }
 
-  const response = new Response(JSON.stringify({ error: 'Invalid auth endpoint' }), { 
+  return addCorsHeaders(new Response(JSON.stringify({ error: 'Invalid auth endpoint' }), {
     status: 400,
-    headers: { 'Content-Type': 'application/json' }
-  });
-  return addCorsHeaders(response);
+    headers: { 'Content-Type': 'application/json' },
+  }));
 }

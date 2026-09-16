@@ -14,6 +14,7 @@
     "deploy": "npm run build && wrangler deploy",
     "d1:create": "wrangler d1 create pgwalo-db",
     "d1:migrate": "wrangler d1 execute pgwalo-db --remote --file=./database/schema.sql",
+    "d1:auth": "wrangler d1 execute pgwalo-db --remote --file=./database/auth-migration.sql",
     "r2:create": "wrangler r2 bucket create pgwalo-media",
     "test:worker": "npx tsx scripts/test-worker.ts",
     "test:db": "wrangler d1 execute pgwalo-db --local --file=./database/test-schema.sql",

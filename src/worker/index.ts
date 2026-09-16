@@ -1,5 +1,5 @@
 import { Env } from './types';
-import { handleCors, addCorsHeaders } from './utils/cors';
+import { handleCors, addCorsHeaders, setCorsContext } from './utils/cors';
 import { authMiddleware } from './middleware/auth';
 import { bootstrapHandler } from './handlers/bootstrap';
 import { collectionHandler } from './handlers/collection';
@@ -9,10 +9,10 @@ import { authHandler } from './handlers/auth';
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    setCorsContext(request, env);
     const url = new URL(request.url);
     const path = url.pathname;
 
-    // Handle CORS preflight
     if (request.method === 'OPTIONS') {
       return handleCors();
     }

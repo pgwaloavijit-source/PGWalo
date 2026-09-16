@@ -108,6 +108,22 @@ export async function collectionHandler(
 
     try {
       const url = new URL(request.url);
+
+      if (collection === 'properties' && !id && env.CACHE && url.searchParams.toString()) {
+        const cacheKey = `search:${url.searchParams.toString()}`;
+        const cached = await env.CACHE.get(cacheKey, 'json');
+        if (cached) {
+          const response = new Response(JSON.stringify(cached), {
+            headers: {
+              'Content-Type': 'application/json',
+              'Cache-Control': 'public, max-age=120',
+              'X-Cache': 'HIT',
+            },
+          });
+          return addCorsHeaders(response);
+        }
+      }
+
       let query = `SELECT * FROM ${collection}`;
       const params: unknown[] = [];
       const conditions: string[] = [];
@@ -209,9 +225,19 @@ export async function collectionHandler(
       }
 
       const { results } = await env.DB.prepare(query).bind(...params).all();
-      
-      const response = new Response(JSON.stringify(results || []), {
-        headers: { 'Content-Type': 'application/json' }
+      const payload = results || [];
+
+      if (collection === 'properties' && !id && env.CACHE && url.searchParams.toString()) {
+        const cacheKey = `search:${url.searchParams.toString()}`;
+        await env.CACHE.put(cacheKey, JSON.stringify(payload), { expirationTtl: 300 });
+      }
+
+      const response = new Response(JSON.stringify(payload), {
+        headers: {
+          'Content-Type': 'application/json',
+          'Cache-Control': collection === 'properties' && !id ? 'public, max-age=120' : 'private, no-store',
+          'X-Cache': 'MISS',
+        },
       });
       return addCorsHeaders(response);
     } catch (error) {

@@ -33,33 +33,36 @@ export interface ProductionSnapshot {
   auditLogs: AuditLogEntry[];
 }
 
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || '';
+const configuredBase = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, '') ?? '';
+const apiBaseUrl = configuredBase;
+
+export const isProductionApiEnabled = () => import.meta.env.PROD || Boolean(configuredBase);
+
+const apiUrl = (path: string) => `${apiBaseUrl}${path}`;
 
 const headers = (role: UserRole, organizationId = DEFAULT_ORGANIZATION_ID) => {
   const requestHeaders: Record<string, string> = {
     'Content-Type': 'application/json',
-    'x-user-role': role,
     'x-organization-id': organizationId,
-    'x-user-id': `user-${role}`, // Simple user ID generation
   };
 
-  // Add JWT token if available (for enhanced security)
   const token = localStorage.getItem('pgwalo_jwt_token');
   if (token) {
-    requestHeaders['Authorization'] = `Bearer ${token}`;
+    requestHeaders.Authorization = `Bearer ${token}`;
+  } else if (!import.meta.env.PROD) {
+    requestHeaders['x-user-role'] = role;
+    requestHeaders['x-user-id'] = `user-${role}`;
   }
 
   return requestHeaders;
 };
 
-export const isProductionApiEnabled = () => Boolean(apiBaseUrl);
-
 export const loadProductionSnapshot = async (
   role: UserRole,
   organizationId = DEFAULT_ORGANIZATION_ID
 ): Promise<Partial<ProductionSnapshot> | null> => {
-  if (!apiBaseUrl) return null;
-  const response = await fetch(`${apiBaseUrl}/api/bootstrap`, {
+  if (!isProductionApiEnabled()) return null;
+  const response = await fetch(apiUrl('/api/bootstrap'), {
     headers: headers(role, organizationId),
   });
   if (!response.ok) throw new Error(await response.text());
@@ -71,8 +74,8 @@ export const saveProductionSnapshot = async (
   snapshot: Partial<ProductionSnapshot>,
   organizationId = DEFAULT_ORGANIZATION_ID
 ) => {
-  if (!apiBaseUrl || !['owner', 'admin'].includes(role)) return;
-  const response = await fetch(`${apiBaseUrl}/api/bootstrap`, {
+  if (!isProductionApiEnabled() || !['owner', 'admin'].includes(role)) return;
+  const response = await fetch(apiUrl('/api/bootstrap'), {
     method: 'POST',
     headers: headers(role, organizationId),
     body: JSON.stringify(snapshot),
@@ -89,7 +92,7 @@ export const searchProperties = async (
   role: UserRole = 'public',
   organizationId = DEFAULT_ORGANIZATION_ID
 ): Promise<Property[]> => {
-  if (!apiBaseUrl) return [];
+  if (!isProductionApiEnabled()) return [];
 
   const params = new URLSearchParams();
   if (criteria.location) params.set('location', criteria.location);
@@ -100,33 +103,34 @@ export const searchProperties = async (
   if (criteria.maxPrice) params.set('maxPrice', String(criteria.maxPrice));
   criteria.amenities?.forEach((amenity) => params.append('amenity', amenity));
 
-  const response = await fetch(`${apiBaseUrl}/api/properties?${params.toString()}`, {
+  const response = await fetch(apiUrl(`/api/properties?${params.toString()}`), {
     headers: headers(role, organizationId),
   });
   if (!response.ok) throw new Error(await response.text());
   return response.json();
 };
 
-// Media upload to R2
 export const uploadMedia = async (
   file: File,
   category: string = 'general',
   role: UserRole = 'public',
   organizationId = DEFAULT_ORGANIZATION_ID
 ) => {
-  if (!apiBaseUrl) throw new Error('API base URL not configured');
-  
+  if (!isProductionApiEnabled()) throw new Error('API not available in demo mode');
+
   const formData = new FormData();
   formData.append('file', file);
   formData.append('category', category);
 
-  const response = await fetch(`${apiBaseUrl}/api/media/upload`, {
+  const requestHeaders: Record<string, string> = {
+    'x-organization-id': organizationId,
+  };
+  const token = getAuthToken();
+  if (token) requestHeaders.Authorization = `Bearer ${token}`;
+
+  const response = await fetch(apiUrl('/api/media/upload'), {
     method: 'POST',
-    headers: {
-      'x-user-role': role,
-      'x-organization-id': organizationId,
-      'x-user-id': `user-${role}`,
-    },
+    headers: requestHeaders,
     body: formData,
   });
 
@@ -134,20 +138,16 @@ export const uploadMedia = async (
   return response.json();
 };
 
-// Get media URL (constructs the URL for accessing media)
 export const getMediaUrl = (filename: string) => {
-  if (!apiBaseUrl) return filename; // Return as-is if no API URL
-  return `${apiBaseUrl}/api/media/${filename}`;
+  if (!filename.startsWith('/')) return apiUrl(`/api/media/${filename}`);
+  return apiUrl(filename);
 };
 
-// JWT token management for enhanced authentication
 export const setAuthToken = (token: string) => {
   localStorage.setItem('pgwalo_jwt_token', token);
 };
 
-export const getAuthToken = () => {
-  return localStorage.getItem('pgwalo_jwt_token');
-};
+export const getAuthToken = () => localStorage.getItem('pgwalo_jwt_token');
 
 export const clearAuthToken = () => {
   localStorage.removeItem('pgwalo_jwt_token');

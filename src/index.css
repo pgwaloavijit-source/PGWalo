@@ -1,1 +1,75 @@
 @import "tailwindcss";
+
+:root {
+  --app-header-height: 3.5rem;
+  --app-tab-bar-height: 4rem;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body.native-shell {
+  min-height: 100dvh;
+  overscroll-behavior-y: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+.native-app {
+  min-height: 100dvh;
+  padding-top: var(--safe-top);
+}
+
+.native-app main {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+}
+
+.standalone .native-app {
+  background: #f8fafc;
+}
+
+.standalone header[role="banner"],
+.standalone #mobile-bottom-navigation {
+  box-shadow: 0 1px 0 rgba(15, 23, 42, 0.06);
+}
+
+@media (max-width: 767px) {
+  .native-card {
+    border-radius: 1rem;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+  }
+
+  .desktop-only {
+    display: none !important;
+  }
+}
+
+@media (min-width: 768px) {
+  .mobile-only {
+    display: none !important;
+  }
+}
+
+button,
+a,
+[role="button"] {
+  touch-action: manipulation;
+}
+
+input,
+select,
+textarea {
+  font-size: 16px;
+}

@@ -4,11 +4,11 @@ compatibility_date = "2025-09-14"
 compatibility_flags = ["nodejs_compat"]
 workers_dev = true
 
-# Custom hostnames. Static UI is served from [assets]; /api/* hits this Worker.
+# Worker serves API + static UI (dist/) on the same domain — Cloudflare-only stack.
 routes = [
-  { pattern = "api.pgwalo.com", custom_domain = true },
-  { pattern = "www.pgwalo.com", custom_domain = true },
-  { pattern = "pgwalo.com", custom_domain = true }
+  { pattern = "pgwalo.com/*", zone_name = "pgwalo.com" },
+  { pattern = "www.pgwalo.com/*", zone_name = "pgwalo.com" },
+  { pattern = "api.pgwalo.com/*", zone_name = "pgwalo.com" }
 ]
 
 [assets]
@@ -26,12 +26,16 @@ binding = "DB"
 database_name = "pgwalo-db"
 database_id = "44fa0ef7-cc48-44fc-89c6-c41b561c66d4"
 
-# Enable R2 in the Cloudflare dashboard, then uncomment:
+# Enable after activating R2 in Cloudflare Dashboard: wrangler r2 bucket create pgwalo-media
 # [[r2_buckets]]
 # binding = "MEDIA"
 # bucket_name = "pgwalo-media"
 
+[[kv_namespaces]]
+binding = "CACHE"
+id = "09667c32009c447a949ccfd45f6f247f"
+
 [observability]
 enabled = true
 
-# JWT_SECRET is set with: wrangler secret put JWT_SECRET
+# wrangler secret put JWT_SECRET

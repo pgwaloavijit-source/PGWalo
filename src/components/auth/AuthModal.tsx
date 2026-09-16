@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { UserRole } from '../../types';
-import { setAuthToken, clearAuthToken } from '../../services/productionApi';
+import { isProductionApiEnabled } from '../../services/productionApi';
+import { loginWithWorkers, registerWithWorkers } from '../../services/auth';
 import {
   X,
   Mail,
@@ -26,7 +27,10 @@ export const AuthModal: React.FC = () => {
     authInitialRole,
     login,
     register,
+    applyApiSession,
   } = useApp();
+
+  const useCloudAuth = isProductionApiEnabled();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -61,27 +65,40 @@ export const AuthModal: React.FC = () => {
 
   if (!authModalOpen) return null;
 
-  const handleLoginSubmit = (e: React.FormEvent) => {
+  const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
     if (!email) {
       setErrorMessage('Please enter your email address.');
       return;
     }
+    if (!password) {
+      setErrorMessage('Please enter your password.');
+      return;
+    }
 
     setIsLoading(true);
-    setTimeout(() => {
-      setIsLoading(false);
-      const res = login(email, password, loginRole);
-      if (res.success) {
-        setSuccessMessage(res.message || 'Logged in successfully!');
-        setTimeout(() => {
-          setSuccessMessage(null);
-        }, 1500);
+    try {
+      if (useCloudAuth) {
+        const res = await loginWithWorkers(email, password, loginRole);
+        if (!res.success || !res.user) {
+          setErrorMessage(res.error || 'Invalid email or password.');
+          return;
+        }
+        applyApiSession(res.user);
+        setSuccessMessage('Logged in successfully!');
       } else {
-        setErrorMessage(res.message || 'Invalid email or password. Please try again.');
+        const res = login(email, password, loginRole);
+        if (!res.success) {
+          setErrorMessage(res.message || 'Invalid email or password.');
+          return;
+        }
+        setSuccessMessage(res.message || 'Logged in successfully!');
       }
-    }, 400);
+      setTimeout(() => setSuccessMessage(null), 1500);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleGoogleSignIn = (targetEmail?: string) => {
@@ -103,7 +120,7 @@ export const AuthModal: React.FC = () => {
     }, 450);
   };
 
-  const handleRegisterSubmit = (e: React.FormEvent) => {
+  const handleRegisterSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
 
@@ -129,27 +146,41 @@ export const AuthModal: React.FC = () => {
     }
 
     setIsLoading(true);
-    setTimeout(() => {
-      setIsLoading(false);
-      const res = register({
-        name: regName,
-        email: regEmail,
-        phone: regPhone,
-        role: regRole,
-        password: regPassword,
-        roomNumber: regRole === 'resident' ? regRoom : undefined,
-        staffRole: regRole === 'staff' ? regStaffRole : undefined,
-      });
-
-      if (res.success) {
+    try {
+      if (useCloudAuth) {
+        const res = await registerWithWorkers({
+          name: regName,
+          email: regEmail,
+          phone: regPhone,
+          role: regRole,
+          password: regPassword,
+        });
+        if (!res.success || !res.user) {
+          setErrorMessage(res.error || 'Failed to create account.');
+          return;
+        }
+        applyApiSession(res.user);
         setSuccessMessage('Account created successfully! Welcome to PGWalo.');
-        setTimeout(() => {
-          setSuccessMessage(null);
-        }, 1500);
       } else {
-        setErrorMessage(res.message || 'Failed to create account.');
+        const res = register({
+          name: regName,
+          email: regEmail,
+          phone: regPhone,
+          role: regRole,
+          password: regPassword,
+          roomNumber: regRole === 'resident' ? regRoom : undefined,
+          staffRole: regRole === 'staff' ? regStaffRole : undefined,
+        });
+        if (!res.success) {
+          setErrorMessage(res.message || 'Failed to create account.');
+          return;
+        }
+        setSuccessMessage('Account created successfully! Welcome to PGWalo.');
       }
-    }, 400);
+      setTimeout(() => setSuccessMessage(null), 1500);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -208,7 +239,7 @@ export const AuthModal: React.FC = () => {
           {/* ================= MODE: LOGIN ================= */}
           {authModalMode === 'login' && (
             <div className="space-y-4">
-              {/* Gmail / Google Sign-In Button */}
+              {!useCloudAuth && (
               <div>
                 <button
                   id="google-signin-btn"
@@ -282,8 +313,9 @@ export const AuthModal: React.FC = () => {
                   </div>
                 )}
               </div>
+              )}
 
-              {/* Divider */}
+              {!useCloudAuth && (
               <div className="relative flex py-1 items-center">
                 <div className="grow border-t border-slate-200"></div>
                 <span className="shrink-0 mx-3 text-slate-400 text-[11px] font-semibold uppercase">
@@ -291,6 +323,7 @@ export const AuthModal: React.FC = () => {
                 </span>
                 <div className="grow border-t border-slate-200"></div>
               </div>
+              )}
 
               {/* Role Selection for Login */}
               <div>
@@ -429,7 +462,7 @@ export const AuthModal: React.FC = () => {
           {/* ================= MODE: REGISTER ================= */}
           {authModalMode === 'register' && (
             <form onSubmit={handleRegisterSubmit} className="space-y-4">
-              {/* Quick Google Sign-Up */}
+              {!useCloudAuth && (
               <div>
                 <button
                   id="google-signup-btn"
@@ -459,7 +492,9 @@ export const AuthModal: React.FC = () => {
                   <span>Sign up with Google</span>
                 </button>
               </div>
+              )}
 
+              {!useCloudAuth && (
               <div className="relative flex py-1 items-center">
                 <div className="grow border-t border-slate-200"></div>
                 <span className="shrink-0 mx-3 text-slate-400 text-[11px] font-semibold uppercase">
@@ -467,6 +502,7 @@ export const AuthModal: React.FC = () => {
                 </span>
                 <div className="grow border-t border-slate-200"></div>
               </div>
+              )}
 
               {/* Role Selection */}
               <div>

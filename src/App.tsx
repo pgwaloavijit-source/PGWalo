@@ -17,11 +17,12 @@ import { AdminDashboard } from './components/admin/AdminDashboard';
 import { WardenDashboard } from './components/warden/WardenDashboard';
 import { AccountantDashboard } from './components/accountant/AccountantDashboard';
 import { PublicSearchCriteria } from './types';
+import { useStandalonePWA } from './hooks/useStandalonePWA';
 
 const MainAppContent: React.FC = () => {
   const { role, setRole, currentUser, properties } = useApp();
+  const isStandalone = useStandalonePWA();
 
-  // Tab navigation state
   const [currentTab, setCurrentTab] = useState<string>('landing');
   const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
@@ -48,7 +49,6 @@ const MainAppContent: React.FC = () => {
     handleExploreWithParams({ location: area, city });
   };
 
-  // Determine which main view to show
   const isDashboardView =
     (role === 'admin' || currentTab === 'admin') ||
     (role === 'warden' || currentTab === 'warden') ||
@@ -57,12 +57,16 @@ const MainAppContent: React.FC = () => {
     (role === 'resident' || currentTab === 'resident') ||
     (role === 'staff' || currentTab === 'staff');
 
+  const showPublicFooter = !isDashboardView || currentTab === 'landing' || currentTab === 'search';
+
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans selection:bg-blue-600 selection:text-white">
-      {/* PWA Offline Banner */}
+    <div
+      className={`native-app min-h-[100dvh] bg-slate-50 text-slate-900 flex flex-col font-sans selection:bg-blue-600 selection:text-white ${
+        isStandalone ? 'standalone-shell' : ''
+      }`}
+    >
       <OfflineIndicator />
 
-      {/* Global Minimal Header */}
       <Navbar
         currentTab={currentTab}
         setCurrentTab={setCurrentTab}
@@ -72,8 +76,9 @@ const MainAppContent: React.FC = () => {
         setShowNotifications={setShowNotifications}
       />
 
-      {/* Dynamic View Content Based on Role and Tab */}
-      <main className="flex-1 pb-16 md:pb-0">
+      <main
+        className="flex-1 overflow-y-auto overscroll-y-contain pb-[calc(var(--app-tab-bar-height)+var(--safe-bottom))] md:pb-0"
+      >
         {role === 'admin' || currentTab === 'admin' ? (
           <AdminDashboard />
         ) : role === 'warden' || currentTab === 'warden' ? (
@@ -87,24 +92,18 @@ const MainAppContent: React.FC = () => {
         ) : role === 'staff' || (currentUser?.role === 'staff' && currentTab === 'staff') ? (
           <StaffDashboard />
         ) : currentTab === 'search' ? (
-          <SearchPage
-            onSelectPG={handleSelectPG}
-            initialCriteria={searchParams}
-          />
+          <SearchPage onSelectPG={handleSelectPG} initialCriteria={searchParams} />
         ) : (
-          <LandingPage
-            onExploreClick={handleExploreWithParams}
-            onSelectPG={handleSelectPG}
-          />
+          <LandingPage onExploreClick={handleExploreWithParams} onSelectPG={handleSelectPG} />
         )}
       </main>
 
-      {/* Public Footer (Visible on public discovery views) */}
-      {(!isDashboardView || currentTab === 'landing' || currentTab === 'search') && (
-        <Footer onAreaClick={handleAreaExplore} />
+      {showPublicFooter && (
+        <div className="desktop-only">
+          <Footer onAreaClick={handleAreaExplore} />
+        </div>
       )}
 
-      {/* PG Detail / Booking Modal */}
       {selectedProperty && (
         <PGDetailModal
           property={selectedProperty}
@@ -116,13 +115,9 @@ const MainAppContent: React.FC = () => {
         />
       )}
 
-      {/* Authentication & Registration Modal */}
       <AuthModal />
-
-      {/* Profile Onboarding / Details Form Modal */}
       <ProfileCompletionModal />
 
-      {/* Fixed Mobile Bottom Navigation Bar */}
       <MobileBottomNav
         currentTab={currentTab}
         setCurrentTab={setCurrentTab}
