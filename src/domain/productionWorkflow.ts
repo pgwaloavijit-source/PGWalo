@@ -23,7 +23,7 @@ import {
   UserRole,
 } from '../types';
 
-export const DEFAULT_ORGANIZATION_ID = 'org-demo-blue-haven';
+export const DEFAULT_ORGANIZATION_ID = 'org-demo-pgwalo';
 
 const BED_STATUS_ALIASES: Record<string, BedStatus> = {
   Available: 'Vacant',

@@ -1,2 +1,2 @@
-# SPA fallback. /api is handled by Pages Functions, not this rule.
+# SPA fallback — API routes are handled by the Worker before static assets.
 /*    /index.html   200

@@ -1,5 +1,0 @@
-# Cloudflare Pages redirects for SPA
-# This ensures client-side routing works properly
-
-# All routes should be handled by index.html for SPA
-/* /index.html 200

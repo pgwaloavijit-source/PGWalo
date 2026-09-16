@@ -1,1 +1,0 @@
-This folder contains the built output assets for the worker "pgwalo" generated at 2026-09-14T18:00:51.571Z.
