@@ -1,0 +1,1924 @@
+import React, { useState } from 'react';
+import { useApp } from '../../context/AppContext';
+import { PaymentReceipt, BookingRequest } from '../../types';
+import {
+  Home,
+  CreditCard,
+  Clock,
+  Utensils,
+  MessageSquare,
+  Wrench,
+  Bell,
+  CheckCircle2,
+  AlertCircle,
+  QrCode,
+  Send,
+  Download,
+  Calendar,
+  ShieldCheck,
+  Phone,
+  Sparkles,
+  ArrowRight,
+  Printer,
+  Lock,
+  MapPin,
+  Eye,
+  X,
+  ChevronRight,
+  Bed,
+  RefreshCw,
+  ExternalLink,
+  FileText,
+  LogOut,
+} from 'lucide-react';
+
+export const ResidentDashboard: React.FC = () => {
+  const {
+    currentUser,
+    currentResident,
+    activeProperty,
+    payRentSimulation,
+    recordAttendance,
+    attendance,
+    broadcasts,
+    mealPlan,
+    chatMessages,
+    sendChatMessage,
+    tickets,
+    addMaintenanceTicket,
+    bookingRequests,
+    approveBookingRequest,
+    cancelBookingRequest,
+    rescheduleVisit,
+    setSelectedPGForDetail,
+    properties,
+    setRoleState,
+    invoices,
+    recordPaymentForInvoice,
+    initiateNoticePeriod,
+    checkoutSettlements,
+  } = useApp();
+
+  // Determine if this user has an approved, active room allocation
+  const isAllocated = Boolean(currentResident && currentResident.roomNumber);
+
+  // Filter requests belonging to this user
+  const today = new Date().toISOString().split('T')[0];
+  const userEmail = currentUser?.email?.toLowerCase();
+  const userPhone = currentUser?.phone?.replace(/\D/g, '');
+  const userName = currentUser?.name?.toLowerCase();
+
+  const myRequests = bookingRequests.filter((r) => {
+    if (!currentUser) return false;
+    const rEmail = r.email?.toLowerCase();
+    const rPhone = r.phone?.replace(/\D/g, '');
+    const rName = r.applicantName?.toLowerCase();
+    return (
+      (rEmail && userEmail && rEmail === userEmail) ||
+      (rPhone && userPhone && rPhone === userPhone) ||
+      (rName && userName && rName === userName)
+    );
+  });
+
+  // Scheduled Visits (Upcoming vs Past)
+  const myVisits = myRequests.filter((r) => r.type === 'visit' || Boolean(r.visitDate));
+  const upcomingVisits = myVisits.filter(
+    (v) =>
+      v.status !== 'Cancelled' &&
+      (v.status === 'Pending' || v.status === 'Approved') &&
+      (!v.visitDate || v.visitDate >= today)
+  );
+  const pastVisits = myVisits.filter(
+    (v) => v.status === 'Cancelled' || (v.visitDate && v.visitDate < today)
+  );
+
+  // Bed / Room Bookings
+  const myBookings = myRequests.filter((r) => r.type === 'booking' || (!r.type && !r.visitDate));
+  const pendingBookings = myBookings.filter((b) => b.status === 'Pending');
+  const approvedBookings = myBookings.filter((b) => b.status === 'Approved');
+
+  // Active tab: If not allocated, default to 'visits' or 'bookings'
+  const [activeTab, setActiveTab] = useState<
+    'visits' | 'bookings' | 'stay' | 'rent' | 'attendance' | 'menu' | 'chat' | 'tickets'
+  >(() => {
+    if (isAllocated) return 'stay';
+    if (myVisits.length > 0) return 'visits';
+    if (myBookings.length > 0) return 'bookings';
+    return 'visits';
+  });
+
+  // Sub-filter for visits (upcoming vs past)
+  const [visitTab, setVisitTab] = useState<'upcoming' | 'past'>('upcoming');
+
+  // Reschedule visit modal state
+  const [reschedulingVisit, setReschedulingVisit] = useState<BookingRequest | null>(null);
+  const [newVisitDate, setNewVisitDate] = useState('');
+  const [newVisitSlot, setNewVisitSlot] = useState('10:00 AM - 12:00 PM');
+
+  // Quick feedback toast
+  const [actionNotice, setActionNotice] = useState<string | null>(null);
+
+  const showToast = (msg: string) => {
+    setActionNotice(msg);
+    setTimeout(() => setActionNotice(null), 4000);
+  };
+
+  const [chatInput, setChatInput] = useState('');
+  const [showPayModal, setShowPayModal] = useState(false);
+  const [payMethod, setPayMethod] = useState<'UPI' | 'Card' | 'NetBanking'>('UPI');
+  const [upiId, setUpiId] = useState(currentUser?.email || 'ananya@okhdfcbank');
+  const [paymentReceipt, setPaymentReceipt] = useState<PaymentReceipt | null>(null);
+  const [isCurrentlyInside, setIsCurrentlyInside] = useState(true);
+
+  // Maintenance form state
+  const [ticketTitle, setTicketTitle] = useState('');
+  const [ticketCategory, setTicketCategory] = useState<'Plumbing' | 'Electrical' | 'WiFi' | 'Cleaning'>('Plumbing');
+  const [ticketDesc, setTicketDesc] = useState('');
+  const [ticketPriority, setTicketPriority] = useState<'Normal' | 'Urgent'>('Normal');
+  const [ticketSuccess, setTicketSuccess] = useState(false);
+
+  // Resident Notice Period State
+  const [showNoticeModal, setShowNoticeModal] = useState(false);
+  const [residentNoticeDate, setResidentNoticeDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [residentCheckoutDate, setResidentCheckoutDate] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 30);
+    return d.toISOString().split('T')[0];
+  });
+  const [residentNoticeReason, setResidentNoticeReason] = useState('Relocating to another city for work');
+
+  // Today's Meal Plan (determine current day of week)
+  const daysOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const todayName = daysOfWeek[new Date().getDay()] as any;
+  const todaysMeal = mealPlan.find((m) => m.day === todayName) || mealPlan[0];
+
+  // Attendance toggle
+  const handleToggleAttendance = () => {
+    if (!currentResident) return;
+    const nextInside = !isCurrentlyInside;
+    setIsCurrentlyInside(nextInside);
+    recordAttendance({
+      personId: currentResident.id,
+      personName: currentResident.name,
+      personType: 'Resident',
+      roomNumber: currentResident.roomNumber,
+      type: nextInside ? 'Check-In' : 'Check-Out',
+      status: 'On-Time',
+      notes: nextInside ? 'Returned to room' : 'Stepped out from PG',
+    });
+  };
+
+  const handlePayRentSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!currentResident) return;
+    const receipt = payRentSimulation(currentResident.id, `${payMethod} (${upiId})`);
+    setPaymentReceipt(receipt);
+
+    // Also reconcile corresponding monthly invoice if present
+    const myUnpaidInvoice = invoices.find(
+      (inv) => inv.residentId === currentResident.id && inv.status !== 'Paid'
+    );
+    if (myUnpaidInvoice) {
+      recordPaymentForInvoice({
+        invoiceId: myUnpaidInvoice.id,
+        amount: myUnpaidInvoice.outstandingBalance,
+        paymentMethod: payMethod === 'Card' ? 'Credit/Debit Card' : payMethod === 'NetBanking' ? 'Net Banking' : 'UPI',
+        transactionId: receipt.transactionId,
+      });
+    }
+  };
+
+  const handleSendChat = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!chatInput.trim()) return;
+    sendChatMessage(chatInput.trim(), false);
+    setChatInput('');
+  };
+
+  const handleCreateTicket = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!ticketTitle || !currentResident) return;
+    addMaintenanceTicket({
+      title: ticketTitle,
+      category: ticketCategory,
+      roomNumber: currentResident.roomNumber,
+      residentName: currentResident.name,
+      description: ticketDesc || ticketTitle,
+      priority: ticketPriority,
+    });
+    setTicketTitle('');
+    setTicketDesc('');
+    setTicketSuccess(true);
+    setTimeout(() => setTicketSuccess(false), 3500);
+  };
+
+  const handleConfirmReschedule = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!reschedulingVisit || !newVisitDate) return;
+    rescheduleVisit(reschedulingVisit.id, newVisitDate, newVisitSlot);
+    setReschedulingVisit(null);
+    showToast(`Visit rescheduled to ${newVisitDate} (${newVisitSlot})`);
+  };
+
+  const handleQuickApprove = (reqId: string, propertyName: string) => {
+    approveBookingRequest(reqId, '204', 'Bed A');
+    showToast(`Approved! Room 204 (Bed A) allocated at ${propertyName}. All services are now active.`);
+    setActiveTab('stay');
+  };
+
+  const openPropertyDetail = (propertyId: string) => {
+    const prop = properties.find((p) => p.id === propertyId);
+    if (prop) {
+      setSelectedPGForDetail(prop);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-50 text-slate-900 pb-20">
+      {/* Toast Notification */}
+      {actionNotice && (
+        <div className="fixed top-20 right-6 z-50 bg-slate-900 text-white px-4 py-3 rounded-2xl shadow-xl flex items-center gap-2.5 text-xs font-semibold border border-slate-700 animate-in fade-in">
+          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+          <span>{actionNotice}</span>
+        </div>
+      )}
+
+      {/* Top Profile & Header Bar */}
+      <div className="bg-white border-b border-slate-200 py-6 px-4 sm:px-6 lg:px-8 shadow-2xs">
+        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3.5">
+            <div className="relative">
+              <img
+                src={
+                  currentResident?.avatar ||
+                  currentUser?.avatar ||
+                  'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=200&q=80'
+                }
+                alt={currentResident?.name || currentUser?.name || 'User'}
+                referrerPolicy="no-referrer"
+                className="w-13 h-13 rounded-2xl object-cover border-2 border-slate-100 shadow-2xs"
+              />
+              <span
+                className={`absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2 border-white ${
+                  isAllocated ? 'bg-emerald-500' : 'bg-amber-500'
+                }`}
+                title={isAllocated ? 'Active Resident' : 'Pending Allocation'}
+              />
+            </div>
+
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h1 className="text-xl font-black text-slate-900">
+                  {currentResident?.name || currentUser?.name || 'Prospective Resident'}
+                </h1>
+
+                {isAllocated ? (
+                  <span className="px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center gap-1">
+                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>Active Resident</span>
+                  </span>
+                ) : pendingBookings.length > 0 ? (
+                  <span className="px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-amber-100 text-amber-800 border border-amber-200 flex items-center gap-1">
+                    <Clock className="w-3.5 h-3.5 text-amber-600" />
+                    <span>Booking Pending Approval</span>
+                  </span>
+                ) : upcomingVisits.length > 0 ? (
+                  <span className="px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-blue-100 text-blue-800 border border-blue-200 flex items-center gap-1">
+                    <Calendar className="w-3.5 h-3.5 text-blue-600" />
+                    <span>Visit Scheduled</span>
+                  </span>
+                ) : (
+                  <span className="px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-slate-100 text-slate-700 border border-slate-200">
+                    New Applicant
+                  </span>
+                )}
+              </div>
+
+              <p className="text-xs text-slate-500 mt-0.5 flex items-center gap-2">
+                {isAllocated ? (
+                  <span>
+                    {currentResident!.propertyName} • Room {currentResident!.roomNumber} (
+                    {currentResident!.bedNumber}) • {currentResident!.roomType} Sharing
+                  </span>
+                ) : (
+                  <span>
+                    {currentUser?.email || 'Applicant'} • No active room allocated yet
+                  </span>
+                )}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            {!isAllocated && (
+              <button
+                onClick={() => setRoleState('public')}
+                className="px-3.5 py-2 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold transition flex items-center gap-1.5 border border-blue-200"
+              >
+                <Eye className="w-3.5 h-3.5" />
+                <span>Explore Properties</span>
+              </button>
+            )}
+
+            {isAllocated && currentResident && (
+              <>
+                {currentResident.rentStatus !== 'Paid' ? (
+                  <button
+                    onClick={() => setShowPayModal(true)}
+                    className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-md"
+                  >
+                    <CreditCard className="w-3.5 h-3.5" />
+                    <span>Pay Rent (₹{currentResident.monthlyRent.toLocaleString()})</span>
+                  </button>
+                ) : (
+                  <div className="px-3 py-1.5 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-bold flex items-center gap-1.5">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                    <span>Rent Paid</span>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Main Navigation Tabs */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4 sm:pt-6">
+        <div className="bg-white rounded-2xl p-1.5 border border-slate-200 shadow-2xs flex items-center gap-1.5 overflow-x-auto mb-6 text-xs font-bold scroll-smooth">
+          {/* TAB 1: VISITS */}
+          <button
+            id="tab-btn-visits"
+            onClick={() => setActiveTab('visits')}
+            className={`px-3.5 py-2.5 rounded-xl flex items-center gap-1.5 whitespace-nowrap shrink-0 transition min-h-[44px] ${
+              activeTab === 'visits'
+                ? 'bg-blue-600 text-white shadow-xs'
+                : 'text-slate-600 hover:text-blue-600 hover:bg-slate-50'
+            }`}
+          >
+            <Calendar className="w-3.5 h-3.5" />
+            <span>My Scheduled Visits</span>
+            {upcomingVisits.length > 0 && (
+              <span
+                className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
+                  activeTab === 'visits' ? 'bg-white text-blue-600' : 'bg-blue-100 text-blue-700'
+                }`}
+              >
+                {upcomingVisits.length}
+              </span>
+            )}
+          </button>
+
+          {/* TAB 2: ROOM BOOKINGS */}
+          <button
+            id="tab-btn-bookings"
+            onClick={() => setActiveTab('bookings')}
+            className={`px-3.5 py-2.5 rounded-xl flex items-center gap-1.5 whitespace-nowrap shrink-0 transition min-h-[44px] ${
+              activeTab === 'bookings'
+                ? 'bg-blue-600 text-white shadow-xs'
+                : 'text-slate-600 hover:text-blue-600 hover:bg-slate-50'
+            }`}
+          >
+            <Bed className="w-3.5 h-3.5" />
+            <span>Room Booking Applications</span>
+            {pendingBookings.length > 0 && (
+              <span
+                className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
+                  activeTab === 'bookings' ? 'bg-white text-amber-700' : 'bg-amber-100 text-amber-800'
+                }`}
+              >
+                {pendingBookings.length}
+              </span>
+            )}
+          </button>
+
+          {/* TAB 3: MY STAY / ROOM */}
+          <button
+            id="tab-btn-stay"
+            onClick={() => setActiveTab('stay')}
+            className={`px-3.5 py-2.5 rounded-xl flex items-center gap-1.5 whitespace-nowrap shrink-0 transition min-h-[44px] ${
+              activeTab === 'stay'
+                ? 'bg-blue-600 text-white shadow-xs'
+                : 'text-slate-600 hover:text-blue-600 hover:bg-slate-50'
+            }`}
+          >
+            <Home className="w-3.5 h-3.5" />
+            <span>My Stay & Room</span>
+            {!isAllocated && <Lock className="w-3 h-3 text-slate-400" />}
+          </button>
+
+          {/* TAB 4: RENT DUES */}
+          <button
+            id="tab-btn-rent"
+            onClick={() => setActiveTab('rent')}
+            className={`px-3.5 py-2.5 rounded-xl flex items-center gap-1.5 whitespace-nowrap shrink-0 transition min-h-[44px] ${
+              activeTab === 'rent'
+                ? 'bg-blue-600 text-white shadow-xs'
+                : 'text-slate-600 hover:text-blue-600 hover:bg-slate-50'
+            }`}
+          >
+            <CreditCard className="w-3.5 h-3.5" />
+            <span>Rent Dues & Receipts</span>
+            {!isAllocated && <Lock className="w-3 h-3 text-slate-400" />}
+          </button>
+
+          {/* TAB 5: ATTENDANCE */}
+          <button
+            id="tab-btn-attendance"
+            onClick={() => setActiveTab('attendance')}
+            className={`px-3.5 py-2.5 rounded-xl flex items-center gap-1.5 whitespace-nowrap shrink-0 transition min-h-[44px] ${
+              activeTab === 'attendance'
+                ? 'bg-blue-600 text-white shadow-xs'
+                : 'text-slate-600 hover:text-blue-600 hover:bg-slate-50'
+            }`}
+          >
+            <Clock className="w-3.5 h-3.5" />
+            <span>Gate Attendance</span>
+            {!isAllocated && <Lock className="w-3 h-3 text-slate-400" />}
+          </button>
+
+          {/* TAB 6: MESS MENU */}
+          <button
+            id="tab-btn-menu"
+            onClick={() => setActiveTab('menu')}
+            className={`px-3.5 py-2.5 rounded-xl flex items-center gap-1.5 whitespace-nowrap shrink-0 transition min-h-[44px] ${
+              activeTab === 'menu'
+                ? 'bg-blue-600 text-white shadow-xs'
+                : 'text-slate-600 hover:text-blue-600 hover:bg-slate-50'
+            }`}
+          >
+            <Utensils className="w-3.5 h-3.5" />
+            <span>Mess Food Menu</span>
+            {!isAllocated && <Lock className="w-3 h-3 text-slate-400" />}
+          </button>
+
+          {/* TAB 7: MANAGER CHAT */}
+          <button
+            id="tab-btn-chat"
+            onClick={() => setActiveTab('chat')}
+            className={`px-3.5 py-2.5 rounded-xl flex items-center gap-1.5 whitespace-nowrap shrink-0 transition min-h-[44px] ${
+              activeTab === 'chat'
+                ? 'bg-blue-600 text-white shadow-xs'
+                : 'text-slate-600 hover:text-blue-600 hover:bg-slate-50'
+            }`}
+          >
+            <MessageSquare className="w-3.5 h-3.5" />
+            <span>Manager Chat</span>
+            {!isAllocated && <Lock className="w-3 h-3 text-slate-400" />}
+          </button>
+
+          {/* TAB 8: MAINTENANCE */}
+          <button
+            id="tab-btn-tickets"
+            onClick={() => setActiveTab('tickets')}
+            className={`px-3.5 py-2.5 rounded-xl flex items-center gap-1.5 whitespace-nowrap shrink-0 transition min-h-[44px] ${
+              activeTab === 'tickets'
+                ? 'bg-blue-600 text-white shadow-xs'
+                : 'text-slate-600 hover:text-blue-600 hover:bg-slate-50'
+            }`}
+          >
+            <Wrench className="w-3.5 h-3.5" />
+            <span>Maintenance</span>
+            {!isAllocated && <Lock className="w-3 h-3 text-slate-400" />}
+          </button>
+        </div>
+
+        {/* ============================================================ */}
+        {/* TAB: MY SCHEDULED VISITS (Upcoming & Past)                   */}
+        {/* ============================================================ */}
+        {activeTab === 'visits' && (
+          <div className="max-w-4xl mx-auto space-y-6">
+            {/* Header banner */}
+            <div className="bg-white rounded-3xl border border-slate-200 p-6 sm:p-7 shadow-2xs">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <div className="inline-flex items-center gap-1.5 text-xs font-bold text-blue-600 uppercase tracking-wider mb-1">
+                    <Calendar className="w-3.5 h-3.5" />
+                    <span>Physical Tours & Appointments</span>
+                  </div>
+                  <h2 className="text-xl font-black text-slate-900">
+                    My Scheduled PG Visits
+                  </h2>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Manage your upcoming in-person property walkthroughs and past visit records.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setRoleState('public')}
+                    className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-xs"
+                  >
+                    <Eye className="w-3.5 h-3.5" />
+                    <span>Book Another Visit</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Toggle Upcoming vs Past */}
+              <div className="flex items-center gap-2 mt-6 pt-5 border-t border-slate-100">
+                <button
+                  onClick={() => setVisitTab('upcoming')}
+                  className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
+                    visitTab === 'upcoming'
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  <span>Upcoming Visits</span>
+                  <span
+                    className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
+                      visitTab === 'upcoming' ? 'bg-white text-blue-600' : 'bg-slate-200 text-slate-700'
+                    }`}
+                  >
+                    {upcomingVisits.length}
+                  </span>
+                </button>
+
+                <button
+                  onClick={() => setVisitTab('past')}
+                  className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
+                    visitTab === 'past'
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  <span>Past Visits</span>
+                  <span
+                    className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
+                      visitTab === 'past' ? 'bg-white text-blue-600' : 'bg-slate-200 text-slate-700'
+                    }`}
+                  >
+                    {pastVisits.length}
+                  </span>
+                </button>
+              </div>
+            </div>
+
+            {/* UPCOMING VISITS LIST */}
+            {visitTab === 'upcoming' && (
+              <div className="space-y-4">
+                {upcomingVisits.length === 0 ? (
+                  <div className="bg-white rounded-3xl border border-slate-200 p-10 text-center space-y-3 shadow-2xs">
+                    <div className="w-14 h-14 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center mx-auto">
+                      <Calendar className="w-7 h-7" />
+                    </div>
+                    <h3 className="font-extrabold text-sm text-slate-900">
+                      No Upcoming Visits Scheduled
+                    </h3>
+                    <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                      Explore verified PGs across your preferred city, pick a convenient time slot, and tour the property for free.
+                    </p>
+                    <button
+                      onClick={() => setRoleState('public')}
+                      className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition shadow-xs inline-flex items-center gap-1.5"
+                    >
+                      <Eye className="w-3.5 h-3.5" />
+                      <span>Browse PGs & Schedule a Tour</span>
+                    </button>
+                  </div>
+                ) : (
+                  upcomingVisits.map((visit) => (
+                    <div
+                      key={visit.id}
+                      className="bg-white rounded-3xl border border-slate-200 p-6 shadow-2xs hover:border-slate-300 transition space-y-5"
+                    >
+                      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 pb-4 border-b border-slate-100">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-blue-100 text-blue-800 border border-blue-200">
+                              Upcoming • Confirmed
+                            </span>
+                            <span className="text-[11px] text-slate-400">
+                              Ref: {visit.referenceId || `PGN-VIS-${visit.id.slice(-5)}`}
+                            </span>
+                          </div>
+
+                          <h3 className="text-lg font-black text-slate-900 mt-1.5">
+                            {visit.propertyName}
+                          </h3>
+                          <p className="text-xs text-slate-500 mt-0.5 flex items-center gap-1.5">
+                            <MapPin className="w-3.5 h-3.5 text-slate-400" />
+                            <span>Room Tour: {visit.roomType} Sharing Suite</span>
+                          </p>
+                        </div>
+
+                        <div className="text-left sm:text-right bg-blue-50/60 p-3 rounded-2xl sm:bg-transparent sm:p-0">
+                          <span className="text-[10px] font-bold text-slate-400 uppercase block">
+                            Scheduled Time Slot
+                          </span>
+                          <span className="text-sm font-black text-blue-700 block mt-0.5">
+                            {visit.visitDate || visit.preferredMoveInDate || 'Tomorrow'}
+                          </span>
+                          <span className="text-xs font-bold text-slate-600 block">
+                            {visit.visitTimeSlot || '10:00 AM - 12:00 PM'}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Caretaker & Pass details */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                        <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100 space-y-1">
+                          <span className="text-[10px] font-bold text-slate-400 uppercase block">
+                            Property Contact & Host
+                          </span>
+                          <span className="font-bold text-slate-900 block">Rajesh Sharma (Owner)</span>
+                          <p className="text-slate-500">+91 98450 12345 • Caretaker on campus</p>
+                        </div>
+
+                        <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100 space-y-1">
+                          <span className="text-[10px] font-bold text-slate-400 uppercase block">
+                            Security Gate Entry Pass
+                          </span>
+                          <div className="flex items-center gap-2">
+                            <QrCode className="w-4 h-4 text-blue-600" />
+                            <span className="font-mono font-bold text-slate-900">
+                              {visit.referenceId || `PGN-VIS-${visit.id.slice(-5)}`}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-slate-400">Show this code at gate upon arrival</p>
+                        </div>
+                      </div>
+
+                      {/* Actions */}
+                      <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => {
+                              setReschedulingVisit(visit);
+                              setNewVisitDate(visit.visitDate || visit.preferredMoveInDate || today);
+                              setNewVisitSlot(visit.visitTimeSlot || '10:00 AM - 12:00 PM');
+                            }}
+                            className="px-3 py-1.5 rounded-xl border border-slate-200 hover:bg-slate-100 text-slate-700 text-xs font-bold transition flex items-center gap-1"
+                          >
+                            <RefreshCw className="w-3.5 h-3.5" />
+                            <span>Reschedule</span>
+                          </button>
+
+                          <button
+                            onClick={() => {
+                              if (window.confirm('Are you sure you want to cancel this scheduled tour?')) {
+                                cancelBookingRequest(visit.id);
+                                showToast('Visit cancelled.');
+                              }
+                            }}
+                            className="px-3 py-1.5 rounded-xl border border-slate-200 hover:bg-rose-50 hover:text-rose-700 text-slate-600 text-xs font-semibold transition"
+                          >
+                            Cancel Visit
+                          </button>
+                        </div>
+
+                        <button
+                          onClick={() => openPropertyDetail(visit.propertyId)}
+                          className="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition flex items-center gap-1 shadow-2xs"
+                        >
+                          <span>View Property & Book Bed</span>
+                          <ArrowRight className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+
+            {/* PAST VISITS LIST */}
+            {visitTab === 'past' && (
+              <div className="space-y-4">
+                {pastVisits.length === 0 ? (
+                  <div className="bg-white rounded-3xl border border-slate-200 p-10 text-center space-y-2 shadow-2xs">
+                    <h3 className="font-extrabold text-sm text-slate-900">No Past Visits</h3>
+                    <p className="text-xs text-slate-500">
+                      You have no concluded or cancelled physical visits on record.
+                    </p>
+                  </div>
+                ) : (
+                  pastVisits.map((visit) => (
+                    <div
+                      key={visit.id}
+                      className="bg-white rounded-3xl border border-slate-200 p-5 shadow-2xs space-y-3 opacity-80 hover:opacity-100 transition"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                visit.status === 'Cancelled'
+                                  ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                                  : 'bg-slate-100 text-slate-700'
+                              }`}
+                            >
+                              {visit.status === 'Cancelled' ? 'Cancelled' : 'Concluded Tour'}
+                            </span>
+                            <span className="text-[11px] text-slate-400">
+                              {visit.visitDate || visit.preferredMoveInDate}
+                            </span>
+                          </div>
+                          <h4 className="font-extrabold text-sm text-slate-900 mt-1">
+                            {visit.propertyName}
+                          </h4>
+                        </div>
+
+                        <button
+                          onClick={() => openPropertyDetail(visit.propertyId)}
+                          className="px-3 py-1.5 rounded-xl border text-xs font-bold hover:bg-slate-50"
+                        >
+                          View PG
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ============================================================ */}
+        {/* TAB: ROOM BOOKING APPLICATIONS                               */}
+        {/* ============================================================ */}
+        {activeTab === 'bookings' && (
+          <div className="max-w-4xl mx-auto space-y-6">
+            <div className="bg-white rounded-3xl border border-slate-200 p-6 sm:p-7 shadow-2xs">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <div className="inline-flex items-center gap-1.5 text-xs font-bold text-amber-600 uppercase tracking-wider mb-1">
+                    <Bed className="w-3.5 h-3.5" />
+                    <span>Bed & Room Admissions</span>
+                  </div>
+                  <h2 className="text-xl font-black text-slate-900">
+                    Room Booking Applications
+                  </h2>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Track the status of your stay booking. Once approved by the caretaker, your room and full resident portal will be activated.
+                  </p>
+                </div>
+
+                <button
+                  onClick={() => setRoleState('public')}
+                  className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-xs"
+                >
+                  <Eye className="w-3.5 h-3.5" />
+                  <span>Apply for Another PG</span>
+                </button>
+              </div>
+            </div>
+
+            {myBookings.length === 0 ? (
+              <div className="bg-white rounded-3xl border border-slate-200 p-10 text-center space-y-3 shadow-2xs">
+                <div className="w-14 h-14 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center mx-auto">
+                  <Bed className="w-7 h-7" />
+                </div>
+                <h3 className="font-extrabold text-sm text-slate-900">
+                  No Room Booking Applications Yet
+                </h3>
+                <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                  Found a PG you like? Submit a stay application for your desired sharing type and move-in date.
+                </p>
+                <button
+                  onClick={() => setRoleState('public')}
+                  className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition shadow-xs inline-flex items-center gap-1.5"
+                >
+                  <Eye className="w-3.5 h-3.5" />
+                  <span>Browse Available PGs</span>
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {myBookings.map((bkg) => (
+                  <div
+                    key={bkg.id}
+                    className="bg-white rounded-3xl border border-slate-200 p-6 shadow-2xs space-y-5"
+                  >
+                    <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 pb-4 border-b border-slate-100">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={`px-3 py-1 rounded-full text-[11px] font-extrabold flex items-center gap-1.5 ${
+                              bkg.status === 'Approved'
+                                ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                                : bkg.status === 'Rejected'
+                                ? 'bg-rose-100 text-rose-800 border border-rose-200'
+                                : 'bg-amber-100 text-amber-800 border border-amber-200'
+                            }`}
+                          >
+                            {bkg.status === 'Pending' && (
+                              <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                            )}
+                            <span>
+                              {bkg.status === 'Approved'
+                                ? 'Approved & Room Allocated'
+                                : bkg.status === 'Rejected'
+                                ? 'Application Rejected'
+                                : 'Pending Owner / Caretaker Approval'}
+                            </span>
+                          </span>
+
+                          <span className="text-[11px] text-slate-400">
+                            Ref: {bkg.referenceId || `PGN-BKG-${bkg.id.slice(-5)}`}
+                          </span>
+                        </div>
+
+                        <h3 className="text-lg font-black text-slate-900 mt-2">
+                          {bkg.propertyName}
+                        </h3>
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          {bkg.roomType} Sharing • Preferred Move-In:{' '}
+                          <span className="font-bold text-slate-800">{bkg.preferredMoveInDate}</span>
+                        </p>
+                      </div>
+
+                      {bkg.status === 'Approved' && (
+                        <div className="p-3 rounded-2xl bg-emerald-50 border border-emerald-100 text-left sm:text-right">
+                          <span className="text-[10px] font-bold text-emerald-800 uppercase block">
+                            Allocated Room
+                          </span>
+                          <span className="text-base font-black text-emerald-900 block mt-0.5">
+                            Room {bkg.allocatedRoomNumber || '204'} ({bkg.allocatedBedNumber || 'Bed A'})
+                          </span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Progress Steps for Pending */}
+                    {bkg.status === 'Pending' && (
+                      <div className="bg-amber-50/50 rounded-2xl p-4 border border-amber-100/70 space-y-3">
+                        <div className="flex items-center gap-2">
+                          <Clock className="w-4 h-4 text-amber-600 shrink-0" />
+                          <span className="text-xs font-bold text-amber-900">
+                            Application Under Review by Property Caretaker
+                          </span>
+                        </div>
+                        <p className="text-xs text-amber-800/80 leading-relaxed">
+                          Your stay booking has been sent to the property manager. Once the caretaker confirms bed availability and approves the allocation, your room will be assigned and the full Resident Portal (Rent, Gate Attendance, Mess Menu, Maintenance Tickets, and Chat) will be activated.
+                        </p>
+
+                        {/* Test Mode Quick Approval for manual testing */}
+                        {import.meta.env.DEV && (
+                        <div className="pt-2 border-t border-amber-200/60 flex flex-wrap items-center justify-between gap-2">
+                          <div className="text-[11px] text-amber-800 font-semibold">
+                            💡 Want to test the active resident flow like production?
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              id={`quick-approve-test-${bkg.id}`}
+                              onClick={() => handleQuickApprove(bkg.id, bkg.propertyName)}
+                              className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition flex items-center gap-1 shadow-2xs"
+                            >
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                              <span>⚡ [Test Mode] Approve & Assign Room 204</span>
+                            </button>
+
+                            <button
+                              onClick={() => setRoleState('owner')}
+                              className="px-2.5 py-1.5 rounded-xl border border-amber-300 hover:bg-amber-100 text-amber-900 text-xs font-bold transition"
+                            >
+                              Open Owner Console
+                            </button>
+                          </div>
+                        </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* If Approved, direct button to stay */}
+                    {bkg.status === 'Approved' && (
+                      <div className="flex items-center justify-between pt-1">
+                        <span className="text-xs text-emerald-800 font-bold flex items-center gap-1.5">
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                          <span>Bed allocation is live. You can now access your full resident dashboard.</span>
+                        </span>
+                        <button
+                          onClick={() => setActiveTab('stay')}
+                          className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition flex items-center gap-1 shadow-xs"
+                        >
+                          <span>Open My Stay Dashboard</span>
+                          <ArrowRight className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ============================================================ */}
+        {/* UNALLOCATED GUARD FOR REMAINING TABS                         */}
+        {/* If user clicks on stay, rent, attendance, menu, chat, tickets*/}
+        {/* before room allocation, render a clear, helpful activation   */}
+        {/* screen instead of fake mock data.                            */}
+        {/* ============================================================ */}
+        {!isAllocated &&
+          (activeTab === 'stay' ||
+            activeTab === 'rent' ||
+            activeTab === 'attendance' ||
+            activeTab === 'menu' ||
+            activeTab === 'chat' ||
+            activeTab === 'tickets') && (
+            <div className="max-w-2xl mx-auto my-6 bg-white rounded-3xl border border-slate-200 p-8 sm:p-10 text-center shadow-2xs space-y-5">
+              <div className="w-16 h-16 rounded-3xl bg-slate-100 text-slate-600 flex items-center justify-center mx-auto border border-slate-200">
+                <Lock className="w-8 h-8 text-slate-500" />
+              </div>
+
+              <div className="space-y-2">
+                <span className="text-[11px] font-bold text-amber-700 uppercase tracking-wider bg-amber-50 px-3 py-1 rounded-full border border-amber-200">
+                  Feature Unlocks After Room Allocation
+                </span>
+                <h3 className="text-xl font-black text-slate-900 mt-2">
+                  No Active Bed Allocation Found
+                </h3>
+                <p className="text-xs text-slate-500 leading-relaxed max-w-md mx-auto">
+                  {pendingBookings.length > 0
+                    ? `Your booking application for ${pendingBookings[0].propertyName} is under review by the caretaker. Once approved and assigned a room number, this service will be fully live.`
+                    : upcomingVisits.length > 0
+                    ? `You currently have a scheduled physical tour at ${upcomingVisits[0].propertyName}. Once you visit and book your stay, the caretaker will allocate your bed.`
+                    : `You are currently registered as an applicant. To activate your Resident Portal (Room allocation, Rent dues, Gate attendance, Daily meals, Maintenance, and Chat), schedule a visit or apply for a room booking.`}
+                </p>
+              </div>
+
+              {/* Action options */}
+              <div className="pt-4 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-center gap-3">
+                {pendingBookings.length > 0 ? (
+                  <>
+                    {import.meta.env.DEV && (
+                    <button
+                      id="approve-pending-test-btn"
+                      onClick={() =>
+                        handleQuickApprove(pendingBookings[0].id, pendingBookings[0].propertyName)
+                      }
+                      className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition flex items-center justify-center gap-2 shadow-sm"
+                    >
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>⚡ [Test Mode] Approve & Assign Room 204</span>
+                    </button>
+                    )}
+
+                    <button
+                      onClick={() => setActiveTab('bookings')}
+                      className="w-full sm:w-auto px-4 py-2.5 rounded-xl border border-slate-200 hover:bg-slate-100 text-slate-700 text-xs font-bold transition"
+                    >
+                      View Booking Status
+                    </button>
+                  </>
+                ) : upcomingVisits.length > 0 ? (
+                  <>
+                    <button
+                      onClick={() => setActiveTab('visits')}
+                      className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition shadow-xs"
+                    >
+                      View My Scheduled Tour
+                    </button>
+                    <button
+                      onClick={() => openPropertyDetail(upcomingVisits[0].propertyId)}
+                      className="w-full sm:w-auto px-4 py-2.5 rounded-xl border border-slate-200 hover:bg-slate-100 text-slate-700 text-xs font-bold transition"
+                    >
+                      Apply for Bed Now
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => setRoleState('public')}
+                      className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition shadow-xs flex items-center justify-center gap-1.5"
+                    >
+                      <Eye className="w-4 h-4" />
+                      <span>Browse Available PGs</span>
+                    </button>
+                    <button
+                      onClick={() => setActiveTab('visits')}
+                      className="w-full sm:w-auto px-4 py-2.5 rounded-xl border border-slate-200 hover:bg-slate-100 text-slate-700 text-xs font-bold transition"
+                    >
+                      Check Visits
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+
+        {/* ============================================================ */}
+        {/* ALLOCATED RESIDENT EXPERIENCE                                */}
+        {/* Only rendered when currentResident has an active room!       */}
+        {/* ============================================================ */}
+        {isAllocated && currentResident && (
+          <>
+            {/* TAB: MY STAY & ROOM */}
+            {activeTab === 'stay' && (
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                {/* Left: Room & Bed Details */}
+                <div className="lg:col-span-8 space-y-6">
+                  <div className="bg-white rounded-3xl border border-slate-200 p-6 sm:p-7 shadow-2xs space-y-6">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-slate-100">
+                      <div>
+                        <span className="text-xs font-bold text-blue-600 uppercase tracking-wider">
+                          Allocated Room & Suite
+                        </span>
+                        <h2 className="text-2xl font-black text-slate-900 mt-1">
+                          Room {currentResident.roomNumber} — {currentResident.bedNumber}
+                        </h2>
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          {currentResident.roomType} Sharing Suite • Attached Washroom & AC
+                        </p>
+                      </div>
+
+                      <div className="text-left sm:text-right">
+                        <span className="text-xs text-slate-400 block font-semibold">Monthly Rent</span>
+                        <span className="text-2xl font-black text-slate-900">
+                          ₹{currentResident.monthlyRent.toLocaleString()} /mo
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                      <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase block">Move-in Date</span>
+                        <span className="text-xs font-bold text-slate-800">{currentResident.moveInDate}</span>
+                      </div>
+                      <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase block">Security Deposit</span>
+                        <span className="text-xs font-bold text-slate-800">
+                          ₹{currentResident.depositAmount.toLocaleString()}
+                        </span>
+                      </div>
+                      <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase block">KYC Verification</span>
+                        <span className="text-xs font-bold text-emerald-600 flex items-center gap-1">
+                          <CheckCircle2 className="w-3.5 h-3.5" /> Verified
+                        </span>
+                      </div>
+                      <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase block">Gate Curfew</span>
+                        <span className="text-xs font-bold text-slate-800">11:00 PM Daily</span>
+                      </div>
+                    </div>
+
+                    <div className="space-y-3 pt-2">
+                      <h4 className="font-bold text-xs text-slate-900 uppercase tracking-wider">
+                        Included Suite Amenities
+                      </h4>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 text-xs text-slate-700">
+                        <div className="p-2.5 rounded-xl border border-slate-100 bg-slate-50/60 flex items-center gap-2">
+                          <CheckCircle2 className="w-4 h-4 text-blue-600" />
+                          <span>Attached Washroom</span>
+                        </div>
+                        <div className="p-2.5 rounded-xl border border-slate-100 bg-slate-50/60 flex items-center gap-2">
+                          <CheckCircle2 className="w-4 h-4 text-blue-600" />
+                          <span>Air Conditioning (AC)</span>
+                        </div>
+                        <div className="p-2.5 rounded-xl border border-slate-100 bg-slate-50/60 flex items-center gap-2">
+                          <CheckCircle2 className="w-4 h-4 text-blue-600" />
+                          <span>High-speed 100 Mbps WiFi</span>
+                        </div>
+                        <div className="p-2.5 rounded-xl border border-slate-100 bg-slate-50/60 flex items-center gap-2">
+                          <CheckCircle2 className="w-4 h-4 text-blue-600" />
+                          <span>24x7 Power Backup</span>
+                        </div>
+                        <div className="p-2.5 rounded-xl border border-slate-100 bg-slate-50/60 flex items-center gap-2">
+                          <CheckCircle2 className="w-4 h-4 text-blue-600" />
+                          <span>Washing Machine</span>
+                        </div>
+                        <div className="p-2.5 rounded-xl border border-slate-100 bg-slate-50/60 flex items-center gap-2">
+                          <CheckCircle2 className="w-4 h-4 text-blue-600" />
+                          <span>RO Purified Water</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Right: Quick Notice & Contacts */}
+                <div className="lg:col-span-4 space-y-4">
+                  <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-2xs space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <LogOut className="w-4 h-4 text-amber-600" />
+                        <h3 className="font-extrabold text-xs text-slate-900">Stay & Notice Status</h3>
+                      </div>
+                      <span
+                        className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
+                          currentResident.status === 'Notice Period'
+                            ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                            : currentResident.status === 'Checked Out'
+                            ? 'bg-slate-100 text-slate-700'
+                            : 'bg-emerald-100 text-emerald-800'
+                        }`}
+                      >
+                        {currentResident.status || 'Active Stay'}
+                      </span>
+                    </div>
+
+                    {currentResident.status === 'Notice Period' ? (
+                      <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-xs space-y-1.5 text-amber-950">
+                        <p className="font-bold">Notice Period Active</p>
+                        <p className="text-[11px] text-slate-600">
+                          Notice Given: <strong>{currentResident.noticeDate || 'Recorded'}</strong>
+                        </p>
+                        <p className="text-[11px] text-slate-600">
+                          Scheduled Move-Out: <strong>{currentResident.expectedCheckoutDate || 'In 30 days'}</strong>
+                        </p>
+                        {currentResident.checkoutReason && (
+                          <p className="text-[11px] text-slate-500 italic">
+                            "{currentResident.checkoutReason}"
+                          </p>
+                        )}
+                        <p className="text-[10px] text-slate-400 pt-1 border-t border-amber-200">
+                          Security deposit refund settlement will be verified during checkout.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <p className="text-xs text-slate-600">
+                          Planning to relocate or vacate? Submit your 30-day notice period here to initiate checkout settlement.
+                        </p>
+                        <button
+                          id="resident-initiate-notice-btn"
+                          onClick={() => setShowNoticeModal(true)}
+                          className="w-full py-2 px-3 rounded-xl border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-900 font-bold text-xs flex items-center justify-center gap-1.5 transition"
+                        >
+                          <LogOut className="w-3.5 h-3.5 text-amber-700" />
+                          <span>Submit Vacating Notice</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-2xs space-y-3">
+                    <h3 className="font-extrabold text-xs text-slate-900">Manager & Warden Contacts</h3>
+                    <div className="p-3 bg-blue-50/60 rounded-xl text-xs space-y-1">
+                      <span className="font-bold text-blue-900 block">Rajesh Sharma (Owner)</span>
+                      <p className="text-slate-600">+91 98450 12345</p>
+                    </div>
+                    <div className="p-3 bg-slate-50 rounded-xl text-xs space-y-1">
+                      <span className="font-bold text-slate-800 block">Sunil Kumar (Warden / Supervisor)</span>
+                      <p className="text-slate-600">+91 98711 54321</p>
+                    </div>
+                  </div>
+
+                  <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-2xs space-y-3">
+                    <div className="flex items-center gap-1.5">
+                      <Bell className="w-4 h-4 text-blue-600" />
+                      <h3 className="font-extrabold text-xs text-slate-900">Campus Notices</h3>
+                    </div>
+                    <div className="space-y-2 text-xs">
+                      {broadcasts.slice(0, 2).map((b) => (
+                        <div key={b.id} className="p-2.5 rounded-xl border border-slate-100 bg-slate-50/50">
+                          <span className="text-[10px] font-bold text-blue-600 uppercase">{b.category}</span>
+                          <p className="font-bold text-slate-900 text-xs mt-0.5">{b.title}</p>
+                          <p className="text-[11px] text-slate-500 mt-0.5 line-clamp-2">{b.message}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* TAB: RENT DUES & RECEIPTS */}
+            {activeTab === 'rent' && (
+              <div className="max-w-3xl mx-auto space-y-6">
+                <div className="bg-white rounded-3xl border border-slate-200 p-6 sm:p-8 shadow-2xs space-y-6">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-slate-100">
+                    <div>
+                      <span className="text-xs font-bold text-slate-400 uppercase">
+                        Current Rent Invoice (Room {currentResident.roomNumber})
+                      </span>
+                      <div className="text-3xl font-black text-slate-900 mt-1">
+                        ₹{currentResident.monthlyRent.toLocaleString()}
+                      </div>
+                      <span className="text-xs text-slate-500 mt-0.5 block">Due by 7th of Every Month</span>
+                    </div>
+
+                    <div>
+                      <span
+                        className={`px-3.5 py-1.5 rounded-full text-xs font-extrabold ${
+                          currentResident.rentStatus === 'Paid'
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : 'bg-amber-100 text-amber-800'
+                        }`}
+                      >
+                        {currentResident.rentStatus === 'Paid' ? 'Paid & Verified' : 'Payment Pending'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Breakdown */}
+                  <div className="space-y-2 text-xs">
+                    <div className="flex justify-between text-slate-600">
+                      <span>Room {currentResident.roomNumber} Base Rent</span>
+                      <span className="font-bold text-slate-800">
+                        ₹{currentResident.monthlyRent.toLocaleString()}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-slate-600">
+                      <span>3-Time Daily Mess Meals</span>
+                      <span className="font-bold text-emerald-600">₹0 (Included)</span>
+                    </div>
+                    <div className="flex justify-between text-slate-600">
+                      <span>High-speed Wi-Fi & Maintenance</span>
+                      <span className="font-bold text-emerald-600">₹0 (Included)</span>
+                    </div>
+                    <div className="flex justify-between text-slate-600">
+                      <span>Electricity & Water</span>
+                      <span className="font-bold text-emerald-600">₹0 (Included)</span>
+                    </div>
+                    <div className="flex justify-between text-sm font-extrabold text-slate-900 pt-3 border-t">
+                      <span>Net Payable Amount</span>
+                      <span className="text-blue-600">₹{currentResident.monthlyRent.toLocaleString()}</span>
+                    </div>
+                  </div>
+
+                  {currentResident.rentStatus !== 'Paid' ? (
+                    <button
+                      id="open-pay-rent-modal-btn"
+                      onClick={() => setShowPayModal(true)}
+                      className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-black text-xs sm:text-sm rounded-2xl shadow-md transition flex items-center justify-center gap-2"
+                    >
+                      <CreditCard className="w-4 h-4" />
+                      <span>Pay Now via UPI / Net Banking</span>
+                    </button>
+                  ) : (
+                    <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-100 flex items-center justify-between text-xs">
+                      <div className="flex items-center gap-2">
+                        <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                        <div>
+                          <span className="font-bold text-emerald-900 block">Payment Cleared</span>
+                          <span className="text-[11px] text-emerald-700">Digital receipt is available below</span>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => {
+                          alert('Receipt PDF invoice downloaded successfully!');
+                        }}
+                        className="px-3 py-1.5 rounded-xl bg-white text-emerald-800 font-bold border border-emerald-200 shadow-2xs flex items-center gap-1"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        <span>Download Receipt</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Generated Receipt Preview if paid */}
+                {(paymentReceipt || currentResident.rentStatus === 'Paid') && (
+                  <div className="bg-white rounded-3xl border border-blue-200 p-6 shadow-md space-y-4">
+                    <div className="flex items-center justify-between border-b pb-3">
+                      <div className="flex items-center gap-2.5">
+                        <img
+                          src="/logo.png"
+                          alt="PGWalo Logo"
+                          className="w-8 h-8 rounded-xl object-contain border border-blue-100 shrink-0"
+                          referrerPolicy="no-referrer"
+                        />
+                        <div>
+                          <h4 className="font-extrabold text-xs text-slate-900">
+                            PGWalo Official Payment Receipt
+                          </h4>
+                          <p className="text-[10px] text-slate-400">
+                            Txn ID: {paymentReceipt?.transactionId || 'PGN-88219402'}
+                          </p>
+                        </div>
+                      </div>
+                      <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full">
+                        Verified
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div>
+                        <span className="text-[10px] text-slate-400 block">Tenant Name</span>
+                        <span className="font-bold">{currentResident.name}</span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-slate-400 block">Room</span>
+                        <span className="font-bold">
+                          Room {currentResident.roomNumber} ({currentResident.bedNumber})
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-slate-400 block">Paid Amount</span>
+                        <span className="font-bold text-emerald-600">
+                          ₹{currentResident.monthlyRent.toLocaleString()}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-slate-400 block">Payment Date</span>
+                        <span className="font-bold">{paymentReceipt?.paidAt || today}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Enterprise Itemized Invoices & Billing History */}
+                {invoices.filter((inv) => inv.residentId === currentResident.id).length > 0 && (
+                  <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-2xs space-y-4">
+                    <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                      <div>
+                        <h4 className="font-extrabold text-sm text-slate-900">
+                          Monthly Billing Invoices & Statements
+                        </h4>
+                        <p className="text-[11px] text-slate-500">
+                          Deterministic itemized breakdowns (Room base rent, electricity sub-meter readings, discounts)
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="space-y-3">
+                      {invoices
+                        .filter((inv) => inv.residentId === currentResident.id)
+                        .map((inv) => (
+                          <div
+                            key={inv.id}
+                            className="p-4 rounded-2xl border border-slate-200 bg-slate-50/60 space-y-3 text-xs"
+                          >
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 border-b border-slate-200 pb-2">
+                              <div>
+                                <span className="font-bold text-slate-900 text-xs mr-2">{inv.month}</span>
+                                <span className="font-mono text-slate-500 text-[11px]">({inv.invoiceNumber})</span>
+                              </div>
+                              <span
+                                className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold self-start sm:self-auto ${
+                                  inv.status === 'Paid'
+                                    ? 'bg-emerald-100 text-emerald-800'
+                                    : inv.status === 'Overdue'
+                                    ? 'bg-rose-100 text-rose-800'
+                                    : 'bg-amber-100 text-amber-800'
+                                }`}
+                              >
+                                {inv.status}
+                              </span>
+                            </div>
+
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                              <div>
+                                <span className="text-[10px] text-slate-400 block uppercase font-bold">Base Rent</span>
+                                <span className="font-bold text-slate-800">₹{inv.baseRent.toLocaleString('en-IN')}</span>
+                              </div>
+                              <div>
+                                <span className="text-[10px] text-slate-400 block uppercase font-bold">Power Tariff</span>
+                                <span className="font-bold text-slate-800">₹{inv.electricityCharges.toLocaleString('en-IN')}</span>
+                              </div>
+                              <div>
+                                <span className="text-[10px] text-slate-400 block uppercase font-bold">Total Due</span>
+                                <span className="font-black text-slate-900">₹{inv.totalDue.toLocaleString('en-IN')}</span>
+                              </div>
+                              <div>
+                                <span className="text-[10px] text-slate-400 block uppercase font-bold">Outstanding</span>
+                                <span className="font-black text-rose-600">
+                                  ₹{inv.outstandingBalance.toLocaleString('en-IN')}
+                                </span>
+                              </div>
+                            </div>
+
+                            {inv.lineItems && inv.lineItems.length > 0 && (
+                              <div className="pt-2 border-t border-slate-200 text-[11px] text-slate-600 space-y-1">
+                                <span className="text-[10px] uppercase font-bold text-slate-400 block">Itemized Details:</span>
+                                {inv.lineItems.map((li) => (
+                                  <div key={li.id} className="flex justify-between">
+                                    <span>• {li.description}</span>
+                                    <span className="font-medium text-slate-800">₹{li.amount.toLocaleString('en-IN')}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* TAB: ATTENDANCE */}
+            {activeTab === 'attendance' && (
+              <div className="max-w-3xl mx-auto space-y-6">
+                <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-2xs space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="font-extrabold text-base text-slate-900">Daily In/Out Gate Log</h3>
+                      <p className="text-xs text-slate-500">
+                        Your attendance is synced with the security gate biometric scanner
+                      </p>
+                    </div>
+                    <button
+                      onClick={handleToggleAttendance}
+                      className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 ${
+                        isCurrentlyInside
+                          ? 'bg-amber-500 hover:bg-amber-600 text-white'
+                          : 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                      }`}
+                    >
+                      {isCurrentlyInside ? 'Clock Out (Leaving PG)' : 'Clock In (Back to PG)'}
+                    </button>
+                  </div>
+
+                  <div className="space-y-2 pt-3 border-t">
+                    {attendance
+                      .filter((a) => a.personName === currentResident.name)
+                      .map((rec) => (
+                        <div
+                          key={rec.id}
+                          className="p-3 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-between text-xs"
+                        >
+                          <div className="flex items-center gap-3">
+                            <span
+                              className={`w-2.5 h-2.5 rounded-full ${
+                                rec.type === 'Check-In' ? 'bg-emerald-500' : 'bg-amber-500'
+                              }`}
+                            />
+                            <div>
+                              <span className="font-bold text-slate-900">{rec.type}</span>
+                              <span className="text-[11px] text-slate-500 block">
+                                {rec.notes || 'Normal routine movement'}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <span className="font-semibold text-slate-800">{rec.timestamp}</span>
+                            <span className="text-[10px] text-slate-400 block">{rec.date}</span>
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* TAB: TODAY'S MESS MENU */}
+            {activeTab === 'menu' && (
+              <div className="max-w-4xl mx-auto space-y-6">
+                <div className="bg-gradient-to-r from-blue-700 to-indigo-700 rounded-3xl p-6 text-white shadow-md">
+                  <span className="text-xs font-bold text-blue-200 uppercase tracking-wider">Mess Today</span>
+                  <h2 className="text-2xl font-black mt-1">{todaysMeal.day}’s Meal Schedule</h2>
+                  <p className="text-xs text-blue-100 mt-1">
+                    Breakfast (7:30 - 10:00 AM) • Lunch (12:30 - 2:30 PM) • Dinner (8:00 - 10:30 PM)
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-2xs space-y-2">
+                    <span className="text-[11px] font-bold uppercase text-amber-700 bg-amber-50 px-2.5 py-1 rounded-lg">
+                      Morning Breakfast
+                    </span>
+                    <p className="text-sm font-bold text-slate-900 mt-2">{todaysMeal.breakfast}</p>
+                  </div>
+
+                  <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-2xs space-y-2">
+                    <span className="text-[11px] font-bold uppercase text-blue-700 bg-blue-50 px-2.5 py-1 rounded-lg">
+                      Homely Lunch
+                    </span>
+                    <p className="text-sm font-bold text-slate-900 mt-2">{todaysMeal.lunch}</p>
+                  </div>
+
+                  <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-2xs space-y-2">
+                    <span className="text-[11px] font-bold uppercase text-indigo-700 bg-indigo-50 px-2.5 py-1 rounded-lg">
+                      Evening Snacks & Chai
+                    </span>
+                    <p className="text-sm font-bold text-slate-900 mt-2">{todaysMeal.snacks}</p>
+                  </div>
+
+                  <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-2xs space-y-2">
+                    <span className="text-[11px] font-bold uppercase text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg">
+                      Warm Dinner
+                    </span>
+                    <p className="text-sm font-bold text-slate-900 mt-2">{todaysMeal.dinner}</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* TAB: CHAT WITH OWNER */}
+            {activeTab === 'chat' && (
+              <div className="max-w-3xl mx-auto bg-white rounded-3xl border border-slate-200 shadow-2xs overflow-hidden flex flex-col h-[520px]">
+                <div className="p-4 border-b bg-slate-50/70 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-blue-600 text-white font-bold flex items-center justify-center text-sm">
+                      RS
+                    </div>
+                    <div>
+                      <h4 className="font-extrabold text-xs text-slate-900">Rajesh Sharma (PG Owner)</h4>
+                      <span className="text-[10px] text-emerald-600 font-semibold flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                        Online & Active
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                  {chatMessages.map((msg) => (
+                    <div
+                      key={msg.id}
+                      className={`flex flex-col ${!msg.isOwner ? 'items-end' : 'items-start'}`}
+                    >
+                      <div
+                        className={`max-w-xs sm:max-w-md p-3 rounded-2xl text-xs leading-relaxed ${
+                          !msg.isOwner
+                            ? 'bg-blue-600 text-white rounded-tr-xs shadow-xs'
+                            : 'bg-slate-100 text-slate-900 rounded-tl-xs'
+                        }`}
+                      >
+                        <p>{msg.text}</p>
+                      </div>
+                      <span className="text-[10px] text-slate-400 mt-1 px-1">{msg.timestamp}</span>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="px-4 py-2 border-t border-slate-100 flex items-center gap-1.5 overflow-x-auto text-[11px]">
+                  <button
+                    onClick={() => setChatInput('Hi Rajesh ji, when is dinner served today?')}
+                    className="px-2.5 py-1 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 whitespace-nowrap"
+                  >
+                    Dinner timing?
+                  </button>
+                  <button
+                    onClick={() => setChatInput('Can someone clean room 204 tomorrow morning?')}
+                    className="px-2.5 py-1 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 whitespace-nowrap"
+                  >
+                    Room cleaning
+                  </button>
+                  <button
+                    onClick={() => setChatInput('Cleared this month rent through UPI!')}
+                    className="px-2.5 py-1 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 whitespace-nowrap"
+                  >
+                    Rent cleared
+                  </button>
+                </div>
+
+                <form onSubmit={handleSendChat} className="p-3 border-t bg-slate-50 flex items-center gap-2">
+                  <input
+                    type="text"
+                    placeholder="Type your message to owner / warden..."
+                    value={chatInput}
+                    onChange={(e) => setChatInput(e.target.value)}
+                    className="flex-1 px-3 py-2 text-xs border rounded-xl bg-white focus:ring-2 focus:ring-blue-600 focus:outline-hidden"
+                  />
+                  <button
+                    type="submit"
+                    className="p-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl shadow-xs transition"
+                  >
+                    <Send className="w-4 h-4" />
+                  </button>
+                </form>
+              </div>
+            )}
+
+            {/* TAB: MAINTENANCE TICKETS */}
+            {activeTab === 'tickets' && (
+              <div className="max-w-3xl mx-auto space-y-6">
+                <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-2xs space-y-4">
+                  <h3 className="font-extrabold text-base text-slate-900">Raise a Maintenance Issue</h3>
+                  {ticketSuccess && (
+                    <div className="p-3 rounded-xl bg-emerald-50 text-emerald-800 text-xs font-semibold flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                      <span>Ticket lodged! Assigned to supervisor Sunil Kumar.</span>
+                    </div>
+                  )}
+
+                  <form onSubmit={handleCreateTicket} className="space-y-3 text-xs">
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">
+                        Issue Title *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="e.g. Geyser not heating properly in Room 204"
+                        value={ticketTitle}
+                        onChange={(e) => setTicketTitle(e.target.value)}
+                        className="w-full px-3 py-2 border rounded-xl focus:ring-2 focus:ring-blue-600"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">
+                          Category
+                        </label>
+                        <select
+                          value={ticketCategory}
+                          onChange={(e) => setTicketCategory(e.target.value as any)}
+                          className="w-full px-3 py-2 border rounded-xl bg-white"
+                        >
+                          <option value="Plumbing">Plumbing / Washroom</option>
+                          <option value="Electrical">Electrical / Geyser / AC</option>
+                          <option value="WiFi">Wi-Fi / Internet</option>
+                          <option value="Cleaning">Cleaning / Housekeeping</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">
+                          Priority
+                        </label>
+                        <select
+                          value={ticketPriority}
+                          onChange={(e) => setTicketPriority(e.target.value as any)}
+                          className="w-full px-3 py-2 border rounded-xl bg-white"
+                        >
+                          <option value="Normal">Normal</option>
+                          <option value="Urgent">Urgent</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <button
+                      type="submit"
+                      className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-xs transition"
+                    >
+                      Submit Ticket
+                    </button>
+                  </form>
+                </div>
+
+                {/* Past Tickets */}
+                <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-2xs space-y-3">
+                  <h4 className="font-bold text-xs text-slate-900">Your Past & Active Requests</h4>
+                  <div className="space-y-2">
+                    {tickets.map((t) => (
+                      <div
+                        key={t.id}
+                        className="p-3 rounded-xl bg-slate-50 border border-slate-100 text-xs flex items-center justify-between"
+                      >
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-slate-900">{t.title}</span>
+                            <span className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded font-semibold">
+                              {t.category}
+                            </span>
+                          </div>
+                          <span className="text-[11px] text-slate-500 block mt-0.5">{t.description}</span>
+                        </div>
+                        <span
+                          className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                            t.status === 'Resolved'
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : 'bg-amber-100 text-amber-800'
+                          }`}
+                        >
+                          {t.status}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* Online Rent Payment Modal */}
+      {showPayModal && currentResident && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-blue-100">
+            {paymentReceipt ? (
+              <div className="text-center py-4 space-y-3">
+                <div className="w-14 h-14 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto">
+                  <CheckCircle2 className="w-8 h-8" />
+                </div>
+                <h3 className="text-lg font-black text-slate-900">Payment Successful!</h3>
+                <p className="text-xs text-slate-600">
+                  ₹{paymentReceipt.amount.toLocaleString()} paid via {paymentReceipt.paymentMethod}
+                </p>
+                <div className="p-3 bg-slate-50 rounded-xl text-left text-xs space-y-1">
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Txn ID:</span>
+                    <span className="font-bold text-slate-900">{paymentReceipt.transactionId}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Date:</span>
+                    <span className="font-bold text-slate-900">{paymentReceipt.paidAt}</span>
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    setShowPayModal(false);
+                    setPaymentReceipt(null);
+                  }}
+                  className="w-full py-2.5 bg-blue-600 text-white font-bold text-xs rounded-xl"
+                >
+                  Close Receipt
+                </button>
+              </div>
+            ) : (
+              <form onSubmit={handlePayRentSubmit} className="space-y-4 text-xs">
+                <div className="flex items-center justify-between border-b pb-3">
+                  <div>
+                    <h3 className="text-base font-extrabold text-slate-900">Pay Room Rent</h3>
+                    <p className="text-[11px] text-slate-500">
+                      Room {currentResident.roomNumber} • September 2026
+                    </p>
+                  </div>
+                  <span className="text-base font-black text-blue-600">
+                    ₹{currentResident.monthlyRent.toLocaleString()}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2">
+                  {(['UPI', 'Card', 'NetBanking'] as const).map((m) => (
+                    <button
+                      type="button"
+                      key={m}
+                      onClick={() => setPayMethod(m)}
+                      className={`py-2 rounded-xl text-xs font-bold border transition ${
+                        payMethod === m
+                          ? 'bg-blue-50 border-blue-600 text-blue-700'
+                          : 'border-slate-200 text-slate-700'
+                      }`}
+                    >
+                      {m}
+                    </button>
+                  ))}
+                </div>
+
+                {payMethod === 'UPI' && (
+                  <div className="space-y-2">
+                    <label className="block text-[11px] font-bold text-slate-500 uppercase">
+                      Enter UPI ID / VPA
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. yourname@okhdfcbank"
+                      value={upiId}
+                      onChange={(e) => setUpiId(e.target.value)}
+                      className="w-full px-3 py-2 border rounded-xl focus:ring-2 focus:ring-blue-600"
+                    />
+                    <p className="text-[10px] text-slate-400">
+                      Supports Google Pay, PhonePe, Paytm, CRED & BHIM
+                    </p>
+                  </div>
+                )}
+
+                <div className="flex gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowPayModal(false)}
+                    className="w-1/3 py-2.5 border rounded-xl font-bold"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="w-2/3 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-md"
+                  >
+                    Confirm & Pay ₹{currentResident.monthlyRent.toLocaleString()}
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Reschedule Visit Modal */}
+      {reschedulingVisit && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-blue-100 space-y-4">
+            <div className="flex items-center justify-between border-b pb-3">
+              <div>
+                <h3 className="text-base font-extrabold text-slate-900">Reschedule Tour</h3>
+                <p className="text-xs text-slate-500">{reschedulingVisit.propertyName}</p>
+              </div>
+              <button
+                onClick={() => setReschedulingVisit(null)}
+                className="w-8 h-8 rounded-full hover:bg-slate-100 flex items-center justify-center"
+              >
+                <X className="w-4 h-4 text-slate-500" />
+              </button>
+            </div>
+
+            <form onSubmit={handleConfirmReschedule} className="space-y-4 text-xs">
+              <div>
+                <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">
+                  Choose New Visit Date
+                </label>
+                <input
+                  type="date"
+                  required
+                  min={today}
+                  value={newVisitDate}
+                  onChange={(e) => setNewVisitDate(e.target.value)}
+                  className="w-full px-3 py-2 border rounded-xl focus:ring-2 focus:ring-blue-600"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">
+                  Select Time Slot
+                </label>
+                <select
+                  value={newVisitSlot}
+                  onChange={(e) => setNewVisitSlot(e.target.value)}
+                  className="w-full px-3 py-2 border rounded-xl bg-white"
+                >
+                  <option value="10:00 AM - 12:00 PM">Morning: 10:00 AM - 12:00 PM</option>
+                  <option value="02:00 PM - 04:00 PM">Afternoon: 02:00 PM - 04:00 PM</option>
+                  <option value="04:00 PM - 06:00 PM">Evening: 04:00 PM - 06:00 PM</option>
+                  <option value="06:00 PM - 08:00 PM">Night: 06:00 PM - 08:00 PM</option>
+                </select>
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setReschedulingVisit(null)}
+                  className="w-1/3 py-2.5 border rounded-xl font-bold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="w-2/3 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-md"
+                >
+                  Confirm Reschedule
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Resident Notice Period Modal */}
+      {showNoticeModal && currentResident && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl p-6 max-w-md w-full shadow-2xl border border-slate-100 animate-in fade-in space-y-4 text-xs">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <LogOut className="w-4 h-4 text-amber-600" />
+                <h4 className="font-black text-sm text-slate-900">Submit Vacating Notice</h4>
+              </div>
+              <button
+                onClick={() => setShowNoticeModal(false)}
+                className="text-slate-400 hover:text-slate-600 font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            <p className="text-slate-600 leading-relaxed">
+              Per PG policy, a <strong>30-day notice period</strong> is required. Your bed will be flagged for checkout inspection, and deposit deduction reconciliation will be processed upon checkout.
+            </p>
+
+            <div className="space-y-3">
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">Notice Date</label>
+                <input
+                  type="date"
+                  value={residentNoticeDate}
+                  onChange={(e) => setResidentNoticeDate(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white"
+                />
+              </div>
+
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">Expected Vacating / Move-Out Date</label>
+                <input
+                  type="date"
+                  value={residentCheckoutDate}
+                  onChange={(e) => setResidentCheckoutDate(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white font-bold"
+                />
+              </div>
+
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">Reason for Vacating</label>
+                <textarea
+                  rows={2}
+                  value={residentNoticeReason}
+                  onChange={(e) => setResidentNoticeReason(e.target.value)}
+                  placeholder="e.g. Relocating, course completed, job change..."
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 bg-white"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowNoticeModal(false)}
+                className="w-1/3 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-bold"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                id="confirm-vacating-notice-btn"
+                onClick={() => {
+                  initiateNoticePeriod(currentResident.id, residentNoticeDate, residentCheckoutDate, residentNoticeReason);
+                  setShowNoticeModal(false);
+                  showToast('Vacating notice submitted successfully to management.');
+                }}
+                className="w-2/3 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold shadow-xs transition"
+              >
+                Confirm & Submit Notice
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};

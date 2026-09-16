@@ -1,0 +1,2 @@
+# SPA fallback. /api is handled by Pages Functions, not this rule.
+/*    /index.html   200

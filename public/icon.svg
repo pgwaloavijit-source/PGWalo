@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="pagGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2563EB" />
+      <stop offset="100%" stop-color="#1D4ED8" />
+    </linearGradient>
+  </defs>
+  <!-- Rounded Base Canvas -->
+  <rect width="512" height="512" rx="110" fill="url(#pagGrad)" />
+  <!-- House Outline with Key / Guest Concept -->
+  <g transform="translate(96, 80)" fill="none" stroke="#FFFFFF" stroke-width="26" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Modern Roof & Building -->
+    <path d="M160 30 L20 150 L60 150 L60 310 A16 16 0 0 0 76 326 L244 326 A16 16 0 0 0 260 310 L260 150 L300 150 Z" fill="#FFFFFF" fill-opacity="0.12" />
+    <!-- Doorway arch -->
+    <path d="M120 326 L120 216 A40 40 0 0 1 200 216 L200 326" stroke="#FFFFFF" stroke-width="24" />
+    <!-- Chimney / Modern accent -->
+    <path d="M230 84 L230 40 L260 40 L260 110" stroke="#93C5FD" stroke-width="18" />
+  </g>
+  <!-- Stylized PAG Badge -->
+  <rect x="146" y="380" width="220" height="54" rx="27" fill="#FFFFFF" />
+  <text x="256" y="418" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="28" font-weight="900" fill="#1D4ED8" text-anchor="middle" letter-spacing="3">PAG PG</text>
+</svg>
