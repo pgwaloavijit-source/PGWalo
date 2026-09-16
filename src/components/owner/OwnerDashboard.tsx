@@ -39,6 +39,7 @@ import { ProfitabilityTab } from './ProfitabilityTab';
 import { AIPropertyOnboardingModal } from '../features/AIPropertyOnboardingModal';
 import { VirtualTourModal } from '../features/VirtualTourModal';
 import OwnerListingWizard from './OwnerListingWizard';
+import { AuthAnalyticsCard } from '../auth/AuthAnalyticsCard';
 
 export const OwnerDashboard: React.FC = () => {
   const {
@@ -546,6 +547,11 @@ export const OwnerDashboard: React.FC = () => {
                   Awaiting room assignment
                 </div>
               </div>
+            </div>
+
+            <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-2xs">
+              <h3 className="text-xs font-bold text-slate-500 uppercase mb-3">Visitor sign-up funnel</h3>
+              <AuthAnalyticsCard compact />
             </div>
 
             {/* Inquiries & Quick Actions Grid */}

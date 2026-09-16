@@ -122,7 +122,14 @@ interface AppContextType {
   setAuthModalMode: (mode: 'login' | 'register') => void;
   authInitialRole?: UserRole;
   setAuthInitialRole?: (role: UserRole) => void;
-  openAuthModal: (mode?: 'login' | 'register', targetRole?: UserRole) => void;
+  authMeta: { intent?: string; path?: string; propertyId?: string; source?: string };
+  openAuthModal: (
+    mode?: 'login' | 'register',
+    targetRole?: UserRole,
+    meta?: { intent?: string; path?: string; propertyId?: string; source?: string }
+  ) => void;
+  requireAuth: (action: () => void, meta?: { mode?: 'login' | 'register'; role?: UserRole; intent?: string; path?: string; propertyId?: string; source?: string }) => void;
+  runPendingAuthAction: () => void;
   login: (email: string, password?: string, requestedRole?: UserRole, isDemo?: boolean) => { success: boolean; message?: string };
   applyApiSession: (user: {
     id: string;
@@ -618,6 +625,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [authModalMode, setAuthModalMode] = useState<'login' | 'register'>('login');
   const [authInitialRole, setAuthInitialRole] = useState<UserRole>('resident');
+  const [authMeta, setAuthMeta] = useState<{ intent?: string; path?: string; propertyId?: string; source?: string }>({});
+  const [pendingAuthAction, setPendingAuthAction] = useState<(() => void) | null>(null);
   const [profileModalOpen, setProfileModalOpen] = useState(false);
   const [pendingAction, setPendingAction] = useState<PendingCustomerAction | null>(null);
   const [confirmedAction, setConfirmedAction] = useState<{ referenceId: string; action: PendingCustomerAction } | null>(null);
@@ -1558,12 +1567,40 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  const openAuthModal = (mode: 'login' | 'register' = 'login', targetRole?: UserRole) => {
+  const openAuthModal = (
+    mode: 'login' | 'register' = 'login',
+    targetRole?: UserRole,
+    meta?: { intent?: string; path?: string; propertyId?: string; source?: string }
+  ) => {
     setAuthModalMode(mode);
-    if (targetRole) {
-      setAuthInitialRole(targetRole);
-    }
+    if (targetRole) setAuthInitialRole(targetRole);
+    if (meta) setAuthMeta(meta);
+    else setAuthMeta({});
     setAuthModalOpen(true);
+  };
+
+  const runPendingAuthAction = () => {
+    if (pendingAuthAction) {
+      pendingAuthAction();
+      setPendingAuthAction(null);
+    }
+  };
+
+  const requireAuth = (
+    action: () => void,
+    meta?: { mode?: 'login' | 'register'; role?: UserRole; intent?: string; path?: string; propertyId?: string; source?: string }
+  ) => {
+    if (currentUser) {
+      action();
+      return;
+    }
+    setPendingAuthAction(() => action);
+    openAuthModal(meta?.mode || 'login', meta?.role, {
+      intent: meta?.intent,
+      path: meta?.path,
+      propertyId: meta?.propertyId,
+      source: meta?.source,
+    });
   };
 
   const confirmDirectAction = (action: PendingCustomerAction) => {
@@ -1743,6 +1780,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setCurrentUser(account);
     setRoleState(account.role);
     setAuthModalOpen(false);
+
+    if (pendingAction) {
+      confirmDirectAction({
+        ...pendingAction,
+        applicantName: account.name,
+        email: account.email,
+        phone: account.phone,
+      });
+      setPendingAction(null);
+    }
   };
 
   const register = (accountData: {
@@ -2802,7 +2849,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setAuthModalMode,
         authInitialRole,
         setAuthInitialRole,
+        authMeta,
         openAuthModal,
+        requireAuth,
+        runPendingAuthAction,
         login,
         applyApiSession,
         register,

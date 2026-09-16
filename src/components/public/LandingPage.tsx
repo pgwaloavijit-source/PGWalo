@@ -605,7 +605,7 @@ export const LandingPage: React.FC<{
             <div className="mt-6 flex flex-wrap items-center gap-3">
               <button
                 id="owner-partner-join-btn"
-                onClick={() => openAuthModal('register', 'owner')}
+                onClick={() => openAuthModal('register', 'owner', { intent: 'owner_list', path: 'owner', source: 'landing_cta' })}
                 className="px-6 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-extrabold text-xs sm:text-sm transition shadow-lg flex items-center gap-2 active:scale-98"
               >
                 <span>List Your Property</span>

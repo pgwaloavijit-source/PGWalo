@@ -756,7 +756,12 @@ export const PGDetailModal: React.FC<{
                 id="auth-prompt-login-btn"
                 onClick={() => {
                   setAuthPromptOpen(false);
-                  openAuthModal('login');
+                  openAuthModal('login', 'resident', {
+                    intent: actionType === 'visit' ? 'visit_pg' : 'book_pg',
+                    propertyId: property.id,
+                    source: 'pg_detail',
+                    path: 'resident',
+                  });
                 }}
                 className="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-md transition flex items-center justify-center gap-2"
               >
@@ -768,7 +773,12 @@ export const PGDetailModal: React.FC<{
                 id="auth-prompt-register-btn"
                 onClick={() => {
                   setAuthPromptOpen(false);
-                  openAuthModal('register');
+                  openAuthModal('register', 'resident', {
+                    intent: actionType === 'visit' ? 'visit_pg' : 'book_pg',
+                    propertyId: property.id,
+                    source: 'pg_detail',
+                    path: 'resident',
+                  });
                 }}
                 className="w-full py-3 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 font-bold text-xs transition flex items-center justify-center gap-2"
               >

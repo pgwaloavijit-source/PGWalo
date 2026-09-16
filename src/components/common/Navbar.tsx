@@ -413,7 +413,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                       <button
                         onClick={() => {
                           setMobileMenuOpen(false);
-                          openAuthModal('register', 'owner');
+                          openAuthModal('register', 'owner', { intent: 'owner_list', path: 'owner', source: 'navbar' });
                         }}
                         className="w-full py-2 bg-white border border-blue-200 text-blue-600 rounded-xl font-bold text-xs hover:bg-blue-50 transition"
                       >

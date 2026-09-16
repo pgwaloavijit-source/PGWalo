@@ -190,7 +190,7 @@ export const Footer: React.FC<{
                 Fill beds faster with verified tenants, automated UPI dues collection & meal management.
               </p>
               <button
-                onClick={() => openAuthModal('register', 'owner')}
+                onClick={() => openAuthModal('register', 'owner', { intent: 'owner_list', path: 'owner', source: 'footer' })}
                 className="w-full py-2 px-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs transition shadow-xs text-center"
               >
                 List Your Property

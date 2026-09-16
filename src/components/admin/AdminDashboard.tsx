@@ -20,8 +20,10 @@ import {
   Check,
   Eye,
   Key,
+  LogIn,
 } from 'lucide-react';
 import { RolePermissions } from '../../types';
+import { AuthAnalyticsCard } from '../auth/AuthAnalyticsCard';
 
 export const AdminDashboard: React.FC = () => {
   const {
@@ -37,7 +39,7 @@ export const AdminDashboard: React.FC = () => {
     logAuditEvent,
   } = useApp();
 
-  const [activeTab, setActiveTab] = useState<'kpis' | 'rbac' | 'properties' | 'users' | 'audit' | 'settings'>('kpis');
+  const [activeTab, setActiveTab] = useState<'kpis' | 'auth' | 'rbac' | 'properties' | 'users' | 'audit' | 'settings'>('kpis');
   const [selectedRole, setSelectedRole] = useState<string>('manager');
   const [searchAudit, setSearchAudit] = useState('');
   const [auditFilterAction, setAuditFilterAction] = useState('all');
@@ -160,6 +162,15 @@ export const AdminDashboard: React.FC = () => {
           Platform Overview
         </button>
         <button
+          onClick={() => setActiveTab('auth')}
+          className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-colors whitespace-nowrap shrink-0 min-h-[44px] ${
+            activeTab === 'auth' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'
+          }`}
+        >
+          <LogIn className="w-4 h-4" />
+          Auth Analytics
+        </button>
+        <button
           onClick={() => setActiveTab('rbac')}
           className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-colors whitespace-nowrap shrink-0 min-h-[44px] ${
             activeTab === 'rbac' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'
@@ -196,6 +207,13 @@ export const AdminDashboard: React.FC = () => {
           System Settings
         </button>
       </div>
+
+      {activeTab === 'auth' && (
+        <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs">
+          <h3 className="text-sm font-bold text-slate-800 mb-4">Sign-up & login funnel (tracked)</h3>
+          <AuthAnalyticsCard />
+        </div>
+      )}
 
       {/* Tab: Platform Overview */}
       {activeTab === 'kpis' && (

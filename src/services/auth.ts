@@ -1,4 +1,5 @@
 import { setAuthToken, clearAuthToken, getAuthToken, isProductionApiEnabled } from './productionApi';
+import { getAuthSessionId, AuthOpenMeta } from './authAnalytics';
 import { UserRole } from '../types';
 
 export interface AuthResponse {
@@ -20,10 +21,19 @@ const apiUrl = (path: string) => {
   return `${base}${path}`;
 };
 
+const trackingPayload = (meta?: AuthOpenMeta) => ({
+  sessionId: getAuthSessionId(),
+  authPath: meta?.path,
+  intent: meta?.intent,
+  sourcePage: meta?.source,
+  propertyId: meta?.propertyId,
+  deviceType: window.innerWidth < 768 ? 'mobile' : 'desktop',
+});
+
 export async function loginWithWorkers(
-  email: string,
+  identifier: { email?: string; phone?: string },
   password: string,
-  role: UserRole = 'public'
+  meta?: AuthOpenMeta
 ): Promise<AuthResponse> {
   if (!isProductionApiEnabled()) {
     return { success: false, error: 'API not available in demo mode' };
@@ -33,29 +43,28 @@ export async function loginWithWorkers(
     const response = await fetch(apiUrl('/api/auth/login'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password, role }),
+      body: JSON.stringify({ ...identifier, password, role: meta?.role, ...trackingPayload(meta) }),
     });
-
     const data = await response.json();
-    if (!response.ok) {
-      return { success: false, error: data.error || 'Login failed' };
-    }
-
+    if (!response.ok) return { success: false, error: data.error || 'Login failed' };
     if (data.token) setAuthToken(data.token);
     return { success: true, token: data.token, user: data.user };
-  } catch (error) {
-    console.error('Login error:', error);
+  } catch {
     return { success: false, error: 'Network error during login' };
   }
 }
 
-export async function registerWithWorkers(userData: {
-  name: string;
-  email: string;
-  phone: string;
-  role: UserRole;
-  password?: string;
-}): Promise<AuthResponse> {
+export async function registerWithWorkers(
+  userData: {
+    name: string;
+    email?: string;
+    phone: string;
+    role: UserRole;
+    password?: string;
+    inviteCode?: string;
+  },
+  meta?: AuthOpenMeta
+): Promise<AuthResponse> {
   if (!isProductionApiEnabled()) {
     return { success: false, error: 'API not available in demo mode' };
   }
@@ -64,18 +73,13 @@ export async function registerWithWorkers(userData: {
     const response = await fetch(apiUrl('/api/auth/register'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(userData),
+      body: JSON.stringify({ ...userData, ...trackingPayload(meta) }),
     });
-
     const data = await response.json();
-    if (!response.ok) {
-      return { success: false, error: data.error || 'Registration failed' };
-    }
-
+    if (!response.ok) return { success: false, error: data.error || 'Registration failed' };
     if (data.token) setAuthToken(data.token);
     return { success: true, token: data.token, user: data.user };
-  } catch (error) {
-    console.error('Registration error:', error);
+  } catch {
     return { success: false, error: 'Network error during registration' };
   }
 }

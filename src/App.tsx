@@ -7,7 +7,7 @@ import { MobileBottomNav } from './components/common/MobileBottomNav';
 import { LandingPage } from './components/public/LandingPage';
 import { SearchPage } from './components/public/SearchPage';
 import { PGDetailModal } from './components/public/PGDetailModal';
-import { AuthModal } from './components/auth/AuthModal';
+import { AuthExperience } from './components/auth/AuthExperience';
 import { ProfileCompletionModal } from './components/auth/ProfileCompletionModal';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { OwnerDashboard } from './components/owner/OwnerDashboard';
@@ -115,7 +115,7 @@ const MainAppContent: React.FC = () => {
         />
       )}
 
-      <AuthModal />
+      <AuthExperience />
       <ProfileCompletionModal />
 
       <MobileBottomNav
