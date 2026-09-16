@@ -1,6 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Property, GenderPreference, RoomSharingType, PublicSearchCriteria } from '../../types';
+import { visitedPropertyIds, bookedPropertyIds } from '../../utils/userBookings';
+import { ListingImage } from '../common/ListingImage';
+import { citiesMatch, matchesPlaceQuery, mapPinPercents, mergeProperties, sortByDistance, nearbyLocalities, distanceKm, hasCoords } from '../../utils/locationMatch';
+import { osmEmbedUrl, osmBoundsUrl } from '../../services/geo';
+import { fetchPublicListings } from '../../services/listings';
 import { INITIAL_AMENITIES } from '../../mockData';
 import {
   Search,
@@ -24,7 +29,11 @@ export const SearchPage: React.FC<{
   onSelectPG: (pgId: string) => void;
   initialCriteria?: PublicSearchCriteria;
 }> = ({ onSelectPG, initialCriteria = {} as PublicSearchCriteria }) => {
-  const { properties, beds } = useApp();
+  const { properties, beds, currentUser, bookingRequests } = useApp();
+  const [remoteListings, setRemoteListings] = useState<Property[]>([]);
+  const catalog = useMemo(() => mergeProperties(properties, remoteListings), [properties, remoteListings]);
+  const visitedIds = useMemo(() => visitedPropertyIds(bookingRequests, currentUser), [bookingRequests, currentUser]);
+  const bookedIds = useMemo(() => bookedPropertyIds(bookingRequests, currentUser), [bookingRequests, currentUser]);
 
   const [searchQuery, setSearchQuery] = useState(initialCriteria.location || '');
   const [selectedCity, setSelectedCity] = useState<string>(initialCriteria.city || 'All');
@@ -32,23 +41,42 @@ export const SearchPage: React.FC<{
   const [selectedGender, setSelectedGender] = useState<GenderPreference | 'All'>(initialCriteria.type || 'All');
   const [selectedRoomType, setSelectedRoomType] = useState<RoomSharingType | 'All'>('All');
   const [selectedMoveInDate, setSelectedMoveInDate] = useState(initialCriteria.moveInDate || '');
-  const [maxPrice, setMaxPrice] = useState<number>(18000);
+  const [maxPrice, setMaxPrice] = useState<number>(50000);
   const [selectedAmenities, setSelectedAmenities] = useState<string[]>([]);
   const [sortBy, setSortBy] = useState<'recommended' | 'price-asc' | 'price-desc' | 'rating'>('recommended');
   const [viewMode, setViewMode] = useState<'grid' | 'map'>('grid');
   const [activeHoverPG, setActiveHoverPG] = useState<Property | null>(null);
-  const [mobileFilterOpen, setMobileFilterOpen] = useState(false);
+  const [origin, setOrigin] = useState<{ lat: number; lng: number } | null>(
+    initialCriteria.lat && initialCriteria.lng ? { lat: initialCriteria.lat, lng: initialCriteria.lng } : null
+  );
+  const nearbyMode = initialCriteria.nearby !== false && !searchQuery.trim();
+  const commonAreas = useMemo(
+    () => nearbyLocalities(catalog, origin?.lat, origin?.lng, 5).map((area) => ({ label: area.name, value: area.name })),
+    [catalog, origin]
+  );
+  const areaOptions = useMemo(() => [{ label: 'All Localities', value: 'All' }, ...commonAreas], [commonAreas]);
 
-  // Common localities
-  const commonAreas = [
-    { label: 'All Localities', value: 'All' },
-    { label: 'HSR Layout', value: 'HSR Layout' },
-    { label: 'Koramangala', value: 'Koramangala' },
-    { label: 'Whitefield', value: 'Whitefield' },
-    { label: 'Hinjewadi', value: 'Hinjewadi' },
-    { label: 'Gachibowli', value: 'Gachibowli' },
-    { label: 'Cyber City', value: 'Cyber City' },
-  ];
+  useEffect(() => {
+    if (origin) return;
+    if (!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(
+      (position) => setOrigin({ lat: position.coords.latitude, lng: position.coords.longitude }),
+      () => undefined,
+      { enableHighAccuracy: true, timeout: 6000 }
+    );
+  }, [origin]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchPublicListings()
+      .then((remote) => {
+        if (!cancelled && remote.length) setRemoteListings(remote);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     setSearchQuery(initialCriteria.location || '');
@@ -70,7 +98,7 @@ export const SearchPage: React.FC<{
   const hasMoveInAvailability = (property: Property) => {
     if (!selectedMoveInDate) return true;
 
-    const hasRoomInventory = property.rooms.some((room) => {
+    const hasRoomInventory = (property.rooms || []).some((room) => {
       const typeMatches = selectedRoomType === 'All' || room.type === selectedRoomType;
       return typeMatches && room.availableBeds > 0;
     });
@@ -87,10 +115,9 @@ export const SearchPage: React.FC<{
 
   // Filtered properties
   const filteredProperties = useMemo(() => {
-    return properties
-      .filter((p) => {
+    let rows = catalog.filter((p) => {
         // City
-        if (selectedCity !== 'All' && p.city.toLowerCase() !== selectedCity.toLowerCase()) {
+        if (selectedCity !== 'All' && !citiesMatch(p.city, selectedCity)) {
           return false;
         }
         // Area / Locality
@@ -111,7 +138,7 @@ export const SearchPage: React.FC<{
         }
         // Room type
         if (selectedRoomType !== 'All') {
-          const hasType = p.rooms.some((r) => r.type === selectedRoomType);
+          const hasType = (p.rooms || []).some((r) => r.type === selectedRoomType);
           if (!hasType) return false;
         }
         // Amenities
@@ -120,24 +147,21 @@ export const SearchPage: React.FC<{
           if (!hasAll) return false;
         }
         // Search text
-        if (searchQuery.trim()) {
-          const q = searchQuery.toLowerCase();
-          const matchName = p.name.toLowerCase().includes(q);
-          const matchLoc = p.locality.toLowerCase().includes(q);
-          const matchCity = p.city.toLowerCase().includes(q);
-          const matchAddress = p.address.toLowerCase().includes(q);
-          const matchCombinedLocation = `${p.locality}, ${p.city}`.toLowerCase().includes(q);
-          if (!matchName && !matchLoc && !matchCity && !matchAddress && !matchCombinedLocation) return false;
-        }
+        if (searchQuery.trim() && !matchesPlaceQuery(p, searchQuery)) return false;
         return true;
-      })
-      .sort((a, b) => {
+    });
+    if (nearbyMode && origin) {
+      const close = rows.filter((p) => hasCoords(p) && distanceKm(origin.lat, origin.lng, p.lat, p.lng) <= 35);
+      if (close.length) rows = close;
+      rows = sortByDistance(rows, origin.lat, origin.lng);
+    }
+    return rows.sort((a, b) => {
         if (sortBy === 'price-asc') return a.startingPrice - b.startingPrice;
         if (sortBy === 'price-desc') return b.startingPrice - a.startingPrice;
         if (sortBy === 'rating') return b.rating - a.rating;
-        return 0; // recommended
-      });
-  }, [properties, beds, selectedCity, selectedArea, selectedGender, selectedRoomType, selectedMoveInDate, maxPrice, selectedAmenities, searchQuery, sortBy]);
+        return 0;
+    });
+  }, [catalog, beds, selectedCity, selectedArea, selectedGender, selectedRoomType, selectedMoveInDate, maxPrice, selectedAmenities, searchQuery, sortBy, nearbyMode, origin]);
 
   const toggleAmenity = (id: string) => {
     setSelectedAmenities((prev) =>
@@ -152,7 +176,7 @@ export const SearchPage: React.FC<{
     setSelectedGender('All');
     setSelectedRoomType('All');
     setSelectedMoveInDate('');
-    setMaxPrice(20000);
+    setMaxPrice(50000);
     setSelectedAmenities([]);
   };
 
@@ -260,12 +284,12 @@ export const SearchPage: React.FC<{
         </div>
 
         {/* Quick Area Filter Chips Bar */}
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-2.5 flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-2.5 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
           <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider shrink-0 flex items-center gap-1 mr-1">
             <MapPin className="w-3 h-3 text-blue-600" />
             Area:
           </span>
-          {commonAreas.map((area) => (
+          {areaOptions.map((area) => (
             <button
               key={area.value}
               onClick={() => setSelectedArea(area.value)}
@@ -306,7 +330,7 @@ export const SearchPage: React.FC<{
                   Select City
                 </label>
                 <div className="flex flex-wrap gap-1.5">
-                  {['All', 'Bengaluru', 'Pune', 'Hyderabad', 'Delhi NCR'].map((c) => (
+                  {['All', 'Bengaluru', 'Bangalore', 'Pune', 'Hyderabad', 'Delhi NCR'].map((c) => (
                     <button
                       key={c}
                       onClick={() => setSelectedCity(c)}
@@ -387,8 +411,8 @@ export const SearchPage: React.FC<{
                 </div>
                 <input
                   type="range"
-                  min="6000"
-                  max="20000"
+                  min="4000"
+                  max="50000"
                   step="500"
                   value={maxPrice}
                   onChange={(e) => setMaxPrice(Number(e.target.value))}
@@ -431,13 +455,26 @@ export const SearchPage: React.FC<{
             <div className="flex items-center justify-between mb-4">
               <div>
                 <h1 className="text-lg font-extrabold text-slate-900">
-                  {selectedCity === 'All' ? 'Available PGs in India' : `PGs in ${selectedCity}`}
+                  {selectedCity === 'All' ? (nearbyMode ? 'PGs near you' : 'Available PGs in India') : `PGs in ${selectedCity}`}
                 </h1>
                 <p className="text-xs text-slate-500">
                   Showing {filteredProperties.length} verified accommodation{filteredProperties.length === 1 ? '' : 's'}
                 </p>
               </div>
             </div>
+
+            {viewMode === 'grid' && osmBoundsUrl(filteredProperties) ? (
+              <div className="mb-4 overflow-hidden rounded-2xl border border-slate-200 bg-white">
+                <iframe
+                  title="Search results map"
+                  className="w-full h-48"
+                  src={osmBoundsUrl(filteredProperties)}
+                />
+                <p className="px-3 py-2 text-[11px] text-slate-500 border-t border-slate-100">
+                  Map pins follow the location the owner tagged for each PG.
+                </p>
+              </div>
+            ) : null}
 
             {/* Zero State */}
             {filteredProperties.length === 0 && (
@@ -469,11 +506,10 @@ export const SearchPage: React.FC<{
                     <div>
                       {/* Image header */}
                       <div className="relative h-44 bg-slate-100 overflow-hidden">
-                        <img
+                        <ListingImage
                           src={pg.coverImage}
                           alt={pg.name}
-                          referrerPolicy="no-referrer"
-                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                          className="w-full h-full group-hover:scale-105 transition-transform duration-300"
                         />
                         <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5">
                           <span
@@ -491,6 +527,16 @@ export const SearchPage: React.FC<{
                             <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-white text-blue-700 flex items-center gap-1 shadow-2xs">
                               <ShieldCheck className="w-3 h-3 text-blue-600" />
                               Verified
+                            </span>
+                          )}
+                          {visitedIds.has(pg.id) && (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500 text-white shadow-2xs">
+                              Already visited
+                            </span>
+                          )}
+                          {bookedIds.has(pg.id) && (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500 text-white shadow-2xs">
+                              Applied
                             </span>
                           )}
                         </div>
@@ -559,9 +605,9 @@ export const SearchPage: React.FC<{
                   <div className="flex items-center gap-2">
                     <Navigation className="w-4 h-4 text-blue-600" />
                     <div>
-                      <h3 className="text-xs font-bold text-slate-900">Interactive PG Map Explorer</h3>
+                      <h3 className="text-xs font-bold text-slate-900">Listed PGs on the map</h3>
                       <p className="text-[11px] text-slate-500">
-                        Click pins to preview PG details, rent, and distance to key hubs
+                        Pins use the coordinates the owner tagged. Click a pin for rent and locality.
                       </p>
                     </div>
                   </div>
@@ -572,42 +618,30 @@ export const SearchPage: React.FC<{
                   </div>
                 </div>
 
-                {/* Stylized Vector Map Canvas */}
-                <div className="relative h-[480px] bg-slate-100 overflow-hidden p-6 select-none flex items-center justify-center">
-                  {/* Subtle Grid Map pattern */}
+                {(activeHoverPG?.lat && activeHoverPG?.lng
+                  ? osmEmbedUrl(activeHoverPG.lat, activeHoverPG.lng)
+                  : osmBoundsUrl(filteredProperties)) ? (
+                  <iframe
+                    title="Listed PG map"
+                    className="w-full h-56 border-b border-slate-200"
+                    src={
+                      activeHoverPG?.lat && activeHoverPG?.lng
+                        ? osmEmbedUrl(activeHoverPG.lat, activeHoverPG.lng)
+                        : osmBoundsUrl(filteredProperties)
+                    }
+                  />
+                ) : null}
+
+                <div className="relative h-[420px] bg-slate-100 overflow-hidden p-6 select-none">
                   <div className="absolute inset-0 bg-[linear-gradient(to_right,#cbd5e1_1px,transparent_1px),linear-gradient(to_bottom,#cbd5e1_1px,transparent_1px)] bg-[size:40px_40px] opacity-40" />
-
-                  {/* Simulated Road network */}
-                  <svg className="absolute inset-0 w-full h-full pointer-events-none opacity-40" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M 50 120 Q 250 200 650 160 T 1100 240" stroke="#94a3b8" strokeWidth="6" fill="none" />
-                    <path d="M 120 400 Q 300 280 600 320 T 1000 380" stroke="#94a3b8" strokeWidth="5" fill="none" />
-                    <path d="M 400 40 L 420 460" stroke="#94a3b8" strokeWidth="6" fill="none" />
-                    <path d="M 720 30 L 700 450" stroke="#94a3b8" strokeWidth="4" fill="none" />
-                  </svg>
-
-                  {/* Tech Park Landmark Badges */}
-                  <div className="absolute top-8 left-12 px-2.5 py-1 rounded-lg bg-slate-800 text-white text-[10px] font-bold flex items-center gap-1 shadow-md">
-                    <MapPin className="w-3 h-3 text-blue-400" />
-                    <span>HSR IT Corridor / Manyata</span>
-                  </div>
-                  <div className="absolute bottom-8 right-16 px-2.5 py-1 rounded-lg bg-slate-800 text-white text-[10px] font-bold flex items-center gap-1 shadow-md">
-                    <MapPin className="w-3 h-3 text-emerald-400" />
-                    <span>DLF Cyber City / Hinjewadi Ph-1</span>
-                  </div>
-
-                  {/* Interactive Property Map Pins */}
-                  {filteredProperties.map((pg, idx) => {
-                    // Spread pins nicely across canvas
-                    const leftOffsets = ['22%', '48%', '72%', '36%', '60%'];
-                    const topOffsets = ['32%', '24%', '55%', '64%', '42%'];
-                    const left = leftOffsets[idx % leftOffsets.length];
-                    const top = topOffsets[idx % topOffsets.length];
+                  {filteredProperties.map((pg) => {
+                    const pins = mapPinPercents(filteredProperties);
+                    const pos = pins[pg.id] || { left: '50%', top: '50%' };
                     const isHovered = activeHoverPG?.id === pg.id;
-
                     return (
                       <div
                         key={pg.id}
-                        style={{ left, top }}
+                        style={{ left: pos.left, top: pos.top }}
                         className="absolute transform -translate-x-1/2 -translate-y-1/2 z-20"
                       >
                         <button
@@ -641,6 +675,12 @@ export const SearchPage: React.FC<{
                       </div>
 
                       <h4 className="font-bold text-slate-900 text-sm mt-1">{activeHoverPG.name}</h4>
+                      {visitedIds.has(activeHoverPG.id) && (
+                        <p className="text-[10px] font-bold text-emerald-700 mt-1">Already visited</p>
+                      )}
+                      {bookedIds.has(activeHoverPG.id) && (
+                        <p className="text-[10px] font-bold text-amber-700 mt-1">Applied</p>
+                      )}
                       <p className="text-xs text-slate-500 mt-0.5 line-clamp-1">{activeHoverPG.locality}</p>
 
                       <div className="flex items-center justify-between mt-3 pt-2 border-t border-slate-100">
@@ -680,7 +720,7 @@ export const SearchPage: React.FC<{
             <div>
               <label className="text-xs font-bold block mb-1">City</label>
               <div className="flex flex-wrap gap-1.5">
-                {['All', 'Bengaluru', 'Pune', 'Hyderabad', 'Delhi NCR'].map((c) => (
+                {['All', 'Bengaluru', 'Bangalore', 'Pune', 'Hyderabad', 'Delhi NCR'].map((c) => (
                   <button
                     key={c}
                     onClick={() => setSelectedCity(c)}
@@ -728,8 +768,8 @@ export const SearchPage: React.FC<{
               </div>
               <input
                 type="range"
-                min="6000"
-                max="20000"
+                min="4000"
+                max="50000"
                 step="500"
                 value={maxPrice}
                 onChange={(e) => setMaxPrice(Number(e.target.value))}

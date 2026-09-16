@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
+import { UserAvatar } from '../common/UserAvatar';
 import { MaintenanceTicket } from '../../types';
 import {
   ShieldCheck,
@@ -22,6 +23,7 @@ import {
 
 export const StaffDashboard: React.FC = () => {
   const {
+    currentUser,
     staff,
     currentStaff,
     setCurrentStaffId,
@@ -32,40 +34,33 @@ export const StaffDashboard: React.FC = () => {
     updateTicketStatus,
     residents,
     mealPlan,
+    properties,
   } = useApp();
+
+  const workplace = properties.find((p) => p.id === currentStaff?.propertyId);
+  const team = staff.filter((s) => currentStaff && s.propertyId === currentStaff.propertyId);
+  const siteResidents = residents.filter((r) => currentStaff && r.propertyId === currentStaff.propertyId);
 
   const [activeTab, setActiveTab] = useState<'tasks' | 'attendance' | 'checklist' | 'visitors' | 'team'>('tasks');
   const [isCheckedIn, setIsCheckedIn] = useState(currentStaff?.todayStatus === 'Checked-In');
 
   // Manual Gate Log Entry state
   const [showLogModal, setShowLogModal] = useState(false);
-  const [logResidentName, setLogResidentName] = useState(residents[0]?.name || '');
+  const [logResidentName, setLogResidentName] = useState('');
   const [logType, setLogType] = useState<'Check-In' | 'Check-Out'>('Check-In');
   const [logNotes, setLogNotes] = useState('');
 
   // Visitor Log state
-  const [visitors, setVisitors] = useState([
-    {
-      id: 'v-1',
-      visitorName: 'Rohan Sharma',
-      residentVisited: 'Ananya Sen',
-      room: '204',
-      purpose: 'Friend / Study',
-      entryTime: '04:30 PM',
-      exitTime: '07:15 PM',
-      status: 'Exited',
-    },
-    {
-      id: 'v-2',
-      visitorName: 'Urban Company Tech',
-      residentVisited: 'Warden Sunil',
-      room: 'Utility',
-      purpose: 'RO Water Filter Service',
-      entryTime: '11:00 AM',
-      exitTime: '12:20 PM',
-      status: 'Exited',
-    },
-  ]);
+  const [visitors, setVisitors] = useState<{
+    id: string;
+    visitorName: string;
+    residentVisited: string;
+    room: string;
+    purpose: string;
+    entryTime: string;
+    exitTime: string;
+    status: string;
+  }[]>([]);
   const [newVisitorName, setNewVisitorName] = useState('');
   const [newVisitorRes, setNewVisitorRes] = useState('');
   const [newVisitorPurpose, setNewVisitorPurpose] = useState('');
@@ -88,7 +83,7 @@ export const StaffDashboard: React.FC = () => {
 
   const handleManualGateLog = (e: React.FormEvent) => {
     e.preventDefault();
-    const res = residents.find((r) => r.name === logResidentName);
+    const res = siteResidents.find((r) => r.name === logResidentName);
     recordAttendance({
       personId: res?.id || 'manual',
       personName: logResidentName,
@@ -96,7 +91,7 @@ export const StaffDashboard: React.FC = () => {
       roomNumber: res?.roomNumber || '204',
       type: logType,
       status: 'On-Time',
-      notes: logNotes || 'Logged by Supervisor Sunil',
+      notes: logNotes || `Logged by ${currentStaff.name}`,
     });
     setShowLogModal(false);
     setLogNotes('');
@@ -109,7 +104,7 @@ export const StaffDashboard: React.FC = () => {
       {
         id: `v-${Date.now()}`,
         visitorName: newVisitorName,
-        residentVisited: newVisitorRes || 'Ananya Sen',
+        residentVisited: newVisitorRes || siteResidents[0]?.name || 'Resident',
         room: '204',
         purpose: newVisitorPurpose || 'Social',
         entryTime: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
@@ -123,18 +118,26 @@ export const StaffDashboard: React.FC = () => {
     setNewVisitorPurpose('');
   };
 
+  if (!currentStaff) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
+        <div className="max-w-md bg-white rounded-3xl border border-slate-200 p-8 text-center space-y-2">
+          <h1 className="text-lg font-black text-slate-900">No PG assignment yet</h1>
+          <p className="text-xs text-slate-500">
+            Ask the property owner to add you as staff and assign a listed PG. Then sign in with the mobile and PIN they shared.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 pb-20">
       {/* Staff Header */}
       <div className="bg-white border-b border-blue-100 py-6 px-4 sm:px-6 lg:px-8 shadow-2xs">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center gap-4">
-            <img
-              src={currentStaff.avatar}
-              alt={currentStaff.name}
-              referrerPolicy="no-referrer"
-              className="w-14 h-14 rounded-2xl object-cover border-2 border-blue-600 shadow-sm"
-            />
+            <UserAvatar name={currentStaff.name} src={currentStaff.avatar} sizeClass="w-14 h-14 text-base" className="border-2 border-blue-600" />
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="text-xl font-black text-slate-900">{currentStaff.name}</h1>
@@ -143,13 +146,13 @@ export const StaffDashboard: React.FC = () => {
                 </span>
               </div>
               <div className="flex items-center gap-2 mt-0.5 text-xs text-slate-500">
-                <span>Blue Haven Luxury PG • Shift: {currentStaff.shift}</span>
+                <span>{workplace?.name || 'Assigned PG'} · Shift: {currentStaff.shift}</span>
               </div>
-              {/* Staff Switcher */}
+              {currentUser?.isDemo && (
               <div className="flex items-center gap-1.5 mt-2">
                 <span className="text-[11px] text-slate-500 font-semibold">Switch Staff Persona:</span>
                 <div className="flex items-center gap-1">
-                  {staff.map((s) => (
+                  {team.map((s) => (
                     <button
                       key={s.id}
                       onClick={() => {
@@ -168,6 +171,7 @@ export const StaffDashboard: React.FC = () => {
                   ))}
                 </div>
               </div>
+              )}
             </div>
           </div>
 
@@ -202,13 +206,13 @@ export const StaffDashboard: React.FC = () => {
 
       {/* Tabs */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6">
-        <div className="bg-white rounded-2xl p-1.5 border border-slate-200 shadow-2xs flex items-center gap-1 overflow-x-auto mb-6 text-xs font-bold">
+        <div className="bg-white rounded-2xl p-1.5 border border-slate-200 shadow-2xs grid grid-cols-2 sm:grid-cols-5 gap-1 mb-6 text-xs font-bold">
           {[
             { key: 'tasks', label: `Maintenance Tasks (${tickets.length})`, icon: Wrench },
             { key: 'attendance', label: 'Gate Movements & Attendance', icon: Clock },
             { key: 'checklist', label: 'Daily Cleaning & Ops Checklist', icon: CheckCircle2 },
             { key: 'visitors', label: 'Visitor Pass Register', icon: UserCheck },
-            { key: 'team', label: `Staff Team & Roster (${staff.length})`, icon: Users },
+            { key: 'team', label: `Staff Team & Roster (${team.length})`, icon: Users },
           ].map((tab) => {
             const Icon = tab.icon;
             return (
@@ -426,7 +430,7 @@ export const StaffDashboard: React.FC = () => {
                     onChange={(e) => setNewVisitorRes(e.target.value)}
                     className="w-full px-3 py-2 border rounded-xl bg-white"
                   >
-                    {residents.map((r) => (
+                    {siteResidents.map((r) => (
                       <option key={r.id} value={r.name}>
                         {r.name} (Room {r.roomNumber})
                       </option>
@@ -489,13 +493,13 @@ export const StaffDashboard: React.FC = () => {
               </div>
               <div className="flex items-center gap-2">
                 <span className="px-3 py-1 rounded-full text-xs font-bold bg-blue-50 text-blue-700 border border-blue-200">
-                  {staff.filter((s) => s.todayStatus === 'Checked-In').length} of {staff.length} On Duty Now
+                  {team.filter((s) => s.todayStatus === 'Checked-In').length} of {team.length} On Duty Now
                 </span>
               </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {staff.map((member) => {
+              {team.map((member) => {
                 const isActive = currentStaff.id === member.id;
                 const isMemberCheckedIn = member.todayStatus === 'Checked-In';
 
@@ -620,7 +624,7 @@ export const StaffDashboard: React.FC = () => {
                   onChange={(e) => setLogResidentName(e.target.value)}
                   className="w-full px-3 py-2 border rounded-xl bg-white"
                 >
-                  {residents.map((r) => (
+                  {siteResidents.map((r) => (
                     <option key={r.id} value={r.name}>
                       {r.name} (Room {r.roomNumber})
                     </option>

@@ -221,6 +221,7 @@ export const INITIAL_PROPERTIES: Property[] = [
     contactPhone: '+91 98450 12345',
     contactEmail: 'stay@bluehavenpg.com',
     ownerName: 'Rajesh Sharma',
+    ownerUserId: 'catalog-seed',
   },
   {
     id: 'prop-2',
@@ -291,6 +292,7 @@ export const INITIAL_PROPERTIES: Property[] = [
     contactPhone: '+91 98860 99881',
     contactEmail: 'care@sereneheights.com',
     ownerName: 'Sunita Mehra',
+    ownerUserId: 'catalog-seed',
   },
   {
     id: 'prop-3',
@@ -359,6 +361,7 @@ export const INITIAL_PROPERTIES: Property[] = [
     contactPhone: '+91 97654 32109',
     contactEmail: 'info@cybernestpg.com',
     ownerName: 'Vikram Patel',
+    ownerUserId: 'catalog-seed',
   },
   {
     id: 'prop-4',
@@ -427,6 +430,7 @@ export const INITIAL_PROPERTIES: Property[] = [
     contactPhone: '+91 94401 55667',
     contactEmail: 'manager@siliconstay.in',
     ownerName: 'Kishore Reddy',
+    ownerUserId: 'catalog-seed',
   },
 ];
 
@@ -606,6 +610,7 @@ export const INITIAL_STAFF: StaffMember[] = [
     phone: '+91 98711 54321',
     avatar: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=200&q=80',
     propertyId: 'prop-1',
+    ownerUserId: 'catalog-seed',
     shift: 'Morning (6 AM - 2 PM)',
     todayStatus: 'Checked-In',
     lastClockIn: '06:30 AM',
@@ -617,6 +622,7 @@ export const INITIAL_STAFF: StaffMember[] = [
     phone: '+91 97188 23456',
     avatar: 'https://images.unsplash.com/photo-1566492031773-4f4e44671857?auto=format&fit=crop&w=200&q=80',
     propertyId: 'prop-1',
+    ownerUserId: 'catalog-seed',
     shift: 'Morning (6 AM - 2 PM)',
     todayStatus: 'Checked-In',
     lastClockIn: '05:45 AM',
@@ -628,6 +634,7 @@ export const INITIAL_STAFF: StaffMember[] = [
     phone: '+91 98100 87654',
     avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&w=200&q=80',
     propertyId: 'prop-1',
+    ownerUserId: 'catalog-seed',
     shift: 'Morning (6 AM - 2 PM)',
     todayStatus: 'Checked-In',
     lastClockIn: '07:00 AM',
@@ -639,6 +646,7 @@ export const INITIAL_STAFF: StaffMember[] = [
     phone: '+91 99555 12121',
     avatar: 'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?auto=format&fit=crop&w=200&q=80',
     propertyId: 'prop-1',
+    ownerUserId: 'catalog-seed',
     shift: 'Night (10 PM - 6 AM)',
     todayStatus: 'Checked-Out',
     lastClockIn: 'Yesterday 10:00 PM',

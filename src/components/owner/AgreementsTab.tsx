@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
+import { useOwnerScope } from '../../utils/ownership';
 import { Agreement } from '../../types';
 import {
   FileText,
@@ -16,7 +17,8 @@ import { DigitalAgreementModal } from '../features/DigitalAgreementModal';
 import { MoveInInspectionModal } from '../features/MoveInInspectionModal';
 
 export const AgreementsTab: React.FC = () => {
-  const { agreements, residents, signAgreement } = useApp();
+  const { signAgreement } = useApp();
+  const { agreements, residents } = useOwnerScope();
 
   const [activeAgreementModal, setActiveAgreementModal] = useState<Agreement | null>(null);
   const [activeInspectionModal, setActiveInspectionModal] = useState<{ room: string; tenant: string } | null>(null);

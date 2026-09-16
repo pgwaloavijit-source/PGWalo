@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
+import { useOwnerScope } from '../../utils/ownership';
 import { Bed, BedStatus } from '../../types';
 import {
   Bed as BedIcon,
@@ -99,7 +100,8 @@ const STATUS_CONFIG: Record<
 };
 
 export const BedMatrixTab: React.FC = () => {
-  const { beds, updateBedStatus, residents, logAuditEvent } = useApp();
+  const { updateBedStatus, logAuditEvent } = useApp();
+  const { beds, residents } = useOwnerScope();
 
   const [selectedStatusFilter, setSelectedStatusFilter] = useState<string>('all');
   const [selectedFloorFilter, setSelectedFloorFilter] = useState<string>('all');
@@ -121,7 +123,8 @@ export const BedMatrixTab: React.FC = () => {
     const matchesStatus =
       selectedStatusFilter === 'all' || bed.status === selectedStatusFilter;
     const matchesFloor =
-      selectedFloorFilter === 'all' || bed.floor.toLowerCase().includes(selectedFloorFilter.toLowerCase());
+      selectedFloorFilter === 'all' ||
+      String(bed.floor).toLowerCase().includes(selectedFloorFilter.toLowerCase());
     const matchesSearch =
       bed.bedNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
       bed.roomNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||

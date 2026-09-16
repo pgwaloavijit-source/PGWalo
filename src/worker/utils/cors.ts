@@ -1,7 +1,7 @@
 import { Env } from '../types';
 import { applySecurityHeaders, resolveCorsOrigin } from './security';
 
-const CORS_METHODS = 'GET, POST, PUT, DELETE, OPTIONS';
+const CORS_METHODS = 'GET, POST, PUT, PATCH, DELETE, OPTIONS';
 const CORS_HEADERS = 'Content-Type, Authorization, x-user-role, x-organization-id, x-user-id';
 
 let activeRequest: Request | null = null;

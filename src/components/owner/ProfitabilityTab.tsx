@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useApp } from '../../context/AppContext';
+import { useOwnerScope } from '../../utils/ownership';
 import {
   TrendingUp,
   CreditCard,
@@ -16,10 +16,11 @@ import {
 } from 'lucide-react';
 
 export const ProfitabilityTab: React.FC = () => {
-  const { residents, beds, properties, logAuditEvent } = useApp();
+  const { residents, beds, properties } = useOwnerScope();
 
   // Financial Estimates
-  const totalBeds = beds.length || 10;
+  const totalBeds = beds.length;
+  const hasInventory = totalBeds > 0 || properties.length > 0;
   const grossRentCollected = residents.reduce(
     (sum, r) => (r.rentStatus === 'Paid' ? sum + r.monthlyRent : sum),
     0
@@ -28,16 +29,16 @@ export const ProfitabilityTab: React.FC = () => {
     (sum, r) => (r.rentStatus !== 'Paid' ? sum + r.monthlyRent : sum),
     0
   );
-  const electricityRevenues = 4 * 1350; // sub-meters
+  const electricityRevenues = hasInventory ? 0 : 0;
 
   const grossMonthlyIncome = grossRentCollected + electricityRevenues;
 
-  // Operating Expenses (OPEX)
-  const opexElectricity = 6750;
-  const opexKitchen = 12000;
-  const opexStaff = 18000;
-  const opexWifiAndMaint = 4500;
-  const opexPropertyTax = 2200;
+  // Operating Expenses (OPEX) — only after this account has inventory
+  const opexElectricity = hasInventory ? 0 : 0;
+  const opexKitchen = 0;
+  const opexStaff = 0;
+  const opexWifiAndMaint = 0;
+  const opexPropertyTax = 0;
 
   const totalOperatingExpenses =
     opexElectricity + opexKitchen + opexStaff + opexWifiAndMaint + opexPropertyTax;
@@ -55,8 +56,8 @@ export const ProfitabilityTab: React.FC = () => {
           <span className="text-2xl font-black text-slate-900 block mt-1">
             ₹{grossMonthlyIncome.toLocaleString('en-IN')}
           </span>
-          <span className="text-[11px] text-emerald-600 font-semibold mt-1 flex items-center gap-1">
-            <ArrowUpRight className="w-3.5 h-3.5" /> +12% YoY growth
+          <span className="text-[11px] text-slate-500 font-semibold mt-1">
+            {hasInventory ? 'From your listed PGs' : 'No listings on this account yet'}
           </span>
         </div>
 

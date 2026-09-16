@@ -6,6 +6,10 @@ import { collectionHandler } from './handlers/collection';
 import { healthHandler } from './handlers/health';
 import { mediaHandler } from './handlers/media';
 import { authHandler } from './handlers/auth';
+import { notifyHandler } from './handlers/notify';
+import { geoHandler } from './handlers/geo';
+import { listingsHandler } from './handlers/listings';
+import { inquiriesHandler } from './handlers/inquiries';
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -28,9 +32,24 @@ export default {
         return authHandler(request, env);
       }
 
-      // Media upload/download endpoints (no auth middleware required for public access)
+      if (path.startsWith('/api/geo')) {
+        return geoHandler(request, env);
+      }
+
       if (path.startsWith('/api/media')) {
-        return mediaHandler(request, env, ctx);
+        return mediaHandler(request, env);
+      }
+
+      if (path.startsWith('/api/listings')) {
+        return listingsHandler(request, env);
+      }
+
+      if (path.startsWith('/api/inquiries')) {
+        return inquiriesHandler(request, env);
+      }
+
+      if (path.startsWith('/api/notify')) {
+        return notifyHandler(request, env);
       }
 
       // Bootstrap endpoints (auth middleware applied)

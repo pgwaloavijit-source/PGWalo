@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
+import { localIsoDate } from '../../utils/datetime';
 import { PaymentReceipt, BookingRequest } from '../../types';
 import {
   Home,
@@ -53,6 +54,8 @@ export const ResidentDashboard: React.FC = () => {
     setSelectedPGForDetail,
     properties,
     setRoleState,
+    openPublicCatalog,
+    openPropertyModal,
     invoices,
     recordPaymentForInvoice,
     initiateNoticePeriod,
@@ -63,7 +66,7 @@ export const ResidentDashboard: React.FC = () => {
   const isAllocated = Boolean(currentResident && currentResident.roomNumber);
 
   // Filter requests belonging to this user
-  const today = new Date().toISOString().split('T')[0];
+  const today = localIsoDate();
   const userEmail = currentUser?.email?.toLowerCase();
   const userPhone = currentUser?.phone?.replace(/\D/g, '');
   const userName = currentUser?.name?.toLowerCase();
@@ -226,11 +229,18 @@ export const ResidentDashboard: React.FC = () => {
     setActiveTab('stay');
   };
 
-  const openPropertyDetail = (propertyId: string) => {
+  const openPropertyDetail = (propertyId: string, intent: 'view' | 'book' = 'view') => {
     const prop = properties.find((p) => p.id === propertyId);
     if (prop) {
-      setSelectedPGForDetail(prop);
+      openPropertyModal(prop, intent);
+      return;
     }
+    openPublicCatalog();
+  };
+
+  const browseListings = () => {
+    setSelectedPGForDetail(null);
+    openPublicCatalog();
   };
 
   return (
@@ -312,7 +322,7 @@ export const ResidentDashboard: React.FC = () => {
           <div className="flex items-center gap-2 flex-wrap">
             {!isAllocated && (
               <button
-                onClick={() => setRoleState('public')}
+                onClick={browseListings}
                 className="px-3.5 py-2 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold transition flex items-center gap-1.5 border border-blue-200"
               >
                 <Eye className="w-3.5 h-3.5" />
@@ -342,145 +352,49 @@ export const ResidentDashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* Main Navigation Tabs */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4 sm:pt-6">
-        <div className="bg-white rounded-2xl p-1.5 border border-slate-200 shadow-2xs flex items-center gap-1.5 overflow-x-auto mb-6 text-xs font-bold scroll-smooth">
-          {/* TAB 1: VISITS */}
-          <button
-            id="tab-btn-visits"
-            onClick={() => setActiveTab('visits')}
-            className={`px-3.5 py-2.5 rounded-xl flex items-center gap-1.5 whitespace-nowrap shrink-0 transition min-h-[44px] ${
-              activeTab === 'visits'
-                ? 'bg-blue-600 text-white shadow-xs'
-                : 'text-slate-600 hover:text-blue-600 hover:bg-slate-50'
-            }`}
-          >
-            <Calendar className="w-3.5 h-3.5" />
-            <span>My Scheduled Visits</span>
-            {upcomingVisits.length > 0 && (
-              <span
-                className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
-                  activeTab === 'visits' ? 'bg-white text-blue-600' : 'bg-blue-100 text-blue-700'
+      {/* Main section rail */}
+      <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 pt-4 sm:pt-6 flex gap-3 lg:gap-6 items-start">
+        <nav
+          aria-label="Resident sections"
+          className="sticky top-20 z-10 shrink-0 w-[4.85rem] sm:w-56 lg:w-64 max-h-[calc(100dvh-7rem)] overflow-y-auto rounded-3xl bg-white border border-slate-200 shadow-2xs p-1.5 sm:p-2"
+        >
+          {(
+            [
+              { id: 'visits' as const, label: 'Scheduled visits', Icon: Calendar, count: upcomingVisits.length, locked: false },
+              { id: 'bookings' as const, label: 'Room applications', Icon: Bed, count: pendingBookings.length, locked: false },
+              { id: 'stay' as const, label: 'My stay & room', Icon: Home, count: 0, locked: !isAllocated },
+              { id: 'rent' as const, label: 'Rent & receipts', Icon: CreditCard, count: 0, locked: !isAllocated },
+              { id: 'attendance' as const, label: 'Gate attendance', Icon: Clock, count: 0, locked: !isAllocated },
+              { id: 'menu' as const, label: 'Mess menu', Icon: Utensils, count: 0, locked: !isAllocated },
+              { id: 'chat' as const, label: 'Manager chat', Icon: MessageSquare, count: 0, locked: !isAllocated },
+              { id: 'tickets' as const, label: 'Maintenance', Icon: Wrench, count: 0, locked: !isAllocated },
+            ]
+          ).map((item) => {
+            const active = activeTab === item.id;
+            return (
+              <button
+                key={item.id}
+                id={`tab-btn-${item.id}`}
+                onClick={() => setActiveTab(item.id)}
+                className={`w-full mb-1 last:mb-0 rounded-2xl flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2 px-1.5 py-2.5 sm:px-3 sm:py-2.5 text-center sm:text-left transition min-h-[52px] sm:min-h-[44px] ${
+                  active ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-50 hover:text-blue-700'
                 }`}
               >
-                {upcomingVisits.length}
-              </span>
-            )}
-          </button>
-
-          {/* TAB 2: ROOM BOOKINGS */}
-          <button
-            id="tab-btn-bookings"
-            onClick={() => setActiveTab('bookings')}
-            className={`px-3.5 py-2.5 rounded-xl flex items-center gap-1.5 whitespace-nowrap shrink-0 transition min-h-[44px] ${
-              activeTab === 'bookings'
-                ? 'bg-blue-600 text-white shadow-xs'
-                : 'text-slate-600 hover:text-blue-600 hover:bg-slate-50'
-            }`}
-          >
-            <Bed className="w-3.5 h-3.5" />
-            <span>Room Booking Applications</span>
-            {pendingBookings.length > 0 && (
-              <span
-                className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
-                  activeTab === 'bookings' ? 'bg-white text-amber-700' : 'bg-amber-100 text-amber-800'
-                }`}
-              >
-                {pendingBookings.length}
-              </span>
-            )}
-          </button>
-
-          {/* TAB 3: MY STAY / ROOM */}
-          <button
-            id="tab-btn-stay"
-            onClick={() => setActiveTab('stay')}
-            className={`px-3.5 py-2.5 rounded-xl flex items-center gap-1.5 whitespace-nowrap shrink-0 transition min-h-[44px] ${
-              activeTab === 'stay'
-                ? 'bg-blue-600 text-white shadow-xs'
-                : 'text-slate-600 hover:text-blue-600 hover:bg-slate-50'
-            }`}
-          >
-            <Home className="w-3.5 h-3.5" />
-            <span>My Stay & Room</span>
-            {!isAllocated && <Lock className="w-3 h-3 text-slate-400" />}
-          </button>
-
-          {/* TAB 4: RENT DUES */}
-          <button
-            id="tab-btn-rent"
-            onClick={() => setActiveTab('rent')}
-            className={`px-3.5 py-2.5 rounded-xl flex items-center gap-1.5 whitespace-nowrap shrink-0 transition min-h-[44px] ${
-              activeTab === 'rent'
-                ? 'bg-blue-600 text-white shadow-xs'
-                : 'text-slate-600 hover:text-blue-600 hover:bg-slate-50'
-            }`}
-          >
-            <CreditCard className="w-3.5 h-3.5" />
-            <span>Rent Dues & Receipts</span>
-            {!isAllocated && <Lock className="w-3 h-3 text-slate-400" />}
-          </button>
-
-          {/* TAB 5: ATTENDANCE */}
-          <button
-            id="tab-btn-attendance"
-            onClick={() => setActiveTab('attendance')}
-            className={`px-3.5 py-2.5 rounded-xl flex items-center gap-1.5 whitespace-nowrap shrink-0 transition min-h-[44px] ${
-              activeTab === 'attendance'
-                ? 'bg-blue-600 text-white shadow-xs'
-                : 'text-slate-600 hover:text-blue-600 hover:bg-slate-50'
-            }`}
-          >
-            <Clock className="w-3.5 h-3.5" />
-            <span>Gate Attendance</span>
-            {!isAllocated && <Lock className="w-3 h-3 text-slate-400" />}
-          </button>
-
-          {/* TAB 6: MESS MENU */}
-          <button
-            id="tab-btn-menu"
-            onClick={() => setActiveTab('menu')}
-            className={`px-3.5 py-2.5 rounded-xl flex items-center gap-1.5 whitespace-nowrap shrink-0 transition min-h-[44px] ${
-              activeTab === 'menu'
-                ? 'bg-blue-600 text-white shadow-xs'
-                : 'text-slate-600 hover:text-blue-600 hover:bg-slate-50'
-            }`}
-          >
-            <Utensils className="w-3.5 h-3.5" />
-            <span>Mess Food Menu</span>
-            {!isAllocated && <Lock className="w-3 h-3 text-slate-400" />}
-          </button>
-
-          {/* TAB 7: MANAGER CHAT */}
-          <button
-            id="tab-btn-chat"
-            onClick={() => setActiveTab('chat')}
-            className={`px-3.5 py-2.5 rounded-xl flex items-center gap-1.5 whitespace-nowrap shrink-0 transition min-h-[44px] ${
-              activeTab === 'chat'
-                ? 'bg-blue-600 text-white shadow-xs'
-                : 'text-slate-600 hover:text-blue-600 hover:bg-slate-50'
-            }`}
-          >
-            <MessageSquare className="w-3.5 h-3.5" />
-            <span>Manager Chat</span>
-            {!isAllocated && <Lock className="w-3 h-3 text-slate-400" />}
-          </button>
-
-          {/* TAB 8: MAINTENANCE */}
-          <button
-            id="tab-btn-tickets"
-            onClick={() => setActiveTab('tickets')}
-            className={`px-3.5 py-2.5 rounded-xl flex items-center gap-1.5 whitespace-nowrap shrink-0 transition min-h-[44px] ${
-              activeTab === 'tickets'
-                ? 'bg-blue-600 text-white shadow-xs'
-                : 'text-slate-600 hover:text-blue-600 hover:bg-slate-50'
-            }`}
-          >
-            <Wrench className="w-3.5 h-3.5" />
-            <span>Maintenance</span>
-            {!isAllocated && <Lock className="w-3 h-3 text-slate-400" />}
-          </button>
-        </div>
+                <item.Icon className="w-4 h-4 mx-auto sm:mx-0 shrink-0" />
+                <span className="text-[10px] sm:text-xs font-bold leading-tight">{item.label}</span>
+                <span className="sm:ml-auto flex items-center justify-center gap-1">
+                  {item.count > 0 && (
+                    <span className={`px-1.5 rounded-full text-[10px] font-black ${active ? 'bg-white text-blue-600' : 'bg-blue-100 text-blue-700'}`}>
+                      {item.count}
+                    </span>
+                  )}
+                  {item.locked && <Lock className={`w-3 h-3 ${active ? 'text-blue-100' : 'text-slate-400'}`} />}
+                </span>
+              </button>
+            );
+          })}
+        </nav>
+        <div className="flex-1 min-w-0 mb-6">
 
         {/* ============================================================ */}
         {/* TAB: MY SCHEDULED VISITS (Upcoming & Past)                   */}
@@ -505,7 +419,7 @@ export const ResidentDashboard: React.FC = () => {
 
                 <div className="flex items-center gap-2">
                   <button
-                    onClick={() => setRoleState('public')}
+                    onClick={browseListings}
                     className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-xs"
                   >
                     <Eye className="w-3.5 h-3.5" />
@@ -569,7 +483,7 @@ export const ResidentDashboard: React.FC = () => {
                       Explore verified PGs across your preferred city, pick a convenient time slot, and tour the property for free.
                     </p>
                     <button
-                      onClick={() => setRoleState('public')}
+                      onClick={browseListings}
                       className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition shadow-xs inline-flex items-center gap-1.5"
                     >
                       <Eye className="w-3.5 h-3.5" />
@@ -668,7 +582,7 @@ export const ResidentDashboard: React.FC = () => {
                         </div>
 
                         <button
-                          onClick={() => openPropertyDetail(visit.propertyId)}
+                          onClick={() => openPropertyDetail(visit.propertyId, 'book')}
                           className="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition flex items-center gap-1 shadow-2xs"
                         >
                           <span>View Property & Book Bed</span>
@@ -754,7 +668,7 @@ export const ResidentDashboard: React.FC = () => {
                 </div>
 
                 <button
-                  onClick={() => setRoleState('public')}
+                  onClick={browseListings}
                   className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-xs"
                 >
                   <Eye className="w-3.5 h-3.5" />
@@ -775,7 +689,7 @@ export const ResidentDashboard: React.FC = () => {
                   Found a PG you like? Submit a stay application for your desired sharing type and move-in date.
                 </p>
                 <button
-                  onClick={() => setRoleState('public')}
+                  onClick={browseListings}
                   className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition shadow-xs inline-flex items-center gap-1.5"
                 >
                   <Eye className="w-3.5 h-3.5" />
@@ -970,7 +884,7 @@ export const ResidentDashboard: React.FC = () => {
                       View My Scheduled Tour
                     </button>
                     <button
-                      onClick={() => openPropertyDetail(upcomingVisits[0].propertyId)}
+                      onClick={() => openPropertyDetail(upcomingVisits[0].propertyId, 'book')}
                       className="w-full sm:w-auto px-4 py-2.5 rounded-xl border border-slate-200 hover:bg-slate-100 text-slate-700 text-xs font-bold transition"
                     >
                       Apply for Bed Now
@@ -979,7 +893,7 @@ export const ResidentDashboard: React.FC = () => {
                 ) : (
                   <>
                     <button
-                      onClick={() => setRoleState('public')}
+                      onClick={browseListings}
                       className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition shadow-xs flex items-center justify-center gap-1.5"
                     >
                       <Eye className="w-4 h-4" />
@@ -1525,7 +1439,7 @@ export const ResidentDashboard: React.FC = () => {
                   ))}
                 </div>
 
-                <div className="px-4 py-2 border-t border-slate-100 flex items-center gap-1.5 overflow-x-auto text-[11px]">
+                <div className="px-4 py-2 border-t border-slate-100 grid grid-cols-3 gap-1.5 text-[11px]">
                   <button
                     onClick={() => setChatInput('Hi Rajesh ji, when is dinner served today?')}
                     className="px-2.5 py-1 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 whitespace-nowrap"
@@ -1667,6 +1581,7 @@ export const ResidentDashboard: React.FC = () => {
             )}
           </>
         )}
+        </div>
       </div>
 
       {/* Online Rent Payment Modal */}

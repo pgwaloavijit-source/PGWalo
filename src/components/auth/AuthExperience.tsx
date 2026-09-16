@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { useApp } from '../../context/AppContext';
 import { UserRole } from '../../types';
 import { isProductionApiEnabled } from '../../services/productionApi';
-import { loginWithWorkers, registerWithWorkers } from '../../services/auth';
+import { loginWithWorkers, registerWithWorkers, sendAuthOtp, verifyAuthOtp } from '../../services/auth';
 import {
   trackAuthEvent,
   getLastAuthUser,
@@ -15,7 +15,7 @@ import {
   CheckCircle2, AlertCircle, Sparkles, LogIn,
 } from 'lucide-react';
 
-type Step = 'path' | 'login' | 'signup' | 'pin';
+type Step = 'path' | 'login' | 'signup' | 'otp' | 'pin';
 
 const PATH_CONFIG: Record<AuthPath, {
   label: string;
@@ -31,7 +31,7 @@ const PATH_CONFIG: Record<AuthPath, {
     icon: Search,
     role: 'public',
     gradient: 'from-sky-500 to-blue-600',
-    signupFields: ['name', 'phone'],
+    signupFields: ['name', 'phone', 'email'],
   },
   resident: {
     label: 'Resident',
@@ -39,7 +39,7 @@ const PATH_CONFIG: Record<AuthPath, {
     icon: Home,
     role: 'resident',
     gradient: 'from-emerald-500 to-teal-600',
-    signupFields: ['name', 'phone'],
+    signupFields: ['name', 'phone', 'email'],
   },
   owner: {
     label: 'PG Owner',
@@ -51,11 +51,11 @@ const PATH_CONFIG: Record<AuthPath, {
   },
   staff: {
     label: 'Staff',
-    sub: 'Join with invite code',
+    sub: 'Use the mobile + PIN from your owner',
     icon: ShieldCheck,
     role: 'staff',
     gradient: 'from-amber-500 to-orange-600',
-    signupFields: ['invite', 'name', 'phone'],
+    signupFields: ['name', 'phone', 'email'],
   },
 };
 
@@ -129,7 +129,9 @@ export const AuthExperience: React.FC = () => {
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
-  const [invite, setInvite] = useState('');
+  const [otpId, setOtpId] = useState('');
+  const [verificationId, setVerificationId] = useState('');
+  const [otpHint, setOtpHint] = useState('');
   const [pin, setPin] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -171,17 +173,45 @@ export const AuthExperience: React.FC = () => {
     reset();
   };
 
-  const finishAuth = (user: { id: string; role: UserRole; name?: string; email?: string; phone?: string }) => {
+  const finishAuth = (user: { id: string; role: UserRole; name?: string; email?: string; phone?: string; isProfileCompleted?: boolean; staffRole?: string; organizationId?: string }) => {
     setSuccess(true);
     if (useCloud) {
       applyApiSession(user);
       saveLastAuthUser(user.phone || user.email || '', user.name || '', path);
     }
     setRoleState(user.role);
-    setTimeout(() => {
-      runPendingAuthAction();
-      close();
-    }, 600);
+  };
+
+  const requestOtp = async () => {
+    if (!name.trim()) { setError('Enter your name'); return; }
+    if (!/^[6-9]\d{9}$/.test(phone)) { setError('Enter a valid 10-digit mobile'); return; }
+    if (!email.includes('@')) { setError('Email is required so we can send a verification code'); return; }
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await sendAuthOtp(email, phone, 'signup');
+      if (!res.success) { setError(res.error || 'Could not send code'); return; }
+      setOtpId(res.otpId);
+      setOtpHint(res.fallbackCode ? `Code: ${res.fallbackCode}` : res.message || '');
+      setStep('otp');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const confirmOtp = async () => {
+    if (pin.length < 6) { setError('Enter the 6-digit email code'); return; }
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await verifyAuthOtp(otpId, pin);
+      if (!res.success) { setError(res.error || 'Incorrect code'); return; }
+      setVerificationId(res.verificationId);
+      setPin('');
+      setStep('pin');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const submitLogin = async () => {
@@ -190,7 +220,7 @@ export const AuthExperience: React.FC = () => {
     setError(null);
     try {
       if (useCloud) {
-        const id = phone.length >= 10 ? { phone } : email ? { email } : { phone };
+        const id = phone.length >= 10 ? { phone } : { email };
         const res = await loginWithWorkers(id, pin, meta);
         if (!res.success || !res.user) { setError(res.error || 'Sign in failed'); return; }
         finishAuth(res.user);
@@ -206,12 +236,8 @@ export const AuthExperience: React.FC = () => {
   };
 
   const submitSignup = async () => {
-    if (!name.trim()) { setError('Enter your name'); return; }
-    if (phone.replace(/\D/g, '').length < 10) { setError('Enter valid 10-digit mobile'); return; }
-    if (path === 'staff' && !invite.trim()) { setError('Enter staff invite code'); return; }
-    if (path === 'owner' && !email.includes('@')) { setError('Enter business email'); return; }
-    if (pin.length < 6) { setStep('pin'); return; }
-
+    if (pin.length < 6) { setError('Choose a 6-digit login PIN'); return; }
+    if (!verificationId) { setError('Verify the email code first'); return; }
     setLoading(true);
     setError(null);
     try {
@@ -219,21 +245,20 @@ export const AuthExperience: React.FC = () => {
         const res = await registerWithWorkers({
           name: name.trim(),
           phone,
-          email: email || undefined,
+          email,
           role: PATH_CONFIG[path].role,
           password: pin,
-          inviteCode: invite || undefined,
+          verificationId,
         }, meta);
         if (!res.success || !res.user) { setError(res.error || 'Signup failed'); return; }
         finishAuth(res.user);
       } else {
         const res = register({
-          name, email: email || `${phone}@pgwalo.app`, phone,
+          name, email, phone,
           role: PATH_CONFIG[path].role, password: pin,
         });
         if (!res.success) { setError(res.message || 'Signup failed'); return; }
         setAuthModalOpen(false);
-        runPendingAuthAction();
       }
     } finally {
       setLoading(false);
@@ -263,7 +288,7 @@ export const AuthExperience: React.FC = () => {
         <div className={`bg-gradient-to-r ${cfg.gradient} text-white px-5 pt-safe pb-5 shrink-0`}>
           <div className="flex items-center justify-between pt-4">
             {step !== 'path' ? (
-              <button type="button" onClick={() => setStep(step === 'pin' ? 'signup' : 'path')} className="p-2 -ml-2 rounded-full hover:bg-white/10">
+              <button type="button" onClick={() => setStep(step === 'pin' ? 'otp' : step === 'otp' ? 'signup' : 'path')} className="p-2 -ml-2 rounded-full hover:bg-white/10">
                 <ArrowLeft className="w-5 h-5" />
               </button>
             ) : <div className="w-9" />}
@@ -277,7 +302,7 @@ export const AuthExperience: React.FC = () => {
             </p>
           )}
           <h2 className="text-xl font-bold mt-2">
-            {step === 'path' ? 'Continue as…' : step === 'login' ? 'Welcome back' : step === 'pin' ? 'Set your PIN' : `Join as ${cfg.label}`}
+            {step === 'path' ? 'Continue as…' : step === 'login' ? 'Welcome back' : step === 'otp' ? 'Verify email' : step === 'pin' ? 'Set your login PIN' : `Join as ${cfg.label}`}
           </h2>
           <p className="text-white/80 text-sm mt-0.5">
             {step === 'path' ? 'One tap — we’ll show only what you need' : cfg.sub}
@@ -299,7 +324,7 @@ export const AuthExperience: React.FC = () => {
           {/* Step: Path picker */}
           {step === 'path' && (
             <div className="grid grid-cols-2 gap-3">
-              {(Object.keys(PATH_CONFIG) as AuthPath[]).map((key) => {
+              {(['explorer', 'resident', 'owner'] as AuthPath[]).map((key) => {
                 const c = PATH_CONFIG[key];
                 const Icon = c.icon;
                 return (
@@ -375,6 +400,7 @@ export const AuthExperience: React.FC = () => {
               >
                 <LogIn className="w-4 h-4" /> {loading ? 'Signing in…' : 'Sign in'}
               </button>
+              <p className="text-[11px] text-center text-slate-500">Staff: use the mobile + PIN your owner shared.</p>
               <button type="button" onClick={() => { setAuthModalMode('register'); setStep('signup'); setPin(''); }} className="w-full text-sm text-blue-600 font-semibold">
                 New here? Create account
               </button>
@@ -384,24 +410,32 @@ export const AuthExperience: React.FC = () => {
           {/* Step: Signup fields */}
           {step === 'signup' && (
             <div className="space-y-3">
-              {cfg.signupFields.includes('invite') && (
-                <input placeholder="Staff invite code (e.g. STAFF-2026)" value={invite} onChange={(e) => setInvite(e.target.value.toUpperCase())}
-                  className="w-full px-4 py-3 rounded-2xl border border-slate-200 uppercase tracking-widest font-mono text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
-              )}
               <input placeholder="Your name" value={name} onChange={(e) => setName(e.target.value)}
                 className="w-full px-4 py-3.5 rounded-2xl border border-slate-200 text-base focus:ring-2 focus:ring-blue-500 outline-none" />
               <input type="tel" inputMode="numeric" placeholder="Mobile number" value={phone}
                 onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
                 className="w-full px-4 py-3.5 rounded-2xl border border-slate-200 text-lg focus:ring-2 focus:ring-blue-500 outline-none" />
               {cfg.signupFields.includes('email') && (
-                <input type="email" placeholder="Business email" value={email} onChange={(e) => setEmail(e.target.value)}
+                <input type="email" placeholder="Email (we send a verification code here)" value={email} onChange={(e) => setEmail(e.target.value)}
                   className="w-full px-4 py-3 rounded-2xl border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none" />
               )}
-              <button type="button" onClick={() => setStep('pin')} className="w-full py-4 rounded-2xl bg-blue-600 text-white font-bold">
-                Continue → Set PIN
+              <button type="button" onClick={requestOtp} disabled={loading} className="w-full py-4 rounded-2xl bg-blue-600 text-white font-bold">
+                {loading ? 'Sending code…' : 'Send verification code'}
               </button>
               <button type="button" onClick={() => { setAuthModalMode('login'); setStep('login'); }} className="w-full text-sm text-slate-500">
                 Already have an account? Sign in
+              </button>
+            </div>
+          )}
+
+          {step === 'otp' && (
+            <div className="space-y-4">
+              <p className="text-sm text-slate-600 text-center">Enter the 6-digit code sent to {email}</p>
+              {otpHint && <p className="text-xs text-center text-blue-700 bg-blue-50 rounded-xl p-2">{otpHint}</p>}
+              <PinPad value={pin} onChange={setPin} />
+              <button type="button" disabled={loading || pin.length < 6} onClick={confirmOtp}
+                className="w-full py-4 rounded-2xl bg-blue-600 text-white font-bold disabled:opacity-50">
+                {loading ? 'Checking…' : 'Verify code'}
               </button>
             </div>
           )}

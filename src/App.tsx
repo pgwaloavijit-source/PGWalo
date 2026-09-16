@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { AppProvider, useApp } from './context/AppContext';
 import { Navbar } from './components/common/Navbar';
 import { Footer } from './components/common/Footer';
@@ -9,6 +9,7 @@ import { SearchPage } from './components/public/SearchPage';
 import { PGDetailModal } from './components/public/PGDetailModal';
 import { AuthExperience } from './components/auth/AuthExperience';
 import { ProfileCompletionModal } from './components/auth/ProfileCompletionModal';
+import { AccountDetailsPage } from './components/auth/AccountDetailsPage';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { OwnerDashboard } from './components/owner/OwnerDashboard';
 import { ResidentDashboard } from './components/resident/ResidentDashboard';
@@ -20,7 +21,18 @@ import { PublicSearchCriteria } from './types';
 import { useStandalonePWA } from './hooks/useStandalonePWA';
 
 const MainAppContent: React.FC = () => {
-  const { role, setRole, currentUser, properties } = useApp();
+  const {
+    role,
+    setRole,
+    currentUser,
+    properties,
+    profileModalOpen,
+    selectedPGForDetail,
+    setSelectedPGForDetail,
+    propertyModalIntent,
+    shellIntent,
+    clearShellIntent,
+  } = useApp();
   const isStandalone = useStandalonePWA();
 
   const [currentTab, setCurrentTab] = useState<string>('landing');
@@ -29,14 +41,33 @@ const MainAppContent: React.FC = () => {
   const [showNotifications, setShowNotifications] = useState<boolean>(false);
   const [searchParams, setSearchParams] = useState<PublicSearchCriteria>({});
 
-  const selectedProperty = properties.find((p) => p.id === selectedPropertyId);
+  useEffect(() => {
+    if (!shellIntent) return;
+    setCurrentTab(shellIntent);
+    clearShellIntent();
+  }, [shellIntent, clearShellIntent]);
+
+  useEffect(() => {
+    if (!currentUser || profileModalOpen) return;
+    if (currentTab === 'profile' || currentTab === 'search' || currentTab === 'landing') return;
+    if (currentUser.role === 'owner') setCurrentTab('owner');
+    else if (currentUser.role === 'resident') setCurrentTab('resident');
+    else if (currentUser.role === 'staff') setCurrentTab('staff');
+    else if (currentUser.role === 'admin') setCurrentTab('admin');
+    else if (currentUser.role === 'warden') setCurrentTab('warden');
+    else if (currentUser.role === 'accountant') setCurrentTab('accountant');
+  }, [currentUser?.id, currentUser?.role, profileModalOpen]);
+
+  const selectedProperty = selectedPGForDetail || properties.find((p) => p.id === selectedPropertyId);
 
   const handleSelectPG = (pgId: string) => {
+    setSelectedPGForDetail(null);
     setSelectedPropertyId(pgId);
   };
 
   const handleClosePGModal = () => {
     setSelectedPropertyId(null);
+    setSelectedPGForDetail(null);
   };
 
   const handleExploreWithParams = (criteria?: PublicSearchCriteria) => {
@@ -50,6 +81,7 @@ const MainAppContent: React.FC = () => {
   };
 
   const isDashboardView =
+    currentTab === 'profile' ||
     (role === 'admin' || currentTab === 'admin') ||
     (role === 'warden' || currentTab === 'warden') ||
     (role === 'accountant' || currentTab === 'accountant') ||
@@ -76,10 +108,14 @@ const MainAppContent: React.FC = () => {
         setShowNotifications={setShowNotifications}
       />
 
-      <main
-        className="flex-1 overflow-y-auto overscroll-y-contain pb-[calc(var(--app-tab-bar-height)+var(--safe-bottom))] md:pb-0"
-      >
-        {role === 'admin' || currentTab === 'admin' ? (
+      <main className="flex-1 pb-[calc(var(--app-tab-bar-height)+var(--safe-bottom))] md:pb-0">
+        {currentTab === 'profile' ? (
+          <AccountDetailsPage />
+        ) : currentTab === 'search' ? (
+          <SearchPage onSelectPG={handleSelectPG} initialCriteria={searchParams} />
+        ) : currentTab === 'landing' ? (
+          <LandingPage onExploreClick={handleExploreWithParams} onSelectPG={handleSelectPG} />
+        ) : role === 'admin' || currentTab === 'admin' ? (
           <AdminDashboard />
         ) : role === 'warden' || currentTab === 'warden' ? (
           <WardenDashboard />
@@ -87,12 +123,10 @@ const MainAppContent: React.FC = () => {
           <AccountantDashboard />
         ) : role === 'owner' || (currentUser?.role === 'owner' && currentTab === 'owner') ? (
           <OwnerDashboard />
-        ) : role === 'resident' || (currentUser?.role === 'resident' && currentTab === 'resident') ? (
+        ) : role === 'resident' || currentTab === 'resident' ? (
           <ResidentDashboard />
         ) : role === 'staff' || (currentUser?.role === 'staff' && currentTab === 'staff') ? (
           <StaffDashboard />
-        ) : currentTab === 'search' ? (
-          <SearchPage onSelectPG={handleSelectPG} initialCriteria={searchParams} />
         ) : (
           <LandingPage onExploreClick={handleExploreWithParams} onSelectPG={handleSelectPG} />
         )}
@@ -107,6 +141,7 @@ const MainAppContent: React.FC = () => {
       {selectedProperty && (
         <PGDetailModal
           property={selectedProperty}
+          intent={propertyModalIntent}
           onClose={handleClosePGModal}
           onGoToDashboard={() => {
             setRole('resident');

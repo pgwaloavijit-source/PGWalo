@@ -47,17 +47,20 @@ export async function getAuthAnalytics(env: Env, organizationId: string, role: s
     GROUP BY event_type ORDER BY count DESC LIMIT 20
   `).bind(...bind).all();
 
+  const extra = isAdmin ? 'WHERE created_at >= datetime(\'now\', \'-30 days\')' : 'AND created_at >= datetime(\'now\', \'-30 days\')';
+  const pathFilter = isAdmin ? 'WHERE auth_path IS NOT NULL' : 'AND auth_path IS NOT NULL';
+
   const daily = await env.DB.prepare(`
     SELECT date(created_at) as day, event_type, COUNT(*) as count
     FROM auth_events ${orgFilter}
-    AND created_at >= datetime('now', '-30 days')
+    ${extra}
     GROUP BY day, event_type ORDER BY day DESC LIMIT 100
   `).bind(...bind).all();
 
   const paths = await env.DB.prepare(`
     SELECT auth_path, intent, COUNT(*) as count
     FROM auth_events ${orgFilter}
-    AND auth_path IS NOT NULL
+    ${pathFilter}
     GROUP BY auth_path, intent ORDER BY count DESC LIMIT 20
   `).bind(...bind).all();
 

@@ -26,10 +26,12 @@ binding = "DB"
 database_name = "pgwalo-db"
 database_id = "44fa0ef7-cc48-44fc-89c6-c41b561c66d4"
 
-# Enable after activating R2 in Cloudflare Dashboard: wrangler r2 bucket create pgwalo-media
-# [[r2_buckets]]
-# binding = "MEDIA"
-# bucket_name = "pgwalo-media"
+[[r2_buckets]]
+binding = "MEDIA"
+bucket_name = "pgwalo-media"
+
+[ai]
+binding = "AI"
 
 [[kv_namespaces]]
 binding = "CACHE"
@@ -39,3 +41,4 @@ id = "09667c32009c447a949ccfd45f6f247f"
 enabled = true
 
 # wrangler secret put JWT_SECRET
+# optional: wrangler secret put GOOGLE_MAPS_SERVER_KEY  (server-side geocode only)

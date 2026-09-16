@@ -12,8 +12,17 @@ export interface AuthResponse {
     email?: string;
     phone?: string;
     organizationId?: string;
+    isProfileCompleted?: boolean;
+    staffRole?: string;
   };
   error?: string;
+  message?: string;
+  otpId?: string;
+  verificationId?: string;
+  fallbackCode?: string;
+  delivered?: boolean;
+  staffId?: string;
+  userId?: string;
 }
 
 const apiUrl = (path: string) => {
@@ -61,7 +70,7 @@ export async function registerWithWorkers(
     phone: string;
     role: UserRole;
     password?: string;
-    inviteCode?: string;
+    verificationId?: string;
   },
   meta?: AuthOpenMeta
 ): Promise<AuthResponse> {
@@ -82,6 +91,92 @@ export async function registerWithWorkers(
   } catch {
     return { success: false, error: 'Network error during registration' };
   }
+}
+
+export async function sendAuthOtp(email: string, phone: string, purpose: 'signup' | 'login' = 'signup') {
+  const response = await fetch(apiUrl('/api/auth/otp/send'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, phone, purpose }),
+  });
+  return response.json();
+}
+
+export async function verifyAuthOtp(otpId: string, code: string) {
+  const response = await fetch(apiUrl('/api/auth/otp/verify'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ otpId, code }),
+  });
+  return response.json();
+}
+
+export async function fetchMeWithWorkers() {
+  const token = getAuthToken();
+  const response = await fetch(apiUrl('/api/auth/me'), {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return response.json();
+}
+
+export async function saveProfileWithWorkers(profile: Record<string, unknown>) {
+  const token = getAuthToken();
+  const response = await fetch(apiUrl('/api/auth/profile'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify(profile),
+  });
+  const data = await response.json();
+  if (data.token) setAuthToken(data.token);
+  return data;
+}
+
+export async function notifyVisitWithWorkers(payload: {
+  propertyId?: string;
+  propertyName?: string;
+  ownerEmail?: string;
+  ownerName?: string;
+  visitorName?: string;
+  visitorEmail?: string;
+  visitorPhone?: string;
+  visitorProfession?: string;
+  visitDate?: string;
+  visitSlot?: string;
+  message?: string;
+  referenceId?: string;
+}) {
+  const token = getAuthToken();
+  const response = await fetch(apiUrl('/api/notify/visit'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload),
+  });
+  return response.json();
+}
+
+export async function createStaffWithWorkers(payload: {
+  name: string;
+  phone: string;
+  email?: string;
+  staffRole: string;
+  pin: string;
+  propertyId?: string;
+  shift?: string;
+}) {
+  const token = getAuthToken();
+  if (!token) {
+    return { success: false, error: 'Sign in again as the owner to create staff logins.' };
+  }
+  const response = await fetch(apiUrl('/api/auth/staff'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    return { success: false, error: data.error || 'Could not create staff login.' };
+  }
+  return data;
 }
 
 export function logoutWorkers(): void {

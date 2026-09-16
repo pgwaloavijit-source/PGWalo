@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Camera, Upload, CheckCircle, AlertCircle, RefreshCw, Sparkles } from 'lucide-react';
 import { OwnerListingStep4, PropertyPhoto, PhotoCategory } from '../../../types';
+import { normalizeListingPhoto } from '../../../utils/photoEnhance';
+import { uploadListingPhoto } from '../../../services/media';
 
 interface Step4PhotosProps {
   data: OwnerListingStep4;
@@ -40,13 +42,21 @@ const Step4Photos: React.FC<Step4PhotosProps> = ({ data, onDataChange, onValidat
     if (!files) return;
 
     Array.from(files).forEach((file) => {
-      const reader = new FileReader();
-      reader.onload = (e) => {
+      void (async () => {
+        const normalized = await normalizeListingPhoto(file);
+        let url = normalized.dataUrl;
+        try {
+          const uploaded = await uploadListingPhoto(normalized.blob, selectedCategory);
+          if (uploaded.url) url = uploaded.url;
+          else if (uploaded.dataUrl) url = uploaded.dataUrl;
+        } catch {
+          /* keep normalized photo */
+        }
         const newPhoto: PropertyPhoto = {
           id: `photo-${Date.now()}-${Math.random()}`,
-          url: e.target?.result as string,
+          url,
           category: selectedCategory,
-          qualityScore: Math.floor(Math.random() * 20) + 80, // Simulated AI score
+          qualityScore: 88,
           aiAnalysis: {
             sharpness: true,
             lighting: true,
@@ -57,10 +67,7 @@ const Step4Photos: React.FC<Step4PhotosProps> = ({ data, onDataChange, onValidat
           uploadDate: new Date().toISOString(),
         };
         onDataChange({ ...data, photos: [...data.photos, newPhoto] });
-      };
-      if (file instanceof Blob) {
-        reader.readAsDataURL(file);
-      }
+      })();
     });
   };
 

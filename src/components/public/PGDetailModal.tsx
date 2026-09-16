@@ -1,6 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Property, RoomSharingType, PendingCustomerAction } from '../../types';
 import { useApp } from '../../context/AppContext';
+import { defaultVisitDate, defaultVisitSlot, availableVisitSlots, localIsoDate, VisitSlotId } from '../../utils/datetime';
+import { visitedPropertyIds, activeBookingForProperty } from '../../utils/userBookings';
+import { ListingImage } from '../common/ListingImage';
+import { osmEmbedUrl } from '../../services/geo';
 import { INITIAL_AMENITIES } from '../../mockData';
 import {
   X,
@@ -28,18 +32,22 @@ import {
 
 export const PGDetailModal: React.FC<{
   property: Property;
+  intent?: 'view' | 'book';
   onClose: () => void;
   onGoToDashboard?: () => void;
-}> = ({ property, onClose, onGoToDashboard }) => {
+}> = ({ property, intent = 'view', onClose, onGoToDashboard }) => {
   const {
     currentUser,
     mealPlan,
     confirmDirectAction,
     setPendingAction,
-    openAuthModal,
+    requireAuth,
+    setProfileModalOpen,
     confirmedAction,
     setConfirmedAction,
     setRole,
+    openAuthModal,
+    bookingRequests,
   } = useApp();
 
   const [activeImageIndex, setActiveImageIndex] = useState(0);
@@ -58,9 +66,9 @@ export const PGDetailModal: React.FC<{
   const [email, setEmail] = useState(currentUser?.email || '');
   const [phone, setPhone] = useState(currentUser?.phone || '');
   const [selectedRoom, setSelectedRoom] = useState<RoomSharingType>(property.rooms[0]?.type || 'Double');
-  const [moveInDate, setMoveInDate] = useState('2026-09-15');
-  const [visitDate, setVisitDate] = useState('2026-09-08');
-  const [visitTimeSlot, setVisitTimeSlot] = useState<'Morning (10:00 AM - 12:00 PM)' | 'Afternoon (2:00 PM - 4:00 PM)' | 'Evening (5:00 PM - 7:00 PM)'>('Morning (10:00 AM - 12:00 PM)');
+  const [moveInDate, setMoveInDate] = useState(localIsoDate());
+  const [visitDate, setVisitDate] = useState(defaultVisitDate());
+  const [visitTimeSlot, setVisitTimeSlot] = useState<VisitSlotId>(defaultVisitSlot(defaultVisitDate()));
   const [occupancyType, setOccupancyType] = useState<'Working Professional' | 'Student'>('Working Professional');
   const [message, setMessage] = useState('');
 
@@ -73,6 +81,18 @@ export const PGDetailModal: React.FC<{
     }
   }, [currentUser]);
 
+  useEffect(() => {
+    const slots = availableVisitSlots(visitDate);
+    if (!slots.length) {
+      const next = defaultVisitDate();
+      if (next !== visitDate) setVisitDate(next);
+      return;
+    }
+    if (!slots.some((s) => s.id === visitTimeSlot)) {
+      setVisitTimeSlot(slots[0].id);
+    }
+  }, [visitDate, visitTimeSlot]);
+
   // If confirmedAction matches this property from AppContext post-auth, show confirmation
   useEffect(() => {
     if (confirmedAction && confirmedAction.action.property.id === property.id) {
@@ -81,29 +101,86 @@ export const PGDetailModal: React.FC<{
     }
   }, [confirmedAction, property.id]);
 
+  const alreadyVisited = visitedPropertyIds(bookingRequests, currentUser).has(property.id);
+  const existingBooking = activeBookingForProperty(bookingRequests, currentUser, property.id);
+  const hideVisitCta = intent === 'book' || alreadyVisited;
+
+  useEffect(() => {
+    if (existingBooking) {
+      setActionType(null);
+      return;
+    }
+    if (intent === 'book' && currentUser?.isProfileCompleted) {
+      setActionType('booking');
+    } else if (intent !== 'book') {
+      setActionType(null);
+    }
+  }, [property.id, intent, currentUser?.isProfileCompleted, existingBooking?.id]);
+
   const images = property.galleryImages.length > 0 ? property.galleryImages : [property.coverImage];
 
-  const handleOpenAction = (type: 'visit' | 'booking') => {
-    setActionType(type);
-    if (!currentUser) {
-      // Prompt authentication, saving intent
-      setAuthPromptOpen(true);
+  const handleOpenAction = (type: 'visit' | 'booking', roomType?: RoomSharingType) => {
+    if (type === 'booking' && existingBooking) {
+      alert(
+        existingBooking.status === 'Approved'
+          ? 'You already have an approved stay at this PG.'
+          : 'You already have a booking request for this PG. You can apply again only if it is rejected.'
+      );
+      return;
+    }
+    const chosenRoom = roomType || selectedRoom;
+    if (roomType) setSelectedRoom(roomType);
+    const start = () => {
+      setActionType(type);
       setPendingAction({
         type,
         property,
-        roomType: selectedRoom,
+        roomType: chosenRoom,
         date: type === 'visit' ? visitDate : moveInDate,
         timeSlot: type === 'visit' ? visitTimeSlot : undefined,
         occupancyType,
         message,
       });
+    };
+
+    if (!currentUser) {
+      requireAuth(start, {
+        mode: 'register',
+        role: 'resident',
+        intent: type === 'visit' ? 'visit_pg' : 'book_pg',
+        path: 'resident',
+        propertyId: property.id,
+        source: 'pg_detail',
+      });
+      return;
     }
+    if (!currentUser.isProfileCompleted) {
+      start();
+      setProfileModalOpen(true);
+      return;
+    }
+    setActionType(type);
   };
 
   const handleActionSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!applicantName || !phone) {
       alert('Please provide your name and contact phone number.');
+      return;
+    }
+
+    if (actionType === 'visit') {
+      if (visitDate < localIsoDate()) {
+        alert('Visit date must be today or later.');
+        return;
+      }
+      if (!availableVisitSlots(visitDate).some((s) => s.id === visitTimeSlot)) {
+        alert('That time slot has already passed. Pick a later slot.');
+        return;
+      }
+    }
+    if (actionType === 'booking' && moveInDate < localIsoDate()) {
+      alert('Move-in date must be today or later.');
       return;
     }
 
@@ -118,6 +195,10 @@ export const PGDetailModal: React.FC<{
     };
 
     const result = confirmDirectAction(action);
+    if (!result.referenceId) {
+      alert(result.error || 'Could not complete this request.');
+      return;
+    }
     setConfirmationData({
       referenceId: result.referenceId,
       action,
@@ -152,6 +233,11 @@ export const PGDetailModal: React.FC<{
             >
               {property.gender} PG
             </span>
+            {alreadyVisited && (
+              <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800">
+                Already visited
+              </span>
+            )}
             {property.verified && (
               <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-100 text-blue-800 flex items-center gap-1">
                 <ShieldCheck className="w-3.5 h-3.5 text-blue-600" />
@@ -192,11 +278,10 @@ export const PGDetailModal: React.FC<{
           {/* Gallery Carousel */}
           <div>
             <div className="relative h-64 sm:h-80 rounded-2xl overflow-hidden bg-slate-100">
-              <img
+              <ListingImage
                 src={images[activeImageIndex]}
                 alt={property.name}
-                referrerPolicy="no-referrer"
-                className="w-full h-full object-cover"
+                className="w-full h-full"
               />
               <div className="absolute bottom-3 right-3 px-3 py-1 rounded-xl bg-slate-900/80 backdrop-blur-xs text-white text-xs font-bold flex items-center gap-1">
                 <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
@@ -207,7 +292,7 @@ export const PGDetailModal: React.FC<{
 
             {/* Thumbnails */}
             {images.length > 1 && (
-              <div className="flex items-center gap-2 mt-3 overflow-x-auto pb-1">
+              <div className="grid grid-cols-4 gap-2 mt-3">
                 {images.map((img, i) => (
                   <button
                     key={i}
@@ -216,7 +301,7 @@ export const PGDetailModal: React.FC<{
                       activeImageIndex === i ? 'border-blue-600 ring-2 ring-blue-100' : 'border-transparent opacity-70 hover:opacity-100'
                     }`}
                   >
-                    <img src={img} alt="Thumbnail" referrerPolicy="no-referrer" className="w-full h-full object-cover" />
+                    <ListingImage src={img} alt="Thumbnail" className="w-full h-full" />
                   </button>
                 ))}
               </div>
@@ -231,8 +316,15 @@ export const PGDetailModal: React.FC<{
               </h1>
               <div className="flex items-center gap-2 text-xs text-slate-500 mt-1">
                 <MapPin className="w-4 h-4 text-blue-600 shrink-0" />
-                <span>{property.address}</span>
+                <span>{property.locality}, {property.city}</span>
               </div>
+              {property.lat && property.lng ? (
+                <iframe
+                  title="PG location"
+                  className="mt-3 w-full h-40 rounded-2xl border border-slate-200"
+                  src={osmEmbedUrl(property.lat, property.lng)}
+                />
+              ) : null}
               <p className="text-xs text-slate-600 mt-2 font-normal leading-relaxed">
                 {property.tagline}
               </p>
@@ -312,12 +404,17 @@ export const PGDetailModal: React.FC<{
           {activeTab === 'rooms' && (
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               {property.rooms.map((room) => (
-                <div
+                <button
                   key={room.id}
-                  className={`p-4 rounded-2xl border transition relative ${
-                    selectedRoom === room.type
-                      ? 'border-blue-600 bg-blue-50/40 ring-1 ring-blue-600'
-                      : 'border-slate-200 hover:border-slate-300 bg-white'
+                  type="button"
+                  disabled={Boolean(existingBooking)}
+                  onClick={() => handleOpenAction('booking', room.type)}
+                  className={`p-4 rounded-2xl border transition relative text-left ${
+                    existingBooking
+                      ? 'border-slate-200 bg-slate-50 cursor-not-allowed opacity-80'
+                      : selectedRoom === room.type
+                      ? 'border-blue-600 bg-blue-50/40 ring-1 ring-blue-600 cursor-pointer'
+                      : 'border-slate-200 hover:border-blue-400 hover:bg-blue-50/30 bg-white cursor-pointer'
                   }`}
                 >
                   <div className="flex items-center justify-between mb-2">
@@ -335,20 +432,19 @@ export const PGDetailModal: React.FC<{
                     <span className="text-xs font-normal text-slate-500"> / mo</span>
                   </div>
                   <div className="space-y-1 text-[11px] text-slate-600 border-t border-slate-100 pt-2 mb-3">
-                    <p>Security Deposit: ₹{(room.deposit ?? (room as any).securityDeposit ?? 0).toLocaleString()}</p>
+                    <p>Security Deposit: ₹{(room.deposit ?? (room as { securityDeposit?: number }).securityDeposit ?? 0).toLocaleString()}</p>
                     <p>Notice Period: {property.noticePeriodDays || 30} days</p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedRoom(room.type);
-                      handleOpenAction('booking');
-                    }}
-                    className="w-full py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs transition shadow-xs"
-                  >
-                    Select & Book
-                  </button>
-                </div>
+                  <span className={`block w-full py-2 rounded-xl font-bold text-xs text-center ${
+                    existingBooking ? 'bg-slate-200 text-slate-500' : 'bg-blue-600 text-white'
+                  }`}>
+                    {existingBooking
+                      ? existingBooking.status === 'Approved'
+                        ? 'Already booked'
+                        : 'Request pending'
+                      : 'Select & Book'}
+                  </span>
+                </button>
               ))}
             </div>
           )}
@@ -427,25 +523,35 @@ export const PGDetailModal: React.FC<{
           </div>
 
           <div className="flex items-center gap-2.5 w-full sm:w-auto">
-            {/* Primary Action 1: Schedule a Visit */}
-            <button
-              id="schedule-visit-btn"
-              onClick={() => handleOpenAction('visit')}
-              className="flex-1 sm:flex-none px-5 py-3 rounded-xl border border-blue-600 text-blue-700 hover:bg-blue-50 active:scale-98 font-bold text-xs transition shadow-2xs flex items-center justify-center gap-2 min-h-[44px]"
-            >
-              <CalendarCheck2 className="w-4 h-4 text-blue-600" />
-              <span>Schedule a Visit</span>
-            </button>
+            {!hideVisitCta && (
+              <button
+                id="schedule-visit-btn"
+                type="button"
+                onClick={() => handleOpenAction('visit')}
+                className="flex-1 sm:flex-none px-5 py-3 rounded-xl border border-blue-600 text-blue-700 hover:bg-blue-50 active:scale-98 font-bold text-xs transition shadow-2xs flex items-center justify-center gap-2 min-h-[44px]"
+              >
+                <CalendarCheck2 className="w-4 h-4 text-blue-600" />
+                <span>Schedule a Visit</span>
+              </button>
+            )}
 
-            {/* Primary Action 2: Book / Request to Join */}
-            <button
-              id="request-to-join-btn"
-              onClick={() => handleOpenAction('booking')}
-              className="flex-1 sm:flex-none px-6 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 active:scale-98 text-white font-extrabold text-xs transition shadow-md flex items-center justify-center gap-2 min-h-[44px]"
-            >
-              <BedDouble className="w-4 h-4" />
-              <span>Book / Request to Join</span>
-            </button>
+            {existingBooking ? (
+              <div className="flex-1 sm:flex-none px-6 py-3 rounded-xl bg-slate-100 text-slate-700 font-bold text-xs min-h-[44px] flex items-center justify-center text-center">
+                {existingBooking.status === 'Approved'
+                  ? 'Stay already booked at this PG'
+                  : 'Booking request already submitted'}
+              </div>
+            ) : (
+              <button
+                id="request-to-join-btn"
+                type="button"
+                onClick={() => handleOpenAction('booking')}
+                className="flex-1 sm:flex-none px-6 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 active:scale-98 text-white font-extrabold text-xs transition shadow-md flex items-center justify-center gap-2 min-h-[44px]"
+              >
+                <BedDouble className="w-4 h-4" />
+                <span>{hideVisitCta ? 'Book Bed / Request to Join' : 'Book / Request to Join'}</span>
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -624,6 +730,7 @@ export const PGDetailModal: React.FC<{
                         <input
                           type="date"
                           required
+                          min={localIsoDate()}
                           value={visitDate}
                           onChange={(e) => setVisitDate(e.target.value)}
                           className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-600 focus:outline-hidden bg-white"
@@ -635,12 +742,14 @@ export const PGDetailModal: React.FC<{
                         </label>
                         <select
                           value={visitTimeSlot}
-                          onChange={(e) => setVisitTimeSlot(e.target.value as any)}
+                          onChange={(e) => setVisitTimeSlot(e.target.value as VisitSlotId)}
                           className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-600 focus:outline-hidden bg-white"
                         >
-                          <option value="Morning (10:00 AM - 12:00 PM)">Morning (10 AM - 12 PM)</option>
-                          <option value="Afternoon (2:00 PM - 4:00 PM)">Afternoon (2 PM - 4 PM)</option>
-                          <option value="Evening (5:00 PM - 7:00 PM)">Evening (5 PM - 7 PM)</option>
+                          {availableVisitSlots(visitDate).map((slot) => (
+                            <option key={slot.id} value={slot.id}>
+                              {slot.label}
+                            </option>
+                          ))}
                         </select>
                       </div>
                     </div>
@@ -670,6 +779,7 @@ export const PGDetailModal: React.FC<{
                         </label>
                         <input
                           type="date"
+                          min={localIsoDate()}
                           value={moveInDate}
                           onChange={(e) => setMoveInDate(e.target.value)}
                           className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-600 focus:outline-hidden bg-white"

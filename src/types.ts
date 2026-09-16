@@ -113,6 +113,16 @@ export interface UserAccount {
   emergencyContactPhone?: string;
   emergencyContactRelation?: string;
   city?: string;
+  permanentAddress?: string;
+  alternatePhone?: string;
+  aadhaarLast4?: string;
+  foodPreference?: string;
+  bloodGroup?: string;
+  vehicleType?: string;
+  maritalStatus?: string;
+  preferredLanguage?: string;
+  emailVerified?: boolean;
+  phoneVerified?: boolean;
   isProfileCompleted?: boolean;
   isDemo?: boolean; // Mark demo accounts separately
   role: UserRole;
@@ -136,6 +146,9 @@ export interface PublicSearchCriteria {
   city?: string;
   moveInDate?: string;
   type?: GenderPreference | 'All';
+  lat?: number;
+  lng?: number;
+  nearby?: boolean;
 }
 
 export interface RoomOption {
@@ -191,6 +204,7 @@ export interface Property {
   address: string;
   lat: number;
   lng: number;
+  placeLabel?: string;
   coverImage: string;
   galleryImages: string[];
   startingPrice: number;
@@ -207,6 +221,7 @@ export interface Property {
   contactPhone: string;
   contactEmail: string;
   ownerName: string;
+  ownerUserId?: string;
   // Configurable optional modules per spec Section 29, 30
   foodManagementEnabled?: boolean;
   attendanceEnabled?: boolean;
@@ -333,8 +348,10 @@ export interface AttendanceRecord {
 
 export interface StaffMember {
   id: string;
+  ownerUserId?: string;
+  organizationId?: string;
   name: string;
-  role: 'Housekeeping' | 'Mess Cook' | 'Security Guard' | 'Manager';
+  role: 'Housekeeping' | 'Mess Cook' | 'Security Guard' | 'Manager' | 'Electrician';
   phone: string;
   avatar: string;
   propertyId: string;
@@ -1012,6 +1029,8 @@ export interface OwnerListingStep3 {
 export interface PropertyPhoto {
   id: string;
   url: string;
+  originalUrl?: string;
+  enhanced?: boolean;
   category: PhotoCategory;
   qualityScore: number;
   aiAnalysis?: {

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
+import { useOwnerScope } from '../../utils/ownership';
 import { Lead, LeadStage, RoomSharingType } from '../../types';
 import {
   Users,
@@ -29,7 +30,8 @@ const STAGES: { key: LeadStage; label: string; color: string }[] = [
 ];
 
 export const LeadFunnelTab: React.FC = () => {
-  const { leads, addLead, updateLeadStage, addResident, beds, updateBedStatus, logAuditEvent } = useApp();
+  const { addLead, updateLeadStage, addResident, updateBedStatus, logAuditEvent } = useApp();
+  const { leads, beds, properties } = useOwnerScope();
 
   const [showAddLeadModal, setShowAddLeadModal] = useState(false);
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
@@ -47,7 +49,7 @@ export const LeadFunnelTab: React.FC = () => {
 
   const handleCreateLead = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newName.trim()) return;
+    if (!newName.trim() || !properties[0]?.id) return;
 
     addLead({
       name: newName.trim(),
@@ -57,6 +59,8 @@ export const LeadFunnelTab: React.FC = () => {
       budget: newBudget,
       budgetMax: newBudget,
       roomTypePreference: newRoomType,
+      propertyId: properties[0]?.id,
+      propertyName: properties[0]?.name,
       expectedMoveInDate: newMoveInDate,
       preferredMoveIn: newMoveInDate,
       stage: 'New Lead',
@@ -85,8 +89,8 @@ export const LeadFunnelTab: React.FC = () => {
       email: lead.email,
       phone: lead.phone,
       avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80',
-      propertyId: lead.propertyId || 'prop-1',
-      propertyName: lead.propertyName || 'Blue Haven Luxury Living PG',
+      propertyId: lead.propertyId || properties[0]?.id || '',
+      propertyName: lead.propertyName || properties[0]?.name || 'Your PG',
       roomNumber: availableBed ? availableBed.roomNumber : '204',
       roomType: lead.roomTypePreference,
       bedNumber: availableBed ? availableBed.bedNumber : 'Bed A',
@@ -136,13 +140,13 @@ export const LeadFunnelTab: React.FC = () => {
       </div>
 
       {/* Kanban Pipeline Board */}
-      <div className="flex gap-4 overflow-x-auto pb-4 items-start select-none">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 pb-4 items-start">
         {STAGES.map((stage) => {
           const stageLeads = leads.filter((l) => l.stage === stage.key);
           return (
             <div
               key={stage.key}
-              className="w-72 shrink-0 bg-slate-100/70 rounded-2xl p-3 border border-slate-200/80 space-y-3"
+              className="w-full bg-slate-100/70 rounded-2xl p-3 border border-slate-200/80 space-y-3"
             >
               {/* Stage Column Header */}
               <div className="flex items-center justify-between px-1">
@@ -178,7 +182,7 @@ export const LeadFunnelTab: React.FC = () => {
                       </div>
                       <div className="flex items-center justify-between pt-1 text-slate-700 font-semibold">
                         <span>{lead.roomTypePreference} Room</span>
-                        <span className="text-blue-700">₹{lead.budget.toLocaleString('en-IN')}/mo</span>
+                        <span className="text-blue-700">₹{(lead.budget || lead.budgetMax || 0).toLocaleString('en-IN')}/mo</span>
                       </div>
                     </div>
 

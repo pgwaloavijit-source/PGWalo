@@ -357,7 +357,7 @@ export const VirtualTourModal: React.FC = () => {
         </div>
 
         {/* Bottom Room Selector Strip */}
-        <div className="px-6 py-3.5 bg-slate-950 border-t border-slate-800 flex items-center gap-3 overflow-x-auto">
+        <div className="px-6 py-3.5 bg-slate-950 border-t border-slate-800 grid grid-cols-2 sm:grid-cols-4 gap-3">
           <span className="text-xs font-bold text-slate-400 uppercase tracking-wider whitespace-nowrap">
             Rooms & Zones:
           </span>

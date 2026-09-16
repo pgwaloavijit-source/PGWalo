@@ -1,22 +1,18 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
+import { AlertCircle, CheckCircle2, Shield } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
-import { UserRole } from '../../types';
+import { isProductionApiEnabled } from '../../services/productionApi';
+import { saveProfileWithWorkers } from '../../services/auth';
+import { isValidAadhaar, isValidIndianPhone } from '../../utils/kyc';
+import { ComboField } from '../common/ComboField';
 import {
-  X,
-  User,
-  Phone,
-  Calendar,
-  Briefcase,
-  MapPin,
-  ShieldCheck,
-  Building2,
-  CheckCircle2,
-  AlertCircle,
-  Sparkles,
-  HeartPulse,
-  Home,
-  Users,
-} from 'lucide-react';
+  AGE_OPTIONS,
+  CITY_OPTIONS,
+  GENDER_OPTIONS,
+  ORGANIZATION_OPTIONS,
+  PROFESSION_OPTIONS,
+  RELATION_OPTIONS,
+} from '../../data/profileOptions';
 
 export const ProfileCompletionModal: React.FC = () => {
   const {
@@ -24,453 +20,233 @@ export const ProfileCompletionModal: React.FC = () => {
     profileModalOpen,
     setProfileModalOpen,
     updateUserProfile,
-    setRole,
+    pendingAction,
+    applyApiSession,
   } = useApp();
 
-  const [name, setName] = useState('');
+  const isOwner = currentUser?.role === 'owner';
   const [age, setAge] = useState('');
-  const [phone, setPhone] = useState('');
-  const [gender, setGender] = useState<'Male' | 'Female' | 'Other'>('Male');
-  const [selectedRole, setSelectedRole] = useState<UserRole>('resident');
-  const [occupation, setOccupation] = useState('Working Professional');
+  const [gender, setGender] = useState('');
+  const [address, setAddress] = useState('');
+  const [city, setCity] = useState('');
+  const [occupation, setOccupation] = useState('');
   const [organization, setOrganization] = useState('');
-  const [city, setCity] = useState('Bengaluru');
-  const [emergencyContactName, setEmergencyContactName] = useState('');
-  const [emergencyContactPhone, setEmergencyContactPhone] = useState('');
-  const [emergencyContactRelation, setEmergencyContactRelation] = useState('Parent');
+  const [emergencyName, setEmergencyName] = useState('');
+  const [emergencyPhone, setEmergencyPhone] = useState('');
+  const [emergencyRelation, setEmergencyRelation] = useState('');
+  const [altPhone, setAltPhone] = useState('');
+  const [aadhaar, setAadhaar] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const [isSaving, setIsSaving] = useState(false);
-
-  // Sync state whenever currentUser or modal open changes
   useEffect(() => {
-    if (currentUser) {
-      setName(currentUser.name || '');
-      setAge(currentUser.age ? String(currentUser.age) : '');
-      setPhone(currentUser.phone && currentUser.phone !== '+91 98765 43210' ? currentUser.phone : '');
-      if (currentUser.gender) setGender(currentUser.gender);
-      if (currentUser.role && currentUser.role !== 'public') setSelectedRole(currentUser.role);
-      if (currentUser.occupation) setOccupation(currentUser.occupation);
-      if (currentUser.organization) setOrganization(currentUser.organization);
-      if (currentUser.city) setCity(currentUser.city);
-      if (currentUser.emergencyContactName) setEmergencyContactName(currentUser.emergencyContactName);
-      if (currentUser.emergencyContactPhone) setEmergencyContactPhone(currentUser.emergencyContactPhone);
-      if (currentUser.emergencyContactRelation) setEmergencyContactRelation(currentUser.emergencyContactRelation);
-    }
+    if (!currentUser) return;
+    setAge(currentUser.age ? String(currentUser.age) : '');
+    setGender(currentUser.gender || '');
+    setAddress(currentUser.permanentAddress || '');
+    setCity(currentUser.city || '');
+    setOccupation(currentUser.occupation || '');
+    setOrganization(currentUser.organization || '');
+    setEmergencyName(currentUser.emergencyContactName || '');
+    setEmergencyPhone(currentUser.emergencyContactPhone || '');
+    setEmergencyRelation(currentUser.emergencyContactRelation || '');
+    setAltPhone(currentUser.alternatePhone || '');
   }, [currentUser, profileModalOpen]);
 
   if (!profileModalOpen || !currentUser) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setErrorMessage(null);
-
-    // Form Validations
-    if (!name.trim()) {
-      setErrorMessage('Please enter your full legal name.');
-      return;
-    }
-
+    setError(null);
     const parsedAge = parseInt(age, 10);
-    if (!age || isNaN(parsedAge) || parsedAge < 16 || parsedAge > 99) {
-      setErrorMessage('Please provide a valid age between 16 and 99 years.');
+    if (!parsedAge || parsedAge < 16 || parsedAge > 99) {
+      setError('Pick a valid age.');
+      return;
+    }
+    if (!address.trim()) {
+      setError('Permanent address is required.');
+      return;
+    }
+    if (!emergencyName.trim() || !isValidIndianPhone(emergencyPhone)) {
+      setError('Enter a valid emergency contact name and mobile.');
+      return;
+    }
+    if (!isValidAadhaar(aadhaar)) {
+      setError('Enter a valid 12-digit Aadhaar number.');
+      return;
+    }
+    if (!isOwner && !occupation.trim()) {
+      setError('Tell us your profession. Pick from the list or type it.');
       return;
     }
 
-    const cleanPhone = phone.trim();
-    if (!cleanPhone || cleanPhone.replace(/\D/g, '').length < 10) {
-      setErrorMessage('Please enter a valid 10-digit mobile number.');
-      return;
-    }
-
-    if (emergencyContactPhone.trim() && emergencyContactPhone.replace(/\D/g, '').length < 10) {
-      setErrorMessage('Emergency contact number must be at least 10 digits.');
-      return;
-    }
-
-    setIsSaving(true);
-
-    setTimeout(() => {
-      setIsSaving(false);
-      const res = updateUserProfile({
-        name: name.trim(),
+    const promoteToResident = pendingAction?.type === 'booking' && currentUser.role !== 'owner';
+    setSaving(true);
+    try {
+      const payload = {
         age: parsedAge,
-        phone: cleanPhone,
-        gender,
-        role: selectedRole,
-        occupation,
+        gender: gender || undefined,
+        occupation: occupation.trim(),
         organization: organization.trim(),
+        permanentAddress: address.trim(),
         city: city.trim(),
-        emergencyContactName: emergencyContactName.trim(),
-        emergencyContactPhone: emergencyContactPhone.trim(),
-        emergencyContactRelation,
-        isProfileCompleted: true,
-      });
-
-      if (res.success) {
-        setSuccessMessage('Profile saved successfully! Redirecting...');
-        setTimeout(() => {
-          setSuccessMessage(null);
-          setRole(selectedRole);
-          setProfileModalOpen(false);
-        }, 1000);
+        emergencyContactName: emergencyName.trim(),
+        emergencyContactPhone: emergencyPhone,
+        emergencyContactRelation: emergencyRelation.trim(),
+        alternatePhone: altPhone || undefined,
+        aadhaar,
+        promoteToResident,
+      };
+      if (isProductionApiEnabled()) {
+        const res = await saveProfileWithWorkers(payload);
+        if (!res.success || !res.user) {
+          setError(res.error || 'Could not save profile.');
+          return;
+        }
+        applyApiSession({ ...res.user, ...payload, isProfileCompleted: true });
       } else {
-        setErrorMessage(res.message || 'Failed to update profile. Please try again.');
+        updateUserProfile({
+          ...payload,
+          aadhaarLast4: aadhaar.replace(/\D/g, '').slice(-4),
+          role: promoteToResident ? 'resident' : currentUser.role,
+          isProfileCompleted: true,
+        });
       }
-    }, 450);
+      setProfileModalOpen(false);
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto animate-in fade-in duration-200">
-      <div className="relative w-full max-w-xl bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden my-6">
-        {/* Header */}
-        <div className="bg-gradient-to-r from-blue-600 via-blue-700 to-indigo-700 text-white p-6 relative">
-          {currentUser.isProfileCompleted && (
-            <button
-              id="profile-modal-close-btn"
-              onClick={() => setProfileModalOpen(false)}
-              className="absolute top-4 right-4 p-2 rounded-full bg-white/10 hover:bg-white/20 text-white transition focus:outline-hidden"
-              aria-label="Close profile setup"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          )}
-
-          <div className="flex items-center gap-2 mb-2">
-            <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-white/20 text-white flex items-center gap-1">
-              <Sparkles className="w-3 h-3 text-amber-300" />
-              {currentUser.isProfileCompleted ? 'Account Settings' : 'Member Onboarding'}
-            </span>
-          </div>
-
-          <h2 className="text-xl sm:text-2xl font-black tracking-tight">
-            {currentUser.isProfileCompleted ? 'Update Your Profile' : 'Complete Your Profile'}
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 bg-slate-900/50">
+      <form
+        onSubmit={handleSubmit}
+        className="w-full max-w-xl bg-white sm:rounded-3xl rounded-t-3xl shadow-2xl max-h-[92vh] overflow-y-auto"
+      >
+        <div className="sticky top-0 z-10 bg-linear-to-br from-blue-600 to-indigo-600 px-5 py-5 text-white">
+          <p className="text-[11px] font-bold uppercase tracking-wider text-blue-100">
+            {isOwner ? 'Owner verification' : 'Quick KYC'}
+          </p>
+          <h2 className="text-xl font-black mt-1">
+            {isOwner ? 'Verify you as the property owner' : 'Almost there — confirm who you are'}
           </h2>
-          <p className="text-blue-100 text-xs sm:text-sm mt-1">
-            {currentUser.isProfileCompleted
-              ? 'Manage your personal details and preferences.'
-              : 'Please enter your name, age, phone number, and preferences to set up your account.'}
+          <p className="text-xs text-blue-100 mt-1">
+            Signed in as {currentUser.phone || currentUser.email}. Pick from suggestions or type your own.
           </p>
         </div>
 
-        {/* Feedback Messages */}
-        <div className="px-6 pt-4">
-          {errorMessage && (
-            <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-2 mb-3 animate-in fade-in">
-              <AlertCircle className="w-4 h-4 shrink-0 text-rose-500" />
-              <span className="font-medium">{errorMessage}</span>
+        <div className="px-5 py-5 space-y-4">
+          {error && (
+            <div className="p-3 rounded-2xl bg-rose-50 text-rose-700 text-xs flex gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0" /> {error}
             </div>
           )}
 
-          {successMessage && (
-            <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs flex items-center gap-2 mb-3 animate-in fade-in">
-              <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-500" />
-              <span className="font-medium">{successMessage}</span>
-            </div>
-          )}
-        </div>
+          <div className="grid sm:grid-cols-2 gap-3">
+            <ComboField label="Age" value={age} onChange={setAge} options={AGE_OPTIONS} required />
+            <ComboField label="Gender" value={gender} onChange={setGender} options={GENDER_OPTIONS} />
+          </div>
 
-        {/* Form Body */}
-        <form onSubmit={handleSubmit} className="p-6 pt-2 space-y-4 max-h-[72vh] overflow-y-auto">
-          {/* Section: Basic Information */}
           <div>
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-1.5">
-              <User className="w-3.5 h-3.5 text-blue-600" />
-              Personal Details
-            </h3>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {/* Full Name */}
-              <div className="sm:col-span-2">
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Full Legal Name <span className="text-rose-500">*</span>
-                </label>
-                <div className="relative">
-                  <User className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
-                  <input
-                    id="profile-fullname-input"
-                    type="text"
-                    required
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder="e.g. Avijit Biswas"
-                    className="w-full pl-10 pr-3 py-2.5 text-xs rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-medium text-slate-900 bg-white"
-                  />
-                </div>
-              </div>
-
-              {/* Age */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Age (Years) <span className="text-rose-500">*</span>
-                </label>
-                <div className="relative">
-                  <Calendar className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
-                  <input
-                    id="profile-age-input"
-                    type="number"
-                    min={16}
-                    max={99}
-                    required
-                    value={age}
-                    onChange={(e) => setAge(e.target.value)}
-                    placeholder="e.g. 23"
-                    className="w-full pl-10 pr-3 py-2.5 text-xs rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-medium text-slate-900 bg-white"
-                  />
-                </div>
-              </div>
-
-              {/* Phone Number */}
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Mobile Number <span className="text-rose-500">*</span>
-                </label>
-                <div className="relative">
-                  <Phone className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
-                  <input
-                    id="profile-phone-input"
-                    type="tel"
-                    required
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    placeholder="e.g. +91 98765 43210"
-                    className="w-full pl-10 pr-3 py-2.5 text-xs rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-medium text-slate-900 bg-white"
-                  />
-                </div>
-              </div>
-
-              {/* Gender Selection */}
-              <div className="sm:col-span-2">
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                  Gender <span className="text-rose-500">*</span>
-                </label>
-                <div className="grid grid-cols-3 gap-2">
-                  {(['Male', 'Female', 'Other'] as const).map((g) => (
-                    <button
-                      key={g}
-                      type="button"
-                      onClick={() => setGender(g)}
-                      className={`py-2 px-3 rounded-xl text-xs font-bold border transition text-center ${
-                        gender === g
-                          ? 'bg-blue-50 border-blue-600 text-blue-700 shadow-xs'
-                          : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
-                      }`}
-                    >
-                      {g}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
+            <label className="block text-[11px] font-bold uppercase tracking-wide text-slate-500 mb-1.5">
+              Permanent address <span className="text-rose-500">*</span>
+            </label>
+            <textarea
+              placeholder="House / street, area"
+              value={address}
+              onChange={(e) => setAddress(e.target.value)}
+              className="w-full px-4 py-3 rounded-2xl border border-slate-200 min-h-[72px] text-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500/30"
+              required
+            />
           </div>
 
-          {/* Section: Account Type / Role */}
-          <div className="pt-2 border-t border-slate-100">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2 flex items-center gap-1.5">
-              <ShieldCheck className="w-3.5 h-3.5 text-indigo-600" />
-              I am using PGNest as
-            </h3>
+          <ComboField label="City" value={city} onChange={setCity} options={CITY_OPTIONS} placeholder="Bengaluru, Pune…" />
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-              <button
-                type="button"
-                onClick={() => setSelectedRole('resident')}
-                className={`p-3 rounded-2xl border text-left transition flex flex-col justify-between ${
-                  selectedRole === 'resident'
-                    ? 'border-blue-600 bg-blue-50/70 shadow-xs ring-1 ring-blue-500'
-                    : 'border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700'
-                }`}
-              >
-                <div className="flex items-center justify-between mb-1.5">
-                  <div className="w-7 h-7 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center">
-                    <Home className="w-4 h-4" />
-                  </div>
-                  {selectedRole === 'resident' && <CheckCircle2 className="w-4 h-4 text-blue-600" />}
-                </div>
-                <div>
-                  <p className="text-xs font-bold text-slate-900">Resident / Tenant</p>
-                  <p className="text-[10px] text-slate-500 leading-tight mt-0.5">Looking for or staying in a PG</p>
-                </div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setSelectedRole('owner')}
-                className={`p-3 rounded-2xl border text-left transition flex flex-col justify-between ${
-                  selectedRole === 'owner'
-                    ? 'border-blue-600 bg-blue-50/70 shadow-xs ring-1 ring-blue-500'
-                    : 'border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700'
-                }`}
-              >
-                <div className="flex items-center justify-between mb-1.5">
-                  <div className="w-7 h-7 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center">
-                    <Building2 className="w-4 h-4" />
-                  </div>
-                  {selectedRole === 'owner' && <CheckCircle2 className="w-4 h-4 text-blue-600" />}
-                </div>
-                <div>
-                  <p className="text-xs font-bold text-slate-900">PG Owner / Host</p>
-                  <p className="text-[10px] text-slate-500 leading-tight mt-0.5">List & manage properties</p>
-                </div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setSelectedRole('staff')}
-                className={`p-3 rounded-2xl border text-left transition flex flex-col justify-between ${
-                  selectedRole === 'staff'
-                    ? 'border-blue-600 bg-blue-50/70 shadow-xs ring-1 ring-blue-500'
-                    : 'border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700'
-                }`}
-              >
-                <div className="flex items-center justify-between mb-1.5">
-                  <div className="w-7 h-7 rounded-xl bg-purple-100 text-purple-700 flex items-center justify-center">
-                    <Users className="w-4 h-4" />
-                  </div>
-                  {selectedRole === 'staff' && <CheckCircle2 className="w-4 h-4 text-blue-600" />}
-                </div>
-                <div>
-                  <p className="text-xs font-bold text-slate-900">Campus Staff</p>
-                  <p className="text-[10px] text-slate-500 leading-tight mt-0.5">Warden, housekeeping, ops</p>
-                </div>
-              </button>
-            </div>
-          </div>
-
-          {/* Section: Occupation & City */}
-          <div className="pt-2 border-t border-slate-100">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-1.5">
-              <Briefcase className="w-3.5 h-3.5 text-blue-600" />
-              Work & Location
-            </h3>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {!isOwner && (
+            <>
+              <ComboField
+                label="Profession"
+                value={occupation}
+                onChange={setOccupation}
+                options={PROFESSION_OPTIONS}
+                required
+                hint="Select from the list or type if yours is missing."
+              />
+              <ComboField
+                label="Company or college"
+                value={organization}
+                onChange={setOrganization}
+                options={ORGANIZATION_OPTIONS}
+              />
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Occupation</label>
-                <select
-                  value={occupation}
-                  onChange={(e) => setOccupation(e.target.value)}
-                  className="w-full px-3 py-2.5 text-xs rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-medium text-slate-900 bg-white"
-                >
-                  <option value="Working Professional">Working Professional</option>
-                  <option value="College Student">College Student</option>
-                  <option value="Job Seeker / Intern">Job Seeker / Intern</option>
-                  <option value="Business Owner / Freelancer">Business Owner / Freelancer</option>
-                  <option value="Other">Other</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Company or University</label>
-                <div className="relative">
-                  <Building2 className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
-                  <input
-                    type="text"
-                    value={organization}
-                    onChange={(e) => setOrganization(e.target.value)}
-                    placeholder="e.g. Infosys, TCS, Delhi Univ"
-                    className="w-full pl-10 pr-3 py-2.5 text-xs rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-medium text-slate-900 bg-white"
-                  />
-                </div>
-              </div>
-
-              <div className="sm:col-span-2">
-                <label className="block text-xs font-bold text-slate-700 mb-1">City / Hometown</label>
-                <div className="relative">
-                  <MapPin className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
-                  <input
-                    type="text"
-                    value={city}
-                    onChange={(e) => setCity(e.target.value)}
-                    placeholder="e.g. Bengaluru, Karnataka"
-                    className="w-full pl-10 pr-3 py-2.5 text-xs rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-medium text-slate-900 bg-white"
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Section: Emergency Contact */}
-          <div className="pt-2 border-t border-slate-100">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-1.5">
-              <HeartPulse className="w-3.5 h-3.5 text-rose-500" />
-              Emergency Contact (House Safety)
-            </h3>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Contact Name</label>
-                <input
-                  type="text"
-                  value={emergencyContactName}
-                  onChange={(e) => setEmergencyContactName(e.target.value)}
-                  placeholder="e.g. S. K. Biswas"
-                  className="w-full px-3 py-2.5 text-xs rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-medium text-slate-900 bg-white"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Emergency Phone</label>
+                <label className="block text-[11px] font-bold uppercase tracking-wide text-slate-500 mb-1.5">
+                  Alternate mobile
+                </label>
                 <input
                   type="tel"
-                  value={emergencyContactPhone}
-                  onChange={(e) => setEmergencyContactPhone(e.target.value)}
-                  placeholder="e.g. +91 98000 11223"
-                  className="w-full px-3 py-2.5 text-xs rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-medium text-slate-900 bg-white"
+                  inputMode="numeric"
+                  placeholder="Optional 10-digit number"
+                  value={altPhone}
+                  onChange={(e) => setAltPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                  className="w-full px-4 py-3 rounded-2xl border border-slate-200 text-sm"
                 />
               </div>
+            </>
+          )}
 
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Relationship</label>
-                <select
-                  value={emergencyContactRelation}
-                  onChange={(e) => setEmergencyContactRelation(e.target.value)}
-                  className="w-full px-3 py-2.5 text-xs rounded-xl border border-slate-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-medium text-slate-900 bg-white"
-                >
-                  <option value="Parent">Parent</option>
-                  <option value="Guardian">Guardian</option>
-                  <option value="Sibling">Sibling</option>
-                  <option value="Spouse">Spouse</option>
-                  <option value="Friend">Friend</option>
-                </select>
-              </div>
-            </div>
+          <div className="rounded-2xl border border-slate-200 p-4 space-y-3 bg-slate-50/70">
+            <p className="text-xs font-bold text-slate-700">Emergency contact</p>
+            <input
+              placeholder="Full name"
+              value={emergencyName}
+              onChange={(e) => setEmergencyName(e.target.value)}
+              className="w-full px-4 py-3 rounded-2xl border border-slate-200 bg-white text-sm"
+              required
+            />
+            <input
+              type="tel"
+              inputMode="numeric"
+              placeholder="Mobile"
+              value={emergencyPhone}
+              onChange={(e) => setEmergencyPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
+              className="w-full px-4 py-3 rounded-2xl border border-slate-200 bg-white text-sm"
+              required
+            />
+            <ComboField label="Relation" value={emergencyRelation} onChange={setEmergencyRelation} options={RELATION_OPTIONS} />
           </div>
 
-          {/* Action Buttons */}
-          <div className="pt-4 border-t border-slate-100 flex items-center justify-end gap-3">
-            {currentUser.isProfileCompleted && (
-              <button
-                type="button"
-                onClick={() => setProfileModalOpen(false)}
-                className="px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 text-xs font-bold transition"
-              >
-                Cancel
-              </button>
-            )}
-
-            <button
-              id="save-profile-submit-btn"
-              type="submit"
-              disabled={isSaving}
-              className="px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-md shadow-blue-500/20 transition flex items-center gap-2 disabled:opacity-50"
-            >
-              {isSaving ? (
-                <>
-                  <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  <span>Saving Details...</span>
-                </>
-              ) : (
-                <>
-                  <CheckCircle2 className="w-4 h-4" />
-                  <span>Save Profile & Continue</span>
-                </>
-              )}
-            </button>
+          <div>
+            <label className="block text-[11px] font-bold uppercase tracking-wide text-slate-500 mb-1.5">
+              Aadhaar number <span className="text-rose-500">*</span>
+            </label>
+            <input
+              type="tel"
+              inputMode="numeric"
+              placeholder="12 digits"
+              value={aadhaar}
+              onChange={(e) => setAadhaar(e.target.value.replace(/\D/g, '').slice(0, 12))}
+              className="w-full px-4 py-3 rounded-2xl border border-slate-200 tracking-[0.3em] font-semibold"
+              required
+            />
+            <p className="mt-1.5 text-[11px] text-slate-400 flex items-center gap-1">
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+              We store only a hash and the last 4 digits.
+            </p>
           </div>
-        </form>
-      </div>
+        </div>
+
+        <div className="px-5 pb-6">
+          <button
+            type="submit"
+            disabled={saving}
+            className="w-full py-3.5 rounded-2xl bg-blue-600 text-white font-bold disabled:opacity-50 flex items-center justify-center gap-2"
+          >
+            <Shield className="w-4 h-4" />
+            {saving ? 'Saving…' : 'Save and continue'}
+          </button>
+        </div>
+      </form>
     </div>
   );
 };

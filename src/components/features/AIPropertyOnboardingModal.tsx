@@ -444,7 +444,7 @@ export const AIPropertyOnboardingModal: React.FC = () => {
             /* STEP 2: AI Photo Shoot & Quality Inspection */
             <div className="space-y-6">
               {/* Category Selector Tabs */}
-              <div className="flex items-center gap-2 overflow-x-auto pb-1">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pb-1">
                 {guides.map((g, idx) => (
                   <button
                     key={g.id}

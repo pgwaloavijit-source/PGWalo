@@ -58,7 +58,15 @@ import {
   loadProductionSnapshot,
   saveProductionSnapshot,
   clearAuthToken,
+  getAuthToken,
 } from '../services/productionApi';
+import { notifyVisitWithWorkers, fetchMeWithWorkers } from '../services/auth';
+import { fetchPublicListings, publishListing } from '../services/listings';
+import { fetchInquiries, publishInquiry, patchInquiry, mergeBookings } from '../services/inquiries';
+import { mergeProperties } from '../utils/locationMatch';
+import { uploadListingPhoto } from '../services/media';
+import { localIsoDate } from '../utils/datetime';
+import { CATALOG_OWNER_ID, ownsProperty } from '../utils/ownership';
 import {
   INITIAL_PROPERTIES,
   INITIAL_RESIDENTS,
@@ -101,7 +109,7 @@ interface AppContextType {
   bookingRequests: BookingRequest[];
   attendance: AttendanceRecord[];
   staff: StaffMember[];
-  currentStaff: StaffMember;
+  currentStaff: StaffMember | null;
   setCurrentStaffId: (staffId: string) => void;
   tasks: StaffTask[];
   broadcasts: BroadcastNotification[];
@@ -112,6 +120,8 @@ interface AppContextType {
   activeProperty: Property;
   selectedPGForDetail: Property | null;
   setSelectedPGForDetail: (property: Property | null) => void;
+  propertyModalIntent: 'view' | 'book';
+  openPropertyModal: (property: Property | null, intent?: 'view' | 'book') => void;
   
   // Auth Modal State & Controls
   showAuthModal: boolean;
@@ -131,14 +141,10 @@ interface AppContextType {
   requireAuth: (action: () => void, meta?: { mode?: 'login' | 'register'; role?: UserRole; intent?: string; path?: string; propertyId?: string; source?: string }) => void;
   runPendingAuthAction: () => void;
   login: (email: string, password?: string, requestedRole?: UserRole, isDemo?: boolean) => { success: boolean; message?: string };
-  applyApiSession: (user: {
-    id: string;
-    name?: string;
-    email?: string;
-    phone?: string;
-    role: UserRole;
-    organizationId?: string;
-  }) => void;
+    applyApiSession: (user: Partial<UserAccount> & { id: string; role: UserRole }) => void;
+  openPublicCatalog: () => void;
+  shellIntent: string | null;
+  clearShellIntent: () => void;
   register: (accountData: {
     name: string;
     email: string;
@@ -158,7 +164,7 @@ interface AppContextType {
   setPendingAction: (action: PendingCustomerAction | null) => void;
   confirmedAction: { referenceId: string; action: PendingCustomerAction } | null;
   setConfirmedAction: (item: { referenceId: string; action: PendingCustomerAction } | null) => void;
-  confirmDirectAction: (action: PendingCustomerAction) => { referenceId: string };
+      confirmDirectAction: (action: PendingCustomerAction) => { referenceId: string; error?: string };
 
   // Enterprise State & Management
   beds: Bed[];
@@ -235,7 +241,7 @@ interface AppContextType {
   payRentSimulation: (residentId: string, method: string) => PaymentReceipt;
   recordAttendance: (record: Omit<AttendanceRecord, 'id' | 'date' | 'timestamp'>) => void;
   toggleStaffClockIn: (staffId: string) => void;
-  addStaffMember: (newStaff: Omit<StaffMember, 'id'>) => void;
+  addStaffMember: (newStaff: Omit<StaffMember, 'id'> & { id?: string }) => void;
   updateStaffMember: (staffId: string, updates: Partial<StaffMember>) => void;
   deleteStaffMember: (staffId: string) => void;
   toggleTaskCompleted: (taskId: string) => void;
@@ -346,9 +352,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // Filter out demo data for non-demo users
     const filteredSource = isDemoUser ? source : source.filter(p => !p.id.startsWith('demo-'));
 
-    return filteredSource.map((property) => ({
+    return filteredSource.map((property) => {
+      const seedIds = new Set(['prop-1', 'prop-2', 'prop-3', 'prop-4']);
+      return {
       ...property,
       organizationId: property.organizationId || DEFAULT_ORGANIZATION_ID,
+      ownerUserId: property.ownerUserId || (seedIds.has(property.id) ? CATALOG_OWNER_ID : property.ownerUserId),
       status: property.status || 'Active',
       defaultRentDueDay: property.defaultRentDueDay || 7,
       modules: property.modules || {
@@ -358,7 +367,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         onlinePayments: true,
         chat: true,
       },
-    }));
+    };
+    });
   });
 
   const [residents, setResidents] = useState<Resident[]>(() => {
@@ -416,7 +426,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const [staff, setStaff] = useState<StaffMember[]>(() => {
     const saved = localStorage.getItem(STORAGE_KEYS.STAFF);
-    return saved ? JSON.parse(saved) : INITIAL_STAFF;
+    const savedUser = localStorage.getItem(STORAGE_KEYS.CURRENT_USER);
+    let isDemoUser = false;
+    if (savedUser) {
+      try {
+        isDemoUser = Boolean((JSON.parse(savedUser) as UserAccount).isDemo);
+      } catch {
+        isDemoUser = false;
+      }
+    }
+    const source: StaffMember[] = saved ? JSON.parse(saved) : isDemoUser ? INITIAL_STAFF : [];
+    const catalogProps = new Set(['prop-1', 'prop-2', 'prop-3', 'prop-4']);
+    if (isDemoUser) return source;
+    return source.filter((s) => !catalogProps.has(s.propertyId) || Boolean(s.ownerUserId));
   });
 
   const [tasks, setTasks] = useState<StaffTask[]>(() => {
@@ -495,7 +517,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const [currentStaffId, setCurrentStaffId] = useState<string>(() => {
     const saved = localStorage.getItem(STORAGE_KEYS.CURRENT_STAFF_ID);
-    return saved || 'staff-1';
+    return saved || '';
   });
 
   // Enterprise States
@@ -630,7 +652,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [profileModalOpen, setProfileModalOpen] = useState(false);
   const [pendingAction, setPendingAction] = useState<PendingCustomerAction | null>(null);
   const [confirmedAction, setConfirmedAction] = useState<{ referenceId: string; action: PendingCustomerAction } | null>(null);
-  const [selectedPGForDetail, setSelectedPGForDetail] = useState<Property | null>(null);
+  const [selectedPGForDetail, setSelectedPGForDetailState] = useState<Property | null>(null);
+  const [propertyModalIntent, setPropertyModalIntent] = useState<'view' | 'book'>('view');
+  const setSelectedPGForDetail = (property: Property | null) => {
+    setSelectedPGForDetailState(property);
+    if (!property) setPropertyModalIntent('view');
+  };
+  const openPropertyModal = (property: Property | null, intent: 'view' | 'book' = 'view') => {
+    setPropertyModalIntent(property ? intent : 'view');
+    setSelectedPGForDetailState(property);
+  };
+  const [shellIntent, setShellIntent] = useState<string | null>(null);
+  const openPublicCatalog = () => setShellIntent('search');
+  const clearShellIntent = () => setShellIntent(null);
   const [productionHydrated, setProductionHydrated] = useState(!isProductionApiEnabled());
 
   // Active entities
@@ -644,11 +678,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       ) || null)
     : (currentUser ? null : (residents[0] || null));
 
-  const currentStaff: StaffMember = 
+  const matchStaffForUser = (user?: UserAccount | null) => {
+    if (!user || user.role !== 'staff') return undefined;
+    const digits = (user.phone || '').replace(/\D/g, '').slice(-10);
+    return staff.find(
+      (s) =>
+        s.id === currentStaffId ||
+        (digits && s.phone.replace(/\D/g, '').slice(-10) === digits) ||
+        (user.propertyId && s.propertyId === user.propertyId && s.name === user.name)
+    );
+  };
+
+  const currentStaff: StaffMember | null =
     staff.find((s) => s.id === currentStaffId) ||
-    (currentUser?.role === 'staff' ? staff.find((s) => s.name.toLowerCase().includes(currentUser.name.toLowerCase().split(' ')[0])) : null) ||
-    staff[0] ||
-    INITIAL_STAFF[0];
+    matchStaffForUser(currentUser) ||
+    (currentUser?.isDemo ? staff[0] || INITIAL_STAFF[0] : null);
 
   useEffect(() => {
     let cancelled = false;
@@ -657,7 +701,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       .then((snapshot) => {
         if (cancelled || !snapshot) return;
         if (snapshot.organizations?.length) setOrganizations(snapshot.organizations);
-        if (snapshot.properties?.length) setProperties(snapshot.properties);
+        // Public catalog is loaded from /api/listings so owners' PGs appear in other browsers.
         if (snapshot.residents?.length) setResidents(snapshot.residents);
         if (snapshot.beds?.length) setBeds(snapshot.beds);
         if (snapshot.stays?.length) setStays(snapshot.stays);
@@ -681,6 +725,62 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       cancelled = true;
     };
   }, [currentUser?.id, role]);
+
+  useEffect(() => {
+    if (!isProductionApiEnabled()) return;
+    let cancelled = false;
+    const pull = () => {
+      fetchPublicListings()
+        .then((remote) => {
+          if (cancelled || !remote.length) return;
+          setProperties((prev) => mergeProperties(prev, remote));
+        })
+        .catch(() => undefined);
+    };
+    pull();
+    const timer = window.setInterval(pull, 45000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [currentUser?.id]);
+
+  useEffect(() => {
+    if (!isProductionApiEnabled() || !currentUser) return;
+    let cancelled = false;
+    const filters =
+      currentUser.role === 'owner'
+        ? { ownerUserId: currentUser.id }
+        : { email: currentUser.email, phone: currentUser.phone };
+    const pull = () => {
+      fetchInquiries(filters)
+        .then((remote) => {
+          if (cancelled || !remote.length) return;
+          setBookingRequests((prev) => mergeBookings(prev, remote as typeof prev));
+        })
+        .catch(() => undefined);
+    };
+    pull();
+    const timer = window.setInterval(pull, 20000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [currentUser?.id, currentUser?.role]);
+
+  useEffect(() => {
+    if (!currentUser || currentUser.role !== 'owner' || currentUser.isDemo) return;
+    const mine = properties.filter(
+      (p) =>
+        ownsProperty(p, currentUser) &&
+        p.ownerUserId !== CATALOG_OWNER_ID &&
+        !/^prop-[1-4]$/.test(p.id) &&
+        !p.id.startsWith('demo-')
+    );
+    mine.forEach((p) => {
+      void publishListing(p);
+    });
+  }, [currentUser?.id, properties.length]);
 
   // Sync to LocalStorage
   useEffect(() => {
@@ -1398,6 +1498,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       id: `lead-${Date.now()}`,
       createdAt: new Date().toISOString().split('T')[0],
       lastFollowUp: new Date().toISOString().split('T')[0],
+      propertyId:
+        lead.propertyId ||
+        properties.find((p) => ownsProperty(p, currentUser))?.id ||
+        '',
+      propertyName:
+        lead.propertyName ||
+        properties.find((p) => ownsProperty(p, currentUser))?.name ||
+        '',
     };
     setLeads((prev) => [newLead, ...prev]);
     logAuditEvent('New Lead Captured', `Lead: ${lead.name}`, `Stage: ${lead.stage}, Room: ${lead.roomTypePreference}`);
@@ -1545,10 +1653,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setRoleState(newRole);
   };
 
-  const addStaffMember = (newStaff: Omit<StaffMember, 'id'>) => {
+  const addStaffMember = (newStaff: Omit<StaffMember, 'id'> & { id?: string }) => {
     const created: StaffMember = {
       ...newStaff,
-      id: `staff-${Date.now()}`,
+      id: newStaff.id || `staff-${Date.now()}`,
+      ownerUserId: newStaff.ownerUserId || currentUser?.id,
+      organizationId: newStaff.organizationId || currentUser?.organizationId,
     };
     setStaff((prev) => [...prev, created]);
   };
@@ -1608,9 +1718,44 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const refId = `PGN-${isVisit ? 'VIS' : 'BKG'}-${Math.floor(10000 + Math.random() * 90000)}`;
     const today = new Date().toISOString().split('T')[0];
 
-    const applicantName = action.applicantName || currentUser?.name || 'Customer';
-    const email = action.email || currentUser?.email || 'customer@pgwalo.com';
-    const phone = action.phone || currentUser?.phone || '+91 98765 43210';
+    const applicantName = action.applicantName || currentUser?.name;
+    const email = action.email || currentUser?.email;
+    const phone = action.phone || currentUser?.phone;
+    if (!applicantName || !email || !phone) {
+      return { referenceId: '', error: 'Complete your profile before scheduling.' };
+    }
+
+    if (isVisit) {
+      const visitDay = action.visitDate || action.date || today;
+      if (visitDay < localIsoDate()) {
+        return { referenceId: '', error: 'Choose today or a future visit date.' };
+      }
+    }
+
+    if (!isVisit) {
+      if (currentUser?.propertyId === action.property.id) {
+        return { referenceId: '', error: 'You already stay at this PG.' };
+      }
+      const alreadyApplied = bookingRequests.find((r) => {
+        if (r.propertyId !== action.property.id || r.type === 'visit') return false;
+        if (r.status !== 'Pending' && r.status !== 'Approved') return false;
+        const rEmail = r.email?.toLowerCase();
+        const rPhone = r.phone?.replace(/\D/g, '');
+        return (
+          (email && rEmail && rEmail === email.toLowerCase()) ||
+          (phone && rPhone && rPhone === phone.replace(/\D/g, ''))
+        );
+      });
+      if (alreadyApplied) {
+        return {
+          referenceId: '',
+          error:
+            alreadyApplied.status === 'Approved'
+              ? 'You already have an approved stay at this PG.'
+              : 'You already have a booking request for this PG. You can apply again only if it is rejected.',
+        };
+      }
+    }
 
     addBookingRequest({
       applicantName,
@@ -1621,22 +1766,73 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       roomType: action.roomType || action.property.rooms[0]?.type || 'Double',
       preferredMoveInDate: action.preferredMoveInDate || action.visitDate || action.date || today,
       occupancyType: action.occupancyType || 'Working Professional',
-      message: action.message || (isVisit ? `Physical tour on ${action.visitDate || action.date || 'Tomorrow'} (${action.visitTimeSlot || action.timeSlot || '10:00 AM - 12:00 PM'})` : 'Stay booking application'),
+      message: action.message || (isVisit ? `Visit on ${action.visitDate || action.date || today}` : 'Stay booking application'),
       type: action.type,
       visitDate: action.visitDate || action.date || today,
       visitTimeSlot: action.visitTimeSlot || action.timeSlot || '10:00 AM - 12:00 PM',
       referenceId: refId,
     });
 
+    addLead({
+      name: applicantName,
+      phone,
+      email,
+      propertyId: action.property.id,
+      propertyName: action.property.name,
+      roomTypePreference: action.roomType || action.property.rooms[0]?.type || 'Double',
+      budgetMax: action.property.startingPrice || 0,
+      budget: action.property.startingPrice || 0,
+      preferredMoveIn: action.preferredMoveInDate || action.visitDate || today,
+      expectedMoveInDate: action.preferredMoveInDate || action.visitDate || today,
+      stage: isVisit ? 'Visit Scheduled' : 'Booking Pending',
+      source: isVisit ? 'Scheduled visit' : 'Stay application',
+      notes: action.message || refId,
+    });
+
     addBroadcast({
       title: isVisit ? `Visit Scheduled: ${action.property.name}` : `Booking Applied: ${action.property.name}`,
       message: isVisit
-        ? `Your physical tour is scheduled for ${action.visitDate || action.date || 'Tomorrow'} (${action.visitTimeSlot || '10:00 AM - 12:00 PM'}). Pass Code: ${refId}. Caretaker: ${action.property.contactPhone}`
-        : `Your stay application for ${action.property.name} has been received. Reference ID: ${refId}. Caretaker: ${action.property.contactPhone}`,
+        ? `Your physical tour is scheduled for ${action.visitDate || action.date}. Pass Code: ${refId}.`
+        : `Your stay application for ${action.property.name} has been received. Reference ID: ${refId}.`,
       category: 'Event',
       target: 'All Residents',
-      sender: 'PGNest Concierge',
+      sender: currentUser?.name || 'PGWalo',
     });
+
+    if (isVisit) {
+      const visitPayload = {
+        propertyId: action.property.id,
+        propertyName: action.property.name,
+        ownerEmail: action.property.contactEmail,
+        ownerName: action.property.ownerName,
+        visitorName: applicantName,
+        visitorEmail: email,
+        visitorPhone: phone,
+        visitorProfession: currentUser?.occupation,
+        visitDate: action.visitDate || action.date || today,
+        visitSlot: action.visitTimeSlot || action.timeSlot,
+        message: action.message,
+        referenceId: refId,
+      };
+      if (isProductionApiEnabled()) {
+        void notifyVisitWithWorkers(visitPayload);
+      }
+    }
+
+    if (!isVisit && currentUser) {
+      const residentRole: UserRole = 'resident';
+      setRoleState(residentRole);
+      setCurrentUser((prev) =>
+        prev ? { ...prev, role: residentRole, propertyId: action.property.id, propertyName: action.property.name } : prev
+      );
+      setUsers((prev) =>
+        prev.map((u) =>
+          u.id === currentUser.id
+            ? { ...u, role: residentRole, propertyId: action.property.id, propertyName: action.property.name }
+            : u
+        )
+      );
+    }
 
     const confirmed = { referenceId: refId, action };
     setConfirmedAction(confirmed);
@@ -1715,13 +1911,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     // Clear demo data when a genuine user logs in
     if (!isDemo && !user.isDemo) {
-      // Check if any demo data is loaded
-      const hasDemoData = properties.some(p => p.id.startsWith('demo-'));
+      const hasDemoData = properties.some((p) => p.id.startsWith('demo-'));
       if (hasDemoData) {
-        // Clear demo data and restore genuine data
-        setProperties([...INITIAL_PROPERTIES]);
-        setResidents([...INITIAL_RESIDENTS]);
-        setBookingRequests([...INITIAL_BOOKING_REQUESTS]);
+        setProperties((prev) => prev.filter((p) => !p.id.startsWith('demo-')));
+        setResidents((prev) => prev.filter((r) => !r.id.startsWith('demo-')));
+        setBookingRequests((prev) => prev.filter((r) => !r.id.startsWith('demo-')));
+        setStaff((prev) => prev.filter((s) => !s.id.startsWith('demo-')));
       }
     }
 
@@ -1735,10 +1930,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     if (user.role === 'staff') {
-      const matchedStaff = staff.find((s) => s.name.toLowerCase().includes(user!.name.toLowerCase().split(' ')[0]));
-      if (matchedStaff) {
-        setCurrentStaffId(matchedStaff.id);
-      }
+      const digits = (user.phone || '').replace(/\D/g, '').slice(-10);
+      const matchedStaff = staff.find((s) => digits && s.phone.replace(/\D/g, '').slice(-10) === digits);
+      if (matchedStaff) setCurrentStaffId(matchedStaff.id);
     }
 
     // If there was a pending customer action (schedule visit or book), execute it seamlessly
@@ -1755,33 +1949,43 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return { success: true, message: `Welcome back, ${user.name}!` };
   };
 
-  const applyApiSession = (user: {
-    id: string;
-    name?: string;
-    email?: string;
-    phone?: string;
-    role: UserRole;
-    organizationId?: string;
-  }) => {
+  const applyApiSession = (user: Partial<UserAccount> & { id: string; role: UserRole }) => {
+    const incoming: Partial<UserAccount> = {};
+    (Object.keys(user) as (keyof UserAccount)[]).forEach((key) => {
+      const value = user[key];
+      if (value !== undefined) (incoming as Record<string, unknown>)[key as string] = value;
+    });
     const account: UserAccount = {
       id: user.id,
       name: user.name || user.email || 'User',
       email: user.email || '',
       phone: user.phone || '',
       role: user.role,
-      organizationId: user.organizationId || DEFAULT_ORGANIZATION_ID,
-      isProfileCompleted: true,
+      organizationId: user.organizationId || (user.role === 'owner' ? `org-${user.id}` : DEFAULT_ORGANIZATION_ID),
+      avatar: user.avatar || '',
       createdAt: new Date().toISOString().split('T')[0],
+      isProfileCompleted: Boolean(user.isProfileCompleted),
+      ...incoming,
     };
     setUsers((prev) => {
       const exists = prev.some((u) => u.id === account.id);
-      return exists ? prev.map((u) => (u.id === account.id ? account : u)) : [...prev, account];
+      return exists
+        ? prev.map((u) => (u.id === account.id ? { ...u, ...incoming } : u))
+        : [...prev, account];
     });
-    setCurrentUser(account);
+    setCurrentUser((prev) => (prev && prev.id === account.id ? { ...prev, ...incoming } : account));
     setRoleState(account.role);
     setAuthModalOpen(false);
-
-    if (pendingAction) {
+    if (account.role === 'staff') {
+      const digits = (account.phone || '').replace(/\D/g, '').slice(-10);
+      const matchedStaff = staff.find((s) => digits && s.phone.replace(/\D/g, '').slice(-10) === digits);
+      if (matchedStaff) setCurrentStaffId(matchedStaff.id);
+    }
+    if (!account.isProfileCompleted && account.role !== 'staff') {
+      setProfileModalOpen(true);
+      return;
+    }
+    if (pendingAction && account.isProfileCompleted) {
       confirmDirectAction({
         ...pendingAction,
         applicantName: account.name,
@@ -1791,6 +1995,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setPendingAction(null);
     }
   };
+
+  useEffect(() => {
+    if (!isProductionApiEnabled() || !getAuthToken()) return;
+    let cancelled = false;
+    fetchMeWithWorkers()
+      .then((res) => {
+        if (cancelled || !res?.success || !res.user?.id) return;
+        applyApiSession(res.user);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [currentUser?.id]);
 
   const register = (accountData: {
     name: string;
@@ -1802,8 +2020,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     staffRole?: string;
   }) => {
     const today = new Date().toISOString().split('T')[0];
+    const id = `user-${Date.now()}`;
     const newUser: UserAccount = {
-      id: `user-${Date.now()}`,
+      id,
+      organizationId: accountData.role === 'owner' ? `org-${id}` : DEFAULT_ORGANIZATION_ID,
       name: accountData.name,
       email: accountData.email,
       phone: accountData.phone,
@@ -1829,10 +2049,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     // Clear demo data when a genuine user registers
     const hasDemoData = properties.some(p => p.id.startsWith('demo-'));
-    if (hasDemoData) {
-      setProperties([...INITIAL_PROPERTIES]);
-      setResidents([...INITIAL_RESIDENTS]);
-      setBookingRequests([...INITIAL_BOOKING_REQUESTS]);
+    if (hasDemoData && !newUser.isDemo) {
+      setProperties((prev) => prev.filter((p) => !p.id.startsWith('demo-')));
+      setResidents((prev) => prev.filter((r) => !r.id.startsWith('demo-')));
+      setBookingRequests((prev) => prev.filter((r) => !r.id.startsWith('demo-')));
     }
 
     // Only create resident data if they have an actual property assignment (from booking/visit)
@@ -1842,7 +2062,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         id: `staff-${Date.now()}`,
         name: accountData.name,
         role: (accountData.staffRole as any) || 'Manager',
-        phone: accountData.phone,
+        phone: '+91 98765 43210',
         avatar: newUser.avatar,
         propertyId: undefined, // Staff will be assigned to properties by owners
         shift: 'Morning (6 AM - 2 PM)',
@@ -1889,8 +2109,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return [...prev, updatedUser];
     });
 
-    if (updates.role) {
-      setRoleState(updates.role);
+    if (updatedUser.role) {
+      setRoleState(updatedUser.role);
+    }
+
+    if (pendingAction && !currentUser.isProfileCompleted) {
+      confirmDirectAction({
+        ...pendingAction,
+        applicantName: updatedUser.name,
+        email: updatedUser.email,
+        phone: updatedUser.phone,
+      });
+      setPendingAction(null);
     }
 
     if (updatedUser.role === 'resident') {
@@ -1942,8 +2172,52 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const created: Property = {
       ...newProp,
       id: `prop-${Date.now()}`,
+      ownerUserId: newProp.ownerUserId || currentUser?.id,
+      ownerName: newProp.ownerName || currentUser?.name || 'Owner',
+      organizationId: newProp.organizationId || currentUser?.organizationId || (currentUser?.id ? `org-${currentUser.id}` : DEFAULT_ORGANIZATION_ID),
+      contactEmail: newProp.contactEmail || currentUser?.email || '',
+      contactPhone: newProp.contactPhone || currentUser?.phone || '',
+    };
+    const persist = async () => {
+      const uploadIfNeeded = async (url?: string, category = 'Bedroom') => {
+        if (!url || url.startsWith('http') || url.startsWith('/api/media')) return url || '';
+        if (!url.startsWith('data:')) return url;
+        try {
+          const blob = await (await fetch(url)).blob();
+          const uploaded = await uploadListingPhoto(blob, category);
+          return uploaded.url || url;
+        } catch {
+          return url;
+        }
+      };
+      const coverImage = await uploadIfNeeded(created.coverImage, 'Exterior');
+      const galleryImages = await Promise.all((created.galleryImages || []).map((u) => uploadIfNeeded(u)));
+      const ready = { ...created, coverImage, galleryImages: galleryImages.filter(Boolean) };
+      setProperties((prev) => prev.map((p) => (p.id === created.id ? ready : p)));
+      void publishListing(ready);
     };
     setProperties((prev) => [created, ...prev]);
+    void persist();
+
+    const letters = ['A', 'B', 'C', 'D', 'E', 'F'];
+    const generatedBeds: Bed[] = (created.rooms || []).flatMap((room, roomIndex) => {
+      const count = Math.max(room.totalBeds || 0, 1);
+      return Array.from({ length: count }, (_, i) => ({
+        id: `bed-${created.id}-${room.id}-${i}`,
+        bedNumber: `${room.id}-${letters[i] || i + 1}`,
+        roomId: room.id,
+        roomNumber: String(room.id),
+        propertyId: created.id,
+        floor: roomIndex + 1,
+        sharingType: room.type,
+        status: 'Available' as const,
+        monthlyRent: room.rentPerMonth,
+        deposit: room.deposit,
+      }));
+    });
+    if (generatedBeds.length) {
+      setBeds((prev) => [...generatedBeds, ...prev]);
+    }
   };
 
   const addBookingRequest = (request: Omit<BookingRequest, 'id' | 'status' | 'requestDate'>) => {
@@ -1955,13 +2229,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       requestDate: today,
     };
     setBookingRequests((prev) => [newReq, ...prev]);
+    void publishInquiry(newReq);
   };
 
   const approveBookingRequest = (requestId: string, roomNumber?: string, bedNumber?: string) => {
     const assignedRoom = roomNumber || '204';
     const assignedBed = bedNumber || 'Bed A';
 
-    let targetReq = bookingRequests.find((r) => r.id === requestId);
+    let targetReq = bookingRequests.find((r) => r.id === requestId || r.referenceId === requestId);
+    if (targetReq?.type === 'visit') {
+      setBookingRequests((prev) =>
+        prev.map((req) =>
+          req.id === targetReq!.id || req.referenceId === requestId ? { ...req, status: 'Approved' } : req
+        )
+      );
+      void patchInquiry(targetReq.referenceId || targetReq.id, { status: 'Approved' });
+      return;
+    }
     const requestedBed =
       beds.find(
         (bed) =>
@@ -1995,6 +2279,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     );
 
     if (targetReq) {
+      void patchInquiry(targetReq.referenceId || targetReq.id, {
+        status: 'Approved',
+        allocatedRoomNumber: requestedBed?.roomNumber || assignedRoom,
+        allocatedBedNumber: requestedBed?.bedNumber || assignedBed,
+      });
       const existingRes = residents.find(
         (r) =>
           (targetReq!.email && r.email.toLowerCase() === targetReq!.email.toLowerCase()) ||
@@ -2139,14 +2428,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const rejectBookingRequest = (requestId: string) => {
     setBookingRequests((prev) =>
-      prev.map((req) => (req.id === requestId ? { ...req, status: 'Rejected' } : req))
+      prev.map((req) => (req.id === requestId || req.referenceId === requestId ? { ...req, status: 'Rejected' } : req))
     );
+    void patchInquiry(requestId, { status: 'Rejected' });
   };
 
   const cancelBookingRequest = (requestId: string) => {
     setBookingRequests((prev) =>
-      prev.map((req) => (req.id === requestId ? { ...req, status: 'Cancelled' } : req))
+      prev.map((req) => (req.id === requestId || req.referenceId === requestId ? { ...req, status: 'Cancelled' } : req))
     );
+    void patchInquiry(requestId, { status: 'Cancelled' });
   };
 
   const rescheduleVisit = (requestId: string, newDate: string, newTimeSlot: string) => {
@@ -2218,7 +2509,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     setInvoices((prev) => {
       const updated = [...prev];
-      residents.forEach((res) => {
+      const scopedResidents = currentUser?.isDemo
+        ? residents
+        : residents.filter((res) => {
+            const prop = properties.find((p) => p.id === res.propertyId);
+            return prop ? ownsProperty(prop, currentUser) : false;
+          });
+      scopedResidents.forEach((res) => {
         // Skip if invoice already exists for this resident and month
         const exists = updated.some((inv) => inv.residentId === res.id && inv.month === monthYear);
         if (exists) return;
@@ -2841,6 +3138,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         activeProperty,
         selectedPGForDetail,
         setSelectedPGForDetail,
+        propertyModalIntent,
+        openPropertyModal,
         showAuthModal: authModalOpen,
         setShowAuthModal: setAuthModalOpen,
         authModalOpen,
@@ -2855,6 +3154,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         runPendingAuthAction,
         login,
         applyApiSession,
+        openPublicCatalog,
+        shellIntent,
+        clearShellIntent,
         register,
         logout,
         profileModalOpen,

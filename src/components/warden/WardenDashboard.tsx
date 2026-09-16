@@ -177,7 +177,7 @@ export const WardenDashboard: React.FC = () => {
       </div>
 
       {/* Sub Navigation with smooth mobile horizontal scroll */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-2 border-b border-slate-200 text-xs sm:text-sm font-bold scroll-smooth">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pb-2 border-b border-slate-200 text-xs sm:text-sm font-bold">
         <button
           onClick={() => setActiveTab('daily')}
           className={`flex items-center gap-2 px-4 py-2.5 rounded-xl transition-colors whitespace-nowrap shrink-0 min-h-[44px] ${

@@ -9,9 +9,14 @@
 }
 
 html,
-body,
+body {
+  min-height: 100%;
+  height: auto;
+  overflow-y: auto;
+}
+
 #root {
-  height: 100%;
+  min-height: 100%;
 }
 
 html {
@@ -21,7 +26,6 @@ html {
 
 body.native-shell {
   min-height: 100dvh;
-  overscroll-behavior-y: none;
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
 }
@@ -29,11 +33,6 @@ body.native-shell {
 .native-app {
   min-height: 100dvh;
   padding-top: var(--safe-top);
-}
-
-.native-app main {
-  -webkit-overflow-scrolling: touch;
-  overscroll-behavior-y: contain;
 }
 
 .standalone .native-app {
@@ -72,4 +71,11 @@ input,
 select,
 textarea {
   font-size: 16px;
+}
+
+img.listing-photo {
+  object-fit: cover;
+  object-position: center;
+  filter: saturate(1.04) contrast(1.03);
+  background: #e2e8f0;
 }

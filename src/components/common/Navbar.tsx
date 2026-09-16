@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { BrandLogo } from './BrandLogo';
+import { UserAvatar } from './UserAvatar';
 import {
   Bell,
   X,
@@ -16,7 +17,11 @@ import {
   ChevronRight,
   Menu,
   Sparkles,
+  LayoutDashboard,
+  Phone,
+  Briefcase,
 } from 'lucide-react';
+import { UserRole } from '../../types';
 
 interface NavbarProps {
   currentTab: string;
@@ -42,7 +47,6 @@ export const Navbar: React.FC<NavbarProps> = ({
     broadcasts,
     openAuthModal,
     logout,
-    setProfileModalOpen,
   } = useApp();
 
   const [internalShowNotifications, setInternalShowNotifications] = useState(false);
@@ -54,12 +58,34 @@ export const Navbar: React.FC<NavbarProps> = ({
   const mobileMenuOpen = controlledMobileMenuOpen ?? internalMobileMenuOpen;
   const setMobileMenuOpen = controlledSetMobileMenuOpen ?? setInternalMobileMenuOpen;
 
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const accountMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const onDoc = (e: MouseEvent) => {
+      if (!accountMenuRef.current?.contains(e.target as Node)) setAccountMenuOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, []);
+
+  const goToDashboard = (userRole?: UserRole) => {
+    const r = userRole || currentUser?.role;
+    if (r === 'owner') setCurrentTab('owner');
+    else if (r === 'staff') setCurrentTab('staff');
+    else if (r === 'warden') setCurrentTab('warden');
+    else if (r === 'accountant') setCurrentTab('accountant');
+    else if (r === 'admin') setCurrentTab('admin');
+    else setCurrentTab('resident');
+  };
+
   const handleLogout = () => {
     logout();
     setRole('public');
     setCurrentTab('landing');
     setMobileMenuOpen(false);
     setShowNotifications(false);
+    setAccountMenuOpen(false);
   };
 
   const getRoleLabel = (r: string) => {
@@ -114,14 +140,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                     setRole('public');
                     setCurrentTab('landing');
                   } else {
-                    // Navigate to respective dashboard or landing
-                    if (currentUser.role === 'owner') setCurrentTab('owner');
-                    else if (currentUser.role === 'resident') setCurrentTab('resident');
-                    else if (currentUser.role === 'staff') setCurrentTab('staff');
-                    else if (currentUser.role === 'warden') setCurrentTab('warden');
-                    else if (currentUser.role === 'accountant') setCurrentTab('accountant');
-                    else if (currentUser.role === 'admin') setCurrentTab('admin');
-                    else setCurrentTab('landing');
+                    goToDashboard(currentUser.role);
                   }
                 }}
                 className="flex items-center group text-left focus:outline-hidden py-1 min-h-[44px]"
@@ -189,39 +208,73 @@ export const Navbar: React.FC<NavbarProps> = ({
                    - Mobile hamburger toggle
                 */
                 <>
-                  {/* User Profile Chip */}
-                  <button
-                    id="nav-user-profile-btn"
-                    onClick={() => setProfileModalOpen(true)}
-                    className="flex items-center gap-2 px-2.5 py-1 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200 transition cursor-pointer text-left focus:outline-hidden focus:ring-2 focus:ring-blue-500"
-                    title="Click to view/edit your profile (name, age, phone, role...)"
-                  >
-                    <div className="relative">
-                      <img
-                        src={currentUser.avatar}
-                        alt={currentUser.name}
-                        referrerPolicy="no-referrer"
-                        className="w-7 h-7 rounded-lg object-cover border border-slate-300 shrink-0"
-                      />
-                      {currentUser.isDemo && (
-                        <div className="absolute -top-1 -right-1 w-3 h-3 bg-green-500 rounded-full border-2 border-white flex items-center justify-center">
-                          <Sparkles className="w-2 h-2 text-white" />
+                  <div className="relative" ref={accountMenuRef}>
+                    <button
+                      id="nav-user-profile-btn"
+                      onClick={() => setAccountMenuOpen((open) => !open)}
+                      className="flex items-center gap-2 px-2.5 py-1 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200 transition cursor-pointer text-left focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+                      title="Account menu"
+                    >
+                      <div className="relative">
+                        <UserAvatar name={currentUser.name} src={currentUser.avatar} sizeClass="w-7 h-7 text-[10px]" />
+                        {currentUser.isDemo && (
+                          <div className="absolute -top-1 -right-1 w-3 h-3 bg-green-500 rounded-full border-2 border-white flex items-center justify-center">
+                            <Sparkles className="w-2 h-2 text-white" />
+                          </div>
+                        )}
+                      </div>
+                      <div className="hidden sm:block text-left pr-1">
+                        <p className="text-xs font-bold text-slate-900 leading-tight truncate max-w-[110px]">
+                          {currentUser.name.split(' ')[0]}
+                        </p>
+                        <span
+                          className={`inline-block px-1.5 py-0.2 rounded text-[9px] font-bold border uppercase leading-none ${getRoleBadgeColor(
+                            currentUser.role
+                          )}`}
+                        >
+                          {currentUser.isDemo ? 'Demo' : getRoleLabel(currentUser.role)}
+                        </span>
+                      </div>
+                    </button>
+
+                    {accountMenuOpen && (
+                      <div className="absolute right-0 mt-2 w-72 rounded-2xl bg-white shadow-2xl border border-slate-200 z-50 overflow-hidden">
+                        <div className="p-4 bg-slate-50 border-b border-slate-100">
+                          <p className="text-sm font-black text-slate-900 truncate">{currentUser.name}</p>
+                          <p className="mt-2 flex items-center gap-2 text-xs text-slate-600">
+                            <Phone className="w-3.5 h-3.5 text-blue-600" />
+                            {currentUser.phone || 'Mobile not added'}
+                          </p>
+                          <p className="mt-1 flex items-center gap-2 text-xs text-slate-600">
+                            <Briefcase className="w-3.5 h-3.5 text-blue-600" />
+                            {currentUser.occupation || 'Profession not added'}
+                          </p>
                         </div>
-                      )}
-                    </div>
-                    <div className="hidden sm:block text-left pr-1">
-                      <p className="text-xs font-bold text-slate-900 leading-tight truncate max-w-[110px]">
-                        {currentUser.name.split(' ')[0]}
-                      </p>
-                      <span
-                        className={`inline-block px-1.5 py-0.2 rounded text-[9px] font-bold border uppercase leading-none ${getRoleBadgeColor(
-                          currentUser.role
-                        )}`}
-                      >
-                        {currentUser.isDemo ? 'Demo' : getRoleLabel(currentUser.role)}
-                      </span>
-                    </div>
-                  </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            goToDashboard();
+                            setAccountMenuOpen(false);
+                          }}
+                          className="w-full flex items-center gap-2 px-4 py-3 text-sm font-semibold text-slate-800 hover:bg-blue-50"
+                        >
+                          <LayoutDashboard className="w-4 h-4 text-blue-600" />
+                          Back to dashboard
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCurrentTab('profile');
+                            setAccountMenuOpen(false);
+                          }}
+                          className="w-full flex items-center justify-between px-4 py-3 text-sm font-semibold text-blue-700 hover:bg-blue-50 border-t border-slate-100"
+                        >
+                          More
+                          <ChevronRight className="w-4 h-4" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
 
                   {/* Notification Bell */}
                   <div className="relative">
@@ -425,54 +478,32 @@ export const Navbar: React.FC<NavbarProps> = ({
               ) : (
                 <>
                   {/* Logged in User Card */}
-                  <button
-                    onClick={() => {
-                      setMobileMenuOpen(false);
-                      setProfileModalOpen(true);
-                    }}
-                    className="w-full text-left p-3.5 rounded-2xl bg-slate-50 hover:bg-slate-100 border border-slate-200 flex items-center justify-between gap-3 transition"
-                  >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className="relative">
-                        <img
-                          src={currentUser.avatar}
-                          alt={currentUser.name}
-                          referrerPolicy="no-referrer"
-                          className="w-10 h-10 rounded-xl object-cover border border-slate-300 shrink-0"
-                        />
-                        {currentUser.isDemo && (
-                          <div className="absolute -top-1 -right-1 w-4 h-4 bg-green-500 rounded-full border-2 border-white flex items-center justify-center">
-                            <Sparkles className="w-2.5 h-2.5 text-white" />
-                          </div>
-                        )}
-                      </div>
+                  <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200">
+                    <div className="flex items-center gap-3">
+                      <UserAvatar name={currentUser.name} src={currentUser.avatar} sizeClass="w-10 h-10 text-sm" />
                       <div className="min-w-0">
                         <p className="text-xs font-bold text-slate-900 truncate">{currentUser.name}</p>
-                        <p className="text-[10px] text-slate-500 truncate">{currentUser.email}</p>
-                        <span
-                          className={`inline-block mt-1 px-1.5 py-0.5 rounded text-[9px] font-bold border uppercase ${getRoleBadgeColor(
-                            currentUser.role
-                          )}`}
-                        >
-                          {currentUser.isDemo ? 'Demo' : getRoleLabel(currentUser.role)}
-                        </span>
+                        <p className="text-[11px] text-slate-600 truncate">{currentUser.phone || 'No mobile'}</p>
+                        <p className="text-[11px] text-slate-500 truncate">{currentUser.occupation || 'Profession not added'}</p>
                       </div>
                     </div>
-                    <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded-lg shrink-0">
-                      Edit Info
-                    </span>
-                  </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCurrentTab('profile');
+                        setMobileMenuOpen(false);
+                      }}
+                      className="mt-3 w-full py-2 rounded-xl bg-white border border-blue-200 text-blue-700 text-xs font-bold"
+                    >
+                      More
+                    </button>
+                  </div>
 
                   {/* Role Specific Quick Navigation */}
                   <div className="space-y-1.5 pt-2">
                     <button
                       onClick={() => {
-                        if (currentUser.role === 'owner') setCurrentTab('owner');
-                        else if (currentUser.role === 'resident') setCurrentTab('resident');
-                        else if (currentUser.role === 'staff') setCurrentTab('staff');
-                        else if (currentUser.role === 'warden') setCurrentTab('warden');
-                        else if (currentUser.role === 'accountant') setCurrentTab('accountant');
-                        else if (currentUser.role === 'admin') setCurrentTab('admin');
+                        goToDashboard(currentUser.role);
                         setMobileMenuOpen(false);
                       }}
                       className="w-full flex items-center justify-between p-3 rounded-xl bg-blue-50 text-blue-700 font-bold text-xs min-h-[44px]"

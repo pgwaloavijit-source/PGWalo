@@ -19,13 +19,22 @@ import {
   ChevronRight,
   Crosshair,
 } from 'lucide-react';
-import { GenderPreference, PublicSearchCriteria } from '../../types';
+import { visitedPropertyIds, bookedPropertyIds } from '../../utils/userBookings';
+import { ListingImage } from '../common/ListingImage';
+import { GenderPreference, PublicSearchCriteria, Property } from '../../types';
+import { fetchPublicListings } from '../../services/listings';
+import { searchPlaces } from '../../services/geo';
+import { mergeProperties, nearbyLocalities, sortByDistance, hasCoords } from '../../utils/locationMatch';
 
 export const LandingPage: React.FC<{
   onExploreClick: (criteria?: PublicSearchCriteria) => void;
   onSelectPG: (pgId: string) => void;
 }> = ({ onExploreClick, onSelectPG }) => {
-  const { properties, openAuthModal } = useApp();
+  const { properties, openAuthModal, currentUser, bookingRequests } = useApp();
+  const [remoteListings, setRemoteListings] = useState<Property[]>([]);
+  const catalog = useMemo(() => mergeProperties(properties, remoteListings), [properties, remoteListings]);
+  const visitedIds = useMemo(() => visitedPropertyIds(bookingRequests, currentUser), [bookingRequests, currentUser]);
+  const bookedIds = useMemo(() => bookedPropertyIds(bookingRequests, currentUser), [bookingRequests, currentUser]);
 
   const [locationQuery, setLocationQuery] = useState('');
   const [selectedCity, setSelectedCity] = useState<string | undefined>();
@@ -34,7 +43,21 @@ export const LandingPage: React.FC<{
   const [showLocationSuggestions, setShowLocationSuggestions] = useState(false);
   const [locating, setLocating] = useState(false);
   const [locationError, setLocationError] = useState('');
+  const [userCoords, setUserCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [specificSearch, setSpecificSearch] = useState(false);
   const locationInputRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchPublicListings()
+      .then((remote) => {
+        if (!cancelled && remote.length) setRemoteListings(remote);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Close suggestions when clicking outside
   useEffect(() => {
@@ -53,17 +76,25 @@ export const LandingPage: React.FC<{
     };
   }, [showLocationSuggestions]);
 
-  const featuredList = properties.slice(0, 3);
+  const featuredList = useMemo(() => {
+    const live = catalog.filter((p) => p.ownerUserId && p.ownerUserId !== 'catalog-seed');
+    const rest = catalog.filter((p) => !live.some((l) => l.id === p.id));
+    const ranked = sortByDistance([...live, ...rest], userCoords?.lat, userCoords?.lng);
+    return ranked.slice(0, 3);
+  }, [catalog, userCoords]);
+
+  const nearbyAreas = useMemo(
+    () => nearbyLocalities(catalog, userCoords?.lat, userCoords?.lng, 5),
+    [catalog, userCoords]
+  );
 
   // Group properties by locality for the area-wise discovery section
-  const localities = [
-    { name: 'HSR Layout', city: 'Bengaluru', count: properties.filter(p => p.locality.includes('HSR')).length || 2, techPark: 'Near Ecospace & Outer Ring Road' },
-    { name: 'Koramangala', city: 'Bengaluru', count: properties.filter(p => p.locality.includes('Koramangala')).length || 1, techPark: 'Near Sony World & Forum' },
-    { name: 'Whitefield', city: 'Bengaluru', count: properties.filter(p => p.locality.includes('Whitefield')).length || 1, techPark: 'Near ITPL & Prestige Tech Cloud' },
-    { name: 'Hinjewadi', city: 'Pune', count: properties.filter(p => p.locality.includes('Hinjewadi') || p.city === 'Pune').length || 1, techPark: 'Near Rajiv Gandhi Infotech Park' },
-    { name: 'Gachibowli', city: 'Hyderabad', count: properties.filter(p => p.locality.includes('Gachibowli') || p.city === 'Hyderabad').length || 1, techPark: 'Near DLF Cybercity & Financial District' },
-    { name: 'Cyber City', city: 'Delhi NCR', count: properties.filter(p => p.locality.includes('Cyber') || p.city.includes('Delhi')).length || 1, techPark: 'Near DLF Phase 2 & 3' },
-  ];
+  const localities = nearbyAreas.map((area) => ({
+    name: area.name,
+    city: area.city,
+    count: catalog.filter((p) => p.locality === area.name).length || 1,
+    techPark: area.km != null ? `${area.km.toFixed(1)} km from you` : `PGs in ${area.city}`,
+  }));
 
   const locationOptions = useMemo(() => {
     const optionMap = new Map<string, { label: string; city: string; type: 'Area' | 'PG'; propertyId?: string }>();
@@ -76,7 +107,7 @@ export const LandingPage: React.FC<{
       });
     });
 
-    properties.forEach((property) => {
+    catalog.forEach((property) => {
       optionMap.set(`${property.locality}-${property.city}`, {
         label: `${property.locality}, ${property.city}`,
         city: property.city,
@@ -91,7 +122,7 @@ export const LandingPage: React.FC<{
     });
 
     return Array.from(optionMap.values());
-  }, [localities, properties]);
+  }, [localities, catalog]);
 
   const visibleLocationSuggestions = useMemo(() => {
     const query = locationQuery.trim().toLowerCase();
@@ -101,31 +132,37 @@ export const LandingPage: React.FC<{
       .slice(0, 6);
   }, [locationOptions, locationQuery]);
 
-  const getDistanceInKm = (fromLat: number, fromLng: number, toLat: number, toLng: number) => {
-    const earthRadiusKm = 6371;
-    const dLat = ((toLat - fromLat) * Math.PI) / 180;
-    const dLng = ((toLng - fromLng) * Math.PI) / 180;
-    const a =
-      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-      Math.cos((fromLat * Math.PI) / 180) *
-        Math.cos((toLat * Math.PI) / 180) *
-        Math.sin(dLng / 2) *
-        Math.sin(dLng / 2);
-    return earthRadiusKm * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  };
-
-  const handleSearchSubmit = (e: React.FormEvent) => {
+  const handleSearchSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const query = locationQuery.trim();
+    if (query) {
+      setSpecificSearch(true);
+      const places = await searchPlaces(query);
+      const place = places[0];
+      onExploreClick({
+        location: query,
+        city: place?.city || selectedCity,
+        moveInDate,
+        type: selectedType,
+        lat: place?.lat,
+        lng: place?.lng,
+        nearby: false,
+      });
+      return;
+    }
     onExploreClick({
-      location: locationQuery,
       city: selectedCity,
       moveInDate,
       type: selectedType,
+      lat: userCoords?.lat,
+      lng: userCoords?.lng,
+      nearby: true,
     });
   };
 
   const handleAreaPillClick = (areaName: string, cityName: string) => {
-    onExploreClick({ location: areaName, city: cityName, moveInDate, type: selectedType });
+    setSpecificSearch(true);
+    onExploreClick({ location: areaName, city: cityName, moveInDate, type: selectedType, nearby: false });
   };
 
   const handleLocationSelect = (label: string, city: string, propertyId?: string) => {
@@ -140,6 +177,19 @@ export const LandingPage: React.FC<{
     }
   };
 
+  const applyCoords = (lat: number, lng: number, label?: string) => {
+    setUserCoords({ lat, lng });
+    setSpecificSearch(false);
+    const nearest = sortByDistance(catalog.filter(hasCoords), lat, lng)[0];
+    if (label) {
+      setLocationQuery(label);
+    } else if (nearest) {
+      setLocationQuery(`Near ${nearest.locality}, ${nearest.city}`);
+      setSelectedCity(nearest.city);
+    }
+    setLocationError('');
+  };
+
   const handleLocateMe = () => {
     if (!navigator.geolocation) {
       setLocationError('Location is not supported in this browser.');
@@ -150,24 +200,7 @@ export const LandingPage: React.FC<{
     setLocationError('');
     navigator.geolocation.getCurrentPosition(
       (position) => {
-        const nearestProperty = properties
-          .filter((property) => Number.isFinite(property.lat) && Number.isFinite(property.lng))
-          .map((property) => ({
-            property,
-            distance: getDistanceInKm(
-              position.coords.latitude,
-              position.coords.longitude,
-              property.lat,
-              property.lng
-            ),
-          }))
-          .sort((a, b) => a.distance - b.distance)[0]?.property;
-
-        if (nearestProperty) {
-          handleLocationSelect(`${nearestProperty.locality}, ${nearestProperty.city}`, nearestProperty.city);
-        } else {
-          setLocationError('Could not find a nearby listed PG.');
-        }
+        applyCoords(position.coords.latitude, position.coords.longitude);
         setLocating(false);
       },
       () => {
@@ -177,6 +210,15 @@ export const LandingPage: React.FC<{
       { enableHighAccuracy: true, timeout: 8000 }
     );
   };
+
+  useEffect(() => {
+    if (!navigator.geolocation || userCoords) return;
+    navigator.geolocation.getCurrentPosition(
+      (position) => applyCoords(position.coords.latitude, position.coords.longitude),
+      () => undefined,
+      { enableHighAccuracy: true, timeout: 6000 }
+    );
+  }, [catalog.length]);
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 pb-20">
@@ -222,7 +264,7 @@ export const LandingPage: React.FC<{
                   <input
                     id="hero-search-input"
                     type="text"
-                    placeholder="Search area, city, tech park, or PG"
+                    placeholder="Your area, address, or a different city"
                     value={locationQuery}
                     onFocus={() => setShowLocationSuggestions(true)}
                     onChange={(e) => {
@@ -325,24 +367,30 @@ export const LandingPage: React.FC<{
             </form>
 
             {/* Quick Area Discovery Chips */}
-            <div className="mt-3.5 pt-3 border-t border-slate-100 flex flex-wrap items-center gap-1.5 text-xs text-slate-500">
-              <span className="text-[11px] font-bold text-slate-600 uppercase tracking-wider shrink-0 flex items-center gap-1">
+            <div className="mt-3.5 pt-3 border-t border-slate-100">
+              <span className="text-[11px] font-bold text-slate-600 uppercase tracking-wider flex items-center gap-1 mb-2">
                 <Compass className="w-3 h-3 text-blue-600" />
-                Popular Areas:
+                {userCoords ? 'Top 5 localities near you' : 'Nearby localities'}
               </span>
-              {['HSR Layout', 'Koramangala', 'Whitefield', 'Hinjewadi', 'Gachibowli', 'Cyber City'].map((area) => (
-                <button
-                  key={area}
-                  type="button"
-                  onClick={() => {
-                    const matched = localities.find(l => l.name === area);
-                    handleAreaPillClick(area, matched?.city || 'Bengaluru');
-                  }}
-                  className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-blue-50 hover:text-blue-700 text-slate-700 text-[11px] font-medium transition"
-                >
-                  {area}
-                </button>
-              ))}
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                {(nearbyAreas.length ? nearbyAreas : [
+                  { name: 'HSR Layout', city: 'Bengaluru' },
+                  { name: 'Koramangala', city: 'Bengaluru' },
+                  { name: 'Whitefield', city: 'Bengaluru' },
+                  { name: 'Hinjewadi', city: 'Pune' },
+                  { name: 'Gachibowli', city: 'Hyderabad' },
+                ]).slice(0, 5).map((area) => (
+                  <button
+                    key={`${area.name}-${area.city}`}
+                    type="button"
+                    onClick={() => handleAreaPillClick(area.name, area.city)}
+                    className="px-2.5 py-2 rounded-xl bg-slate-50 hover:bg-blue-50 border border-slate-200 hover:border-blue-200 text-left"
+                  >
+                    <p className="text-[11px] font-bold text-slate-800 truncate">{area.name}</p>
+                    <p className="text-[10px] text-slate-500 truncate">{area.city}{'km' in area && area.km != null ? ` · ${area.km.toFixed(1)} km` : ''}</p>
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
 
@@ -378,15 +426,15 @@ export const LandingPage: React.FC<{
                 <span>Featured Accommodations</span>
               </div>
               <h2 className="text-xl sm:text-2xl font-black text-slate-900">
-                Verified PGs in Top Tech Corridors
+                Verified PGs near you
               </h2>
             </div>
             <button
               id="view-all-pgs-btn"
-              onClick={() => onExploreClick()}
+            onClick={() => onExploreClick({ lat: userCoords?.lat, lng: userCoords?.lng, nearby: !specificSearch })}
               className="inline-flex items-center gap-2 text-xs font-bold text-blue-600 hover:text-blue-800 group"
             >
-              <span>Explore All {properties.length} Properties</span>
+              <span>Explore All {catalog.length} Properties</span>
               <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
             </button>
           </div>
@@ -400,11 +448,10 @@ export const LandingPage: React.FC<{
                 <div>
                   {/* Image container with tags */}
                   <div className="relative h-48 overflow-hidden bg-slate-100">
-                    <img
+                    <ListingImage
                       src={pg.coverImage}
                       alt={pg.name}
-                      referrerPolicy="no-referrer"
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                      className="w-full h-full group-hover:scale-105 transition-transform duration-300"
                     />
                     <div className="absolute top-3 left-3 flex items-center gap-1.5">
                       <span
@@ -422,6 +469,16 @@ export const LandingPage: React.FC<{
                         <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-white/95 text-blue-700 backdrop-blur-xs flex items-center gap-1 shadow-xs">
                           <ShieldCheck className="w-3 h-3 text-blue-600" />
                           Verified
+                        </span>
+                      )}
+                      {visitedIds.has(pg.id) && (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500 text-white shadow-xs">
+                          Already visited
+                        </span>
+                      )}
+                      {bookedIds.has(pg.id) && (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500 text-white shadow-xs">
+                          Applied
                         </span>
                       )}
                     </div>
