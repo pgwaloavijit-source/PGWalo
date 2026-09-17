@@ -22,6 +22,7 @@ import {
   Briefcase,
 } from 'lucide-react';
 import { UserRole } from '../../types';
+import { PWAInstallButton } from './PWAInstallButton';
 
 interface NavbarProps {
   currentTab: string;
@@ -152,6 +153,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
             {/* Right Action Section */}
             <div className="flex items-center gap-2.5 sm:gap-3">
+              <PWAInstallButton />
               {!currentUser ? (
                 /* ================= PUBLIC (UNAUTHENTICATED) HEADER =================
                    Contains strictly:

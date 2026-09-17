@@ -39,6 +39,77 @@ body.native-shell {
   background: #f8fafc;
 }
 
+.pwa-mobile-shell {
+  min-height: 100dvh;
+  background:
+    radial-gradient(circle at 90% -10%, rgba(59, 130, 246, 0.18), transparent 32%),
+    #f8fafc;
+}
+
+.pwa-mobile-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  min-height: 5.25rem;
+  padding: calc(0.75rem + var(--safe-top)) 1rem 0.75rem;
+  background: linear-gradient(135deg, #0f2d6b 0%, #2563eb 62%, #4f46e5 100%);
+  box-shadow: 0 10px 30px rgba(30, 64, 175, 0.2);
+}
+
+.pwa-mobile-content {
+  min-height: calc(100dvh - 9.5rem);
+  padding: 1rem 0.875rem calc(5.75rem + var(--safe-bottom));
+}
+
+.pwa-mobile-content > * {
+  max-width: 44rem;
+  margin-inline: auto;
+}
+
+.pwa-mobile-tabbar {
+  position: fixed;
+  z-index: 40;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  justify-content: space-around;
+  padding: 0.5rem 0.5rem max(0.5rem, var(--safe-bottom));
+  background: rgba(255, 255, 255, 0.94);
+  border-top: 1px solid rgba(226, 232, 240, 0.9);
+  box-shadow: 0 -10px 30px rgba(15, 23, 42, 0.08);
+  backdrop-filter: blur(18px);
+}
+
+.pwa-tab {
+  display: flex;
+  min-width: 4.5rem;
+  min-height: 2.75rem;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.2rem;
+  border-radius: 1rem;
+  color: #64748b;
+  font-size: 0.65rem;
+  font-weight: 700;
+  transition: color 160ms ease, background 160ms ease, transform 160ms ease;
+}
+
+.pwa-tab:active {
+  transform: scale(0.95);
+}
+
+.pwa-tab.active {
+  color: #2563eb;
+  background: #eff6ff;
+}
+
+.pwa-mobile-shell .bg-white {
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.05);
+}
+
 .standalone header[role="banner"],
 .standalone #mobile-bottom-navigation {
   box-shadow: 0 1px 0 rgba(15, 23, 42, 0.06);

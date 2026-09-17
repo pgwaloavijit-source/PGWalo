@@ -11,6 +11,7 @@ import { AuthExperience } from './components/auth/AuthExperience';
 import { ProfileCompletionModal } from './components/auth/ProfileCompletionModal';
 import { AccountDetailsPage } from './components/auth/AccountDetailsPage';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
+import { PWAMobileShell } from './components/common/PWAMobileShell';
 import { OwnerDashboard } from './components/owner/OwnerDashboard';
 import { ResidentDashboard } from './components/resident/ResidentDashboard';
 import { StaffDashboard } from './components/staff/StaffDashboard';
@@ -32,6 +33,7 @@ const MainAppContent: React.FC = () => {
     propertyModalIntent,
     shellIntent,
     clearShellIntent,
+    broadcasts,
   } = useApp();
   const isStandalone = useStandalonePWA();
 
@@ -95,24 +97,8 @@ const MainAppContent: React.FC = () => {
 
   const showPublicFooter = !isDashboardView || currentTab === 'landing' || currentTab === 'search';
 
-  return (
-    <div
-      className={`native-app min-h-[100dvh] bg-slate-50 text-slate-900 flex flex-col font-sans selection:bg-blue-600 selection:text-white ${
-        isStandalone ? 'standalone-shell' : ''
-      }`}
-    >
-      <OfflineIndicator />
-
-      <Navbar
-        currentTab={currentTab}
-        setCurrentTab={setCurrentTab}
-        mobileMenuOpen={mobileMenuOpen}
-        setMobileMenuOpen={setMobileMenuOpen}
-        showNotifications={showNotifications}
-        setShowNotifications={setShowNotifications}
-      />
-
-      <main className="flex-1 pb-[calc(var(--app-tab-bar-height)+var(--safe-bottom))] md:pb-0">
+  const appContent = (
+    <>
         {currentUser?.role === 'staff' && currentTab !== 'profile' ? (
           <StaffDashboard />
         ) : currentTab === 'profile' ? (
@@ -136,12 +122,47 @@ const MainAppContent: React.FC = () => {
         ) : (
           <LandingPage onExploreClick={handleExploreWithParams} onSelectPG={handleSelectPG} />
         )}
-      </main>
+    </>
+  );
 
-      {showPublicFooter && (
-        <div className="desktop-only">
-          <Footer onAreaClick={handleAreaExplore} />
-        </div>
+  return (
+    <div
+      className={`native-app min-h-[100dvh] bg-slate-50 text-slate-900 flex flex-col font-sans selection:bg-blue-600 selection:text-white ${
+        isStandalone ? 'standalone-shell' : ''
+      }`}
+    >
+      <OfflineIndicator />
+      {isStandalone ? (
+        <PWAMobileShell
+          currentTab={currentTab}
+          setCurrentTab={setCurrentTab}
+          onOpenNotifications={() => setShowNotifications(true)}
+        >
+          {appContent}
+        </PWAMobileShell>
+      ) : (
+        <>
+          <Navbar
+            currentTab={currentTab}
+            setCurrentTab={setCurrentTab}
+            mobileMenuOpen={mobileMenuOpen}
+            setMobileMenuOpen={setMobileMenuOpen}
+            showNotifications={showNotifications}
+            setShowNotifications={setShowNotifications}
+          />
+          <main className="flex-1 pb-[calc(var(--app-tab-bar-height)+var(--safe-bottom))] md:pb-0">{appContent}</main>
+          {showPublicFooter && (
+            <div className="desktop-only">
+              <Footer onAreaClick={handleAreaExplore} />
+            </div>
+          )}
+          <MobileBottomNav
+            currentTab={currentTab}
+            setCurrentTab={setCurrentTab}
+            onOpenMobileMenu={() => setMobileMenuOpen(true)}
+            onOpenNotifications={() => setShowNotifications(true)}
+          />
+        </>
       )}
 
       {selectedProperty && (
@@ -155,16 +176,26 @@ const MainAppContent: React.FC = () => {
           }}
         />
       )}
-
       <AuthExperience />
       <ProfileCompletionModal />
-
-      <MobileBottomNav
-        currentTab={currentTab}
-        setCurrentTab={setCurrentTab}
-        onOpenMobileMenu={() => setMobileMenuOpen(true)}
-        onOpenNotifications={() => setShowNotifications(true)}
-      />
+      {isStandalone && showNotifications && (
+        <div className="fixed inset-0 z-50 bg-slate-950/50 p-4" onClick={() => setShowNotifications(false)}>
+          <div className="mx-auto mt-16 max-w-sm rounded-3xl bg-white p-5 shadow-2xl" onClick={(event) => event.stopPropagation()}>
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="font-black text-slate-900">Notifications</h2>
+              <button onClick={() => setShowNotifications(false)} className="text-sm font-bold text-blue-600">Done</button>
+            </div>
+            <div className="space-y-3">
+              {broadcasts.slice(0, 5).map((broadcast) => (
+                <div key={broadcast.id} className="rounded-2xl bg-slate-50 p-3">
+                  <p className="text-xs font-bold text-slate-900">{broadcast.title}</p>
+                  <p className="mt-1 text-[11px] text-slate-500">{broadcast.message}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
