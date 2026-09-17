@@ -417,3 +417,21 @@ therefore always false, so **staff assignment, resolution notes and cost were
 silently dropped by `action: 'status'`** — they only ever lived in the staff
 browser's optimistic state. The probe list now covers every conditionally written
 column, and the e2e suite asserts the assignment survives a round trip.
+
+## Email on complaint status change — code complete, delivery blocked by config
+
+- The status-change path emails the resident through `deliverEmail`: a per-transition
+  subject/body (In-Progress / Resolved / Closed) carrying the complaint title, status,
+  reference and any resolution notes. Best-effort — a failed send never fails the change.
+- Recipient resolution: requester account email first, legacy rows resolved through the
+  resident profile, and phone-first residents now fall back to the email on their
+  resident row. Delivery failures are logged instead of swallowed.
+- **Delivery is currently off.** `wrangler.toml` declares no `send_email` binding, so
+  `env.EMAIL` is undefined and `deliverEmail` returns false immediately. Verified against
+  production: `POST /api/auth/otp/send` answers `delivered: false` and hands back a
+  fallback code.
+- Enabling Cloudflare email sending needs the zone's MX pointed at Email Routing;
+  pgwalo.com currently points MX at `eforward*.registrar-servers.com` (Namecheap). An
+  API provider (Resend / MailChannels) behind a Worker secret is the alternative that
+  needs no DNS change. Until one of the two is in place, every email in the product —
+  complaint updates and login OTPs alike — is in-app only.

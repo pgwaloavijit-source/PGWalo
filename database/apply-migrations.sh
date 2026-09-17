@@ -94,7 +94,7 @@ ensure_maint_column() {
   fi
 }
 
-for COL in organization_id resident_id requester_id property_id property_name updated_at escalated_at; do
+for COL in organization_id resident_id requester_id property_id property_name updated_at escalated_at photo_url; do
   ensure_maint_column "$COL"
 done
 
