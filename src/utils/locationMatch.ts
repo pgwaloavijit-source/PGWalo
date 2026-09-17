@@ -38,10 +38,14 @@ export function matchesPlaceQuery(property: Property, query: string) {
   const hay = [
     property.name,
     property.locality,
+    property.pincode,
     property.city,
+    property.state,
+    property.country,
     property.address,
     property.placeLabel,
-    `${property.locality}, ${property.city}`,
+    `${property.locality || property.pincode}, ${property.city}`,
+    `${property.pincode}, ${property.city}, ${property.state}`,
     ...aliases,
   ]
     .filter(Boolean)
@@ -88,11 +92,12 @@ export function nearbyLocalities(items: Property[], lat?: number, lng?: number, 
   const seen = new Set<string>();
   const out: { name: string; city: string; km?: number }[] = [];
   for (const property of ranked) {
-    const key = `${property.locality}|${property.city}`.toLowerCase();
-    if (!property.locality || seen.has(key)) continue;
+    const label = property.pincode || property.locality;
+    const key = `${label}|${property.city}`.toLowerCase();
+    if (!label || seen.has(key)) continue;
     seen.add(key);
     out.push({
-      name: property.locality,
+      name: label,
       city: property.city,
       km: Number.isFinite(lat) && Number.isFinite(lng) ? distanceKm(lat!, lng!, property.lat, property.lng) : undefined,
     });

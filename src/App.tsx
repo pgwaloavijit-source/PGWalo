@@ -49,6 +49,10 @@ const MainAppContent: React.FC = () => {
 
   useEffect(() => {
     if (!currentUser || profileModalOpen) return;
+    if (currentUser.role === 'staff' && (currentTab === 'landing' || currentTab === 'search')) {
+      setCurrentTab('staff');
+      return;
+    }
     if (currentTab === 'profile' || currentTab === 'search' || currentTab === 'landing') return;
     if (currentUser.role === 'owner') setCurrentTab('owner');
     else if (currentUser.role === 'resident') setCurrentTab('resident');
@@ -109,7 +113,9 @@ const MainAppContent: React.FC = () => {
       />
 
       <main className="flex-1 pb-[calc(var(--app-tab-bar-height)+var(--safe-bottom))] md:pb-0">
-        {currentTab === 'profile' ? (
+        {currentUser?.role === 'staff' && currentTab !== 'profile' ? (
+          <StaffDashboard />
+        ) : currentTab === 'profile' ? (
           <AccountDetailsPage />
         ) : currentTab === 'search' ? (
           <SearchPage onSelectPG={handleSelectPG} initialCriteria={searchParams} />

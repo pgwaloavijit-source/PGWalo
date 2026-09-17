@@ -231,6 +231,7 @@ interface AppContextType {
 
   // Actions
   addProperty: (property: Omit<Property, 'id'>) => void;
+  updateProperty: (propertyId: string, updates: Partial<Property>) => void;
   addBookingRequest: (request: Omit<BookingRequest, 'id' | 'status' | 'requestDate'>) => void;
   approveBookingRequest: (requestId: string, roomNumber?: string, bedNumber?: string) => void;
   rejectBookingRequest: (requestId: string) => void;
@@ -1714,6 +1715,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const confirmDirectAction = (action: PendingCustomerAction) => {
+    if (currentUser?.role === 'owner') {
+      return { referenceId: '', error: 'Owner accounts cannot schedule visits or book properties.' };
+    }
     const isVisit = action.type === 'visit';
     const refId = `PGN-${isVisit ? 'VIS' : 'BKG'}-${Math.floor(10000 + Math.random() * 90000)}`;
     const today = new Date().toISOString().split('T')[0];
@@ -2220,6 +2224,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  const updateProperty = (propertyId: string, updates: Partial<Property>) => {
+    let updated: Property | null = null;
+    setProperties((prev) =>
+      prev.map((property) => {
+        if (property.id !== propertyId) return property;
+        updated = {
+          ...property,
+          ...updates,
+          id: property.id,
+          ownerUserId: property.ownerUserId,
+          organizationId: property.organizationId,
+        };
+        return updated;
+      })
+    );
+    if (updated && updated.listingStatus === 'Active') {
+      void publishListing(updated);
+    }
+  };
+
   const addBookingRequest = (request: Omit<BookingRequest, 'id' | 'status' | 'requestDate'>) => {
     const today = new Date().toISOString().split('T')[0];
     const newReq: BookingRequest = {
@@ -2230,6 +2254,76 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
     setBookingRequests((prev) => [newReq, ...prev]);
     void publishInquiry(newReq);
+  };
+
+  const buildOwnerSentAgreement = (resident: Resident, request: BookingRequest, property?: Property): RentAgreement => {
+    const start = resident.moveInDate || new Date().toISOString().split('T')[0];
+    const endDate = new Date(start);
+    endDate.setFullYear(endDate.getFullYear() + 1);
+    endDate.setDate(endDate.getDate() - 1);
+    const rentDueDay = settings.rentDueDay || 7;
+    const ownerName = property?.ownerName || currentUser?.name || 'Property Owner';
+    const electricityRate = property?.electricityRatePerUnit || settings.defaultElectricityRate || 8.5;
+    const taxPercent = property?.taxPercent || 0;
+    const terms = [
+      `Monthly rent is payable directly by the tenant to ${ownerName} on or before day ${rentDueDay} of every month. PGWalo does not collect commission or brokerage.`,
+      `Refundable security deposit is held and settled between tenant and owner after move-out inspection, pending dues and damage deductions, if any.`,
+      `Electricity is charged as per actual sub-meter reading at Rs ${electricityRate}/unit unless stated as included by the owner.`,
+      `Applicable taxes, if any, at ${taxPercent}% are between tenant and owner and must be disclosed before payment.`,
+      `Tenant shall follow house rules, gate timing, visitor restrictions, cleanliness norms, and lawful use of the premises.`,
+      `${property?.noticePeriodDays || resident.noticePeriodDays || 30} days written notice is required before vacating unless both parties agree otherwise.`,
+      `This draft is formatted for printing on Indian non-judicial stamp paper and signing physically by both parties.`,
+    ];
+
+    return {
+      id: `agr-${Date.now()}`,
+      agreementNumber: `PGWALO-${(property?.state || 'IN').replace(/\s+/g, '').slice(0, 3).toUpperCase()}-${Date.now().toString().slice(-6)}`,
+      residentId: resident.id,
+      residentName: resident.name,
+      tenantName: resident.name,
+      parentGuardianName: 'To be updated by tenant',
+      tenantDOB: 'To be updated',
+      tenantPermanentAddress: 'To be updated by tenant',
+      tenantCurrentAddress: `Room ${resident.roomNumber}, Bed ${resident.bedNumber}, ${property?.address || request.propertyName}`,
+      tenantCollegeOrOffice: request.occupancyType,
+      tenantIdDocumentType: 'Aadhaar',
+      tenantIdDocumentMasked: 'XXXX-XXXX-To be updated',
+      tenantAadhaarMasked: 'XXXX-XXXX-To be updated',
+      propertyId: resident.propertyId,
+      propertyName: resident.propertyName,
+      propertyAddress: property?.address || resident.propertyName,
+      ownerName,
+      ownerPhone: property?.contactPhone || currentUser?.phone || '',
+      ownerAddress: property?.address || '',
+      roomNumber: resident.roomNumber,
+      bedNumber: resident.bedNumber,
+      bedId: resident.bedNumber,
+      monthlyRent: resident.monthlyRent,
+      securityDeposit: resident.depositAmount,
+      stampPaperState: property?.state || 'India',
+      stampDutyValue: 100,
+      electricityTerms: `Sub-metered electricity at Rs ${electricityRate}/unit. Taxes at ${taxPercent}% if applicable.`,
+      noticePeriodDays: property?.noticePeriodDays || resident.noticePeriodDays || 30,
+      startDate: start,
+      endDate: endDate.toISOString().split('T')[0],
+      rulesSummary: property?.rules || terms.slice(4),
+      emergencyContactName: 'To be updated by tenant',
+      emergencyContactPhone: resident.phone,
+      status: 'Sent',
+      lockInPeriodMonths: 1,
+      terms,
+      termsAndConditions: {
+        noticePeriodDays: property?.noticePeriodDays || resident.noticePeriodDays || 30,
+        lockInPeriodMonths: 1,
+        rentDueDay,
+        foodIncludedInRate: Boolean(property?.foodIncludedInRate ?? property?.foodIncluded),
+        taxPercent,
+      },
+      ownerSigned: true,
+      tenantSigned: false,
+      sentByOwnerAt: new Date().toISOString(),
+      ownerSignatureDate: new Date().toISOString().split('T')[0],
+    };
   };
 
   const approveBookingRequest = (requestId: string, roomNumber?: string, bedNumber?: string) => {
@@ -2317,6 +2411,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         outstandingBalance: requestedBed?.monthlyRent || (targetReq.roomType === 'Single' ? 14000 : targetReq.roomType === 'Double' ? 9500 : 7800),
         notes: targetReq.message || 'Approved from online application',
       };
+      const property = properties.find((p) => p.id === targetReq?.propertyId);
+      const newAgreement = buildOwnerSentAgreement(newRes, targetReq, property);
 
       // Also mark the allocated Bed as Occupied
       setBeds((prev) =>
@@ -2348,6 +2444,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         );
         return [newRes, ...filtered];
       });
+      setAgreements((prev) => [newAgreement, ...prev.filter((agreement) => agreement.residentId !== newRes.id)]);
 
       if (requestedBed) {
         setBeds((prev) =>
@@ -3227,6 +3324,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         virtualTourRoom,
         setVirtualTourRoom,
         addProperty,
+        updateProperty,
         addBookingRequest,
         approveBookingRequest,
         rejectBookingRequest,

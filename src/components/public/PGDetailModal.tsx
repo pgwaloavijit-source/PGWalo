@@ -103,6 +103,7 @@ export const PGDetailModal: React.FC<{
 
   const alreadyVisited = visitedPropertyIds(bookingRequests, currentUser).has(property.id);
   const existingBooking = activeBookingForProperty(bookingRequests, currentUser, property.id);
+  const ownerCannotBook = currentUser?.role === 'owner';
   const hideVisitCta = intent === 'book' || alreadyVisited;
 
   useEffect(() => {
@@ -120,6 +121,10 @@ export const PGDetailModal: React.FC<{
   const images = property.galleryImages.length > 0 ? property.galleryImages : [property.coverImage];
 
   const handleOpenAction = (type: 'visit' | 'booking', roomType?: RoomSharingType) => {
+    if (ownerCannotBook) {
+      alert('Owner accounts cannot schedule visits or book properties.');
+      return;
+    }
     if (type === 'booking' && existingBooking) {
       alert(
         existingBooking.status === 'Approved'
@@ -164,6 +169,10 @@ export const PGDetailModal: React.FC<{
 
   const handleActionSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (ownerCannotBook) {
+      alert('Owner accounts cannot schedule visits or book properties.');
+      return;
+    }
     if (!applicantName || !phone) {
       alert('Please provide your name and contact phone number.');
       return;
@@ -245,7 +254,7 @@ export const PGDetailModal: React.FC<{
               </span>
             )}
             <span className="text-xs font-medium text-slate-500 hidden sm:inline">
-              • {property.locality}, {property.city}
+              • {property.pincode || property.locality}, {property.city}
             </span>
           </div>
           <div className="flex items-center gap-2">
@@ -316,7 +325,7 @@ export const PGDetailModal: React.FC<{
               </h1>
               <div className="flex items-center gap-2 text-xs text-slate-500 mt-1">
                 <MapPin className="w-4 h-4 text-blue-600 shrink-0" />
-                <span>{property.locality}, {property.city}</span>
+                <span>{property.pincode || property.locality}, {property.city}</span>
               </div>
               {property.lat && property.lng ? (
                 <iframe
@@ -338,8 +347,17 @@ export const PGDetailModal: React.FC<{
                 ₹{(property.startingPrice ?? 0).toLocaleString()}
                 <span className="text-xs font-normal text-slate-500"> / mo</span>
               </div>
-              <span className="text-[10px] text-slate-500 block mt-0.5">Includes 3 Meals & Wi-Fi</span>
+              <span className="text-[10px] text-slate-500 block mt-0.5">
+                {property.foodIncludedInRate ? 'Food included in rate' : property.foodIncluded ? 'Food available separately' : 'Food not included'}
+              </span>
             </div>
+          </div>
+
+          <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-100 text-xs text-emerald-900 flex items-start gap-2">
+            <Info className="w-4 h-4 text-emerald-700 shrink-0 mt-0.5" />
+            <p>
+              PGWalo follows a 0% commission policy. Rent, security deposit, taxes and utilities are agreed and settled directly between tenant and owner.
+            </p>
           </div>
 
           {/* Neighborhood & Location Highlights */}
@@ -433,6 +451,8 @@ export const PGDetailModal: React.FC<{
                   </div>
                   <div className="space-y-1 text-[11px] text-slate-600 border-t border-slate-100 pt-2 mb-3">
                     <p>Security Deposit: ₹{(room.deposit ?? (room as { securityDeposit?: number }).securityDeposit ?? 0).toLocaleString()}</p>
+                    <p>Electricity: Rs {property.electricityRatePerUnit || 8.5}/unit</p>
+                    <p>Tax: {property.taxPercent || 0}% if applicable</p>
                     <p>Notice Period: {property.noticePeriodDays || 30} days</p>
                   </div>
                   <span className={`block w-full py-2 rounded-xl font-bold text-xs text-center ${
@@ -523,7 +543,7 @@ export const PGDetailModal: React.FC<{
           </div>
 
           <div className="flex items-center gap-2.5 w-full sm:w-auto">
-            {!hideVisitCta && (
+            {!hideVisitCta && !ownerCannotBook && (
               <button
                 id="schedule-visit-btn"
                 type="button"
@@ -535,7 +555,11 @@ export const PGDetailModal: React.FC<{
               </button>
             )}
 
-            {existingBooking ? (
+            {ownerCannotBook ? (
+              <div className="flex-1 sm:flex-none px-6 py-3 rounded-xl bg-slate-100 text-slate-700 font-bold text-xs min-h-[44px] flex items-center justify-center text-center">
+                Owner accounts cannot book or schedule properties
+              </div>
+            ) : existingBooking ? (
               <div className="flex-1 sm:flex-none px-6 py-3 rounded-xl bg-slate-100 text-slate-700 font-bold text-xs min-h-[44px] flex items-center justify-center text-center">
                 {existingBooking.status === 'Approved'
                   ? 'Stay already booked at this PG'

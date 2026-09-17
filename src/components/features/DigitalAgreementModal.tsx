@@ -22,8 +22,9 @@ interface DigitalAgreementModalProps {
 
 export const DigitalAgreementModal: React.FC<DigitalAgreementModalProps> = ({ agreement, onClose }) => {
   const { signAgreement, role, currentUser, logAuditEvent } = useApp();
+  const tenantDisplayName = agreement.tenantName || agreement.residentName;
   const [signatureText, setSignatureText] = useState(
-    role === 'owner' ? 'Rajesh Sharma (Authorized Owner)' : agreement.tenantName
+    role === 'owner' ? `${agreement.ownerName} (Authorized Owner)` : tenantDisplayName
   );
   const [agreedToTerms, setAgreedToTerms] = useState(false);
   const [hasSignedSuccessfully, setHasSignedSuccessfully] = useState(false);
@@ -96,13 +97,13 @@ export const DigitalAgreementModal: React.FC<DigitalAgreementModalProps> = ({ ag
           {/* Official Stamp Banner */}
           <div className="border-2 border-slate-900 p-4 text-center space-y-1 font-sans">
             <span className="text-[11px] font-bold tracking-widest uppercase text-slate-500 block">
-              Government of Karnataka • e-Stamp Certificate Reference #{agreement.id.toUpperCase()}
+              Indian Non-Judicial Stamp Paper Draft • {agreement.stampPaperState || 'India'} • Certificate Reference #{agreement.id.toUpperCase()}
             </span>
             <h1 className="text-xl font-black text-slate-900 uppercase">
               Residential Paying Guest Tenancy Contract
             </h1>
             <p className="text-xs text-slate-600">
-              Valid From: <strong>{agreement.startDate}</strong> to <strong>{agreement.endDate}</strong> (Lock-in: {agreement.lockInPeriodMonths} Months)
+              Valid From: <strong>{agreement.startDate}</strong> to <strong>{agreement.endDate}</strong> (Lock-in: {agreement.lockInPeriodMonths || 1} Month)
             </p>
           </div>
 
@@ -116,9 +117,9 @@ export const DigitalAgreementModal: React.FC<DigitalAgreementModalProps> = ({ ag
             </div>
             <div className="space-y-1">
               <span className="font-bold text-slate-500 uppercase tracking-wider block">Second Party (Lessee / Resident)</span>
-              <p className="font-bold text-slate-900 text-sm">{agreement.tenantName}</p>
-              <p className="text-slate-600">ID Proof Verified: {agreement.tenantAadhaarMasked}</p>
-              <p className="text-slate-600">Assigned: Room {agreement.roomNumber} (Bed {agreement.bedId})</p>
+              <p className="font-bold text-slate-900 text-sm">{tenantDisplayName}</p>
+              <p className="text-slate-600">ID Proof: {agreement.tenantAadhaarMasked || agreement.tenantIdDocumentMasked}</p>
+              <p className="text-slate-600">Assigned: Room {agreement.roomNumber} (Bed {agreement.bedId || agreement.bedNumber})</p>
             </div>
           </div>
 
@@ -159,7 +160,7 @@ export const DigitalAgreementModal: React.FC<DigitalAgreementModalProps> = ({ ag
                 Clause 4: Key Legal Terms
               </h4>
               <ul className="list-disc pl-5 space-y-1 text-slate-700">
-                {agreement.terms.map((term, idx) => (
+                {(agreement.terms || agreement.rulesSummary || []).map((term, idx) => (
                   <li key={idx}>{term}</li>
                 ))}
               </ul>
@@ -174,7 +175,7 @@ export const DigitalAgreementModal: React.FC<DigitalAgreementModalProps> = ({ ag
               </span>
               {agreement.ownerSigned ? (
                 <div className="flex flex-col items-center">
-                  <span className="font-serif italic text-lg font-bold text-blue-900">Rajesh Sharma</span>
+                  <span className="font-serif italic text-lg font-bold text-blue-900">{agreement.ownerName}</span>
                   <span className="text-[10px] text-emerald-600 font-bold flex items-center gap-1 mt-1">
                     <CheckCircle2 className="w-3 h-3" /> Digitally Verified
                   </span>
@@ -193,7 +194,7 @@ export const DigitalAgreementModal: React.FC<DigitalAgreementModalProps> = ({ ag
               </span>
               {agreement.tenantSigned ? (
                 <div className="flex flex-col items-center">
-                  <span className="font-serif italic text-lg font-bold text-blue-900">{agreement.tenantName}</span>
+                  <span className="font-serif italic text-lg font-bold text-blue-900">{tenantDisplayName}</span>
                   <span className="text-[10px] text-emerald-600 font-bold flex items-center gap-1 mt-1">
                     <CheckCircle2 className="w-3 h-3" /> Digitally Verified
                   </span>

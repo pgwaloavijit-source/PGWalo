@@ -201,6 +201,9 @@ export interface Property {
   gender: GenderPreference;
   city: string;
   locality: string;
+  state?: string;
+  country?: string;
+  pincode?: string;
   address: string;
   lat: number;
   lng: number;
@@ -222,12 +225,20 @@ export interface Property {
   contactEmail: string;
   ownerName: string;
   ownerUserId?: string;
+  ownerProfileSlug?: string;
+  listingPaymentStatus?: 'Pending' | 'Paid' | 'Failed';
+  listingFeeAmount?: number;
+  publishedAt?: string;
+  foodIncludedInRate?: boolean;
+  electricityRatePerUnit?: number;
+  taxPercent?: number;
+  optionalCharges?: { id: string; label: string; amount?: number; note?: string }[];
   // Configurable optional modules per spec Section 29, 30
   foodManagementEnabled?: boolean;
   attendanceEnabled?: boolean;
   visitorManagementEnabled?: boolean;
   onlinePaymentsEnabled?: boolean;
-  listingStatus?: 'Active' | 'Setup In Progress' | 'Archived' | 'Under Maintenance';
+  listingStatus?: 'Active' | 'Setup In Progress' | 'Payment Pending' | 'Archived' | 'Under Maintenance';
   listingDefaultRentDueDay?: number;
   totalFloors?: number;
 }
@@ -377,6 +388,8 @@ export interface BroadcastNotification {
   message: string;
   category: 'Urgent' | 'Maintenance' | 'Rent' | 'Event' | 'Food';
   target: 'All Residents' | 'Floor 1 & 2' | 'Staff Only';
+  propertyId?: string;
+  propertyName?: string;
   timestamp: string;
   sender: string;
   read?: boolean;
@@ -766,10 +779,16 @@ export interface RentAgreement {
   propertyAddress: string;
   ownerName: string;
   ownerPhone: string;
+  ownerAddress?: string;
+  tenantName?: string;
+  tenantAadhaarMasked?: string;
   roomNumber: string;
   bedNumber: string;
+  bedId?: string;
   monthlyRent: number;
   securityDeposit: number;
+  stampPaperState?: string;
+  stampDutyValue?: number;
   electricityTerms: string;
   noticePeriodDays: number;
   startDate: string;
@@ -777,10 +796,22 @@ export interface RentAgreement {
   rulesSummary: string[];
   emergencyContactName: string;
   emergencyContactPhone: string;
-  status: 'Draft' | 'Sent' | 'Under Verification' | 'Verified' | 'Signed' | 'Active';
+  status: 'Draft' | 'Sent' | 'Under Verification' | 'Verified' | 'Tenant Signed' | 'Signed' | 'Active';
+  lockInPeriodMonths?: number;
+  terms?: string[];
+  termsAndConditions?: {
+    noticePeriodDays: number;
+    lockInPeriodMonths: number;
+    rentDueDay: number;
+    foodIncludedInRate: boolean;
+    taxPercent: number;
+  };
   ownerSigned: boolean;
   tenantSigned: boolean;
   signedDate?: string;
+  sentByOwnerAt?: string;
+  ownerSignatureDate?: string;
+  tenantSignatureDate?: string;
 }
 
 export interface VisitorPass {
@@ -962,11 +993,13 @@ export type RoomType = 'Private' | 'Shared' | 'Dormitory';
 export type SharingCapacity = 'Single' | 'Double' | 'Triple' | '4 Sharing' | '5+ Sharing';
 export type PhotoCategory = 'Exterior' | 'Bedroom' | 'Bathroom' | 'Kitchen' | 'Dining' | 'Common Area' | 'Amenities';
 export type VerificationStatus = 'Pending' | 'Under Review' | 'Verified' | 'Rejected';
-export type ListingStatus = 'Draft' | 'Pending Review' | 'Published' | 'Archived';
+export type ListingStatus = 'Draft' | 'Pending Review' | 'Payment Pending' | 'Published' | 'Archived';
 
 export interface OwnerListingStep1 {
   propertyName: string;
   city: string;
+  state: string;
+  country: string;
   genderOccupancy: GenderOccupancy;
   locality: string;
   propertyType: PropertyType;
@@ -1021,8 +1054,12 @@ export interface OwnerListingStep3 {
   roomAmenities: RoomAmenity[];
   propertyAmenities: PropertyAmenity[];
   foodAvailable: boolean;
+  foodIncludedInRate: boolean;
   foodOptions: FoodOption[];
   foodCharges?: number;
+  electricityRatePerUnit?: number;
+  taxPercent?: number;
+  optionalCharges: { id: string; label: string; amount?: number; note?: string }[];
   otherServices: string[];
 }
 

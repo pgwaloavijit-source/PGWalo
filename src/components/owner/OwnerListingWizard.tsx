@@ -5,7 +5,9 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  CreditCard,
   Home,
+  Plus,
   Sparkles,
   Utensils,
   X,
@@ -16,6 +18,7 @@ import { normalizeListingPhoto } from '../../utils/photoEnhance';
 import { uploadListingPhoto } from '../../services/media';
 import { searchPlaces } from '../../services/geo';
 import { useApp } from '../../context/AppContext';
+import { cachedPinLocations, lookupIndianPincode } from '../../utils/indiaLocations';
 import {
   OwnerListingData,
   OwnerListingStep1,
@@ -34,7 +37,9 @@ interface OwnerListingWizardProps {
   initialData?: Partial<OwnerListingData>;
 }
 
-const CITIES = ['Bengaluru', 'Mumbai', 'Delhi', 'Pune', 'Hyderabad', 'Chennai', 'Kolkata', 'Ahmedabad'];
+const DEFAULT_CITIES = ['Bengaluru', 'Mumbai', 'Delhi', 'Pune', 'Hyderabad', 'Chennai', 'Kolkata', 'Ahmedabad', 'Noida'];
+const DEFAULT_STATES = ['Karnataka', 'Maharashtra', 'Delhi', 'Uttar Pradesh', 'Telangana', 'Tamil Nadu', 'West Bengal', 'Gujarat'];
+const COUNTRIES = ['India'];
 const GENDERS: OwnerListingStep1['genderOccupancy'][] = ['Boys', 'Girls', 'Unisex / Co-ed'];
 
 const QUICK_AMENITIES = [
@@ -46,6 +51,10 @@ const QUICK_AMENITIES = [
   { id: 'Attached Bathroom', name: 'Attached bath', group: 'room' as const },
   { id: 'wardrobe', name: 'Wardrobe', group: 'room' as const },
   { id: 'parking', name: 'Parking', group: 'property' as const },
+  { id: 'laundry', name: 'Laundry', group: 'property' as const },
+  { id: 'housekeeping', name: 'Housekeeping', group: 'property' as const },
+  { id: 'lift', name: 'Lift', group: 'property' as const },
+  { id: 'study-zone', name: 'Study zone', group: 'property' as const },
 ];
 
 const ROOM_TEMPLATES: { sharing: SharingCapacity; beds: number; rent: number; label: string }[] = [
@@ -77,9 +86,10 @@ function makeRoom(sharing: SharingCapacity, beds: number, rent: number, roomNumb
 }
 
 const OwnerListingWizard: React.FC<OwnerListingWizardProps> = ({ onComplete, onCancel, initialData }) => {
-  const { currentUser } = useApp();
+  const { currentUser, properties } = useApp();
   const [step, setStep] = useState(1);
   const [publishing, setPublishing] = useState(false);
+  const [pinLookupStatus, setPinLookupStatus] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const [step1, setStep1] = useState<OwnerListingStep1>(initialData?.step1 || getEmptyStep1());
@@ -100,6 +110,45 @@ const OwnerListingWizard: React.FC<OwnerListingWizardProps> = ({ onComplete, onC
       preferredContact: 'Phone',
     }
   );
+
+  const cityOptions = Array.from(
+    new Set([...DEFAULT_CITIES, ...cachedPinLocations().map((p) => p.city), ...properties.map((p) => p.city)].filter(Boolean))
+  ).sort();
+  const stateOptions = Array.from(
+    new Set([...DEFAULT_STATES, ...cachedPinLocations().map((p) => p.state), ...properties.map((p) => p.state || '')].filter(Boolean))
+  ).sort();
+
+  useEffect(() => {
+    const pin = step1.pincode.replace(/\D/g, '').slice(0, 6);
+    if (pin !== step1.pincode) {
+      setStep1((prev) => ({ ...prev, pincode: pin, locality: pin }));
+      return;
+    }
+    if (pin.length !== 6) {
+      setPinLookupStatus('');
+      return;
+    }
+    let cancelled = false;
+    setPinLookupStatus('Checking PIN...');
+    lookupIndianPincode(pin).then((location) => {
+      if (cancelled) return;
+      if (!location) {
+        setPinLookupStatus('PIN not found. Select city and state manually.');
+        return;
+      }
+      setStep1((prev) => ({
+        ...prev,
+        city: location.city || prev.city,
+        state: location.state || prev.state,
+        country: location.country || prev.country || 'India',
+        locality: location.pincode,
+      }));
+      setPinLookupStatus(`${location.city}, ${location.state}, ${location.country} selected`);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [step1.pincode]);
 
   useEffect(() => {
     const prevBody = document.body.style.overflow;
@@ -139,7 +188,14 @@ const OwnerListingWizard: React.FC<OwnerListingWizardProps> = ({ onComplete, onC
     [step1, step2, step3, step4, step5, step6, step, initialData?.createdAt]
   );
 
-  const step1Valid = Boolean(step1.propertyName.trim() && step1.city && step1.locality.trim() && step1.fullAddress.trim());
+  const step1Valid = Boolean(
+    step1.propertyName.trim() &&
+      step1.pincode.length === 6 &&
+      step1.city &&
+      step1.state &&
+      step1.country &&
+      step1.fullAddress.trim()
+  );
   const step2Valid = step2.rooms.length > 0 && step2.rooms.every((r) => r.roomNumber.trim() && r.beds.every((b) => b.monthlyRent > 0));
   const canContinue = step === 1 ? step1Valid : step === 2 ? step2Valid : true;
   const startingRent = Math.min(...step2.rooms.flatMap((r) => r.beds.map((b) => b.monthlyRent)).concat([9500]));
@@ -174,7 +230,8 @@ const OwnerListingWizard: React.FC<OwnerListingWizardProps> = ({ onComplete, onC
 
   const toggleAmenity = (id: string, group: 'room' | 'property' | 'food') => {
     if (group === 'food') {
-      setStep3({ ...step3, foodAvailable: !step3.foodAvailable });
+      const nextFoodAvailable = !step3.foodAvailable;
+      setStep3({ ...step3, foodAvailable: nextFoodAvailable, foodIncludedInRate: nextFoodAvailable ? step3.foodIncludedInRate : false });
       return;
     }
     const key = group === 'room' ? 'roomAmenities' : 'propertyAmenities';
@@ -190,6 +247,16 @@ const OwnerListingWizard: React.FC<OwnerListingWizardProps> = ({ onComplete, onC
     if (group === 'food') return step3.foodAvailable;
     const list = group === 'room' ? step3.roomAmenities : step3.propertyAmenities;
     return Boolean(list.find((a) => a.id === id)?.selected);
+  };
+
+  const addOptionalCharge = () => {
+    setStep3({
+      ...step3,
+      optionalCharges: [
+        ...step3.optionalCharges,
+        { id: `charge-${Date.now()}`, label: 'Custom charge', amount: 0, note: '' },
+      ],
+    });
   };
 
   const onPhotos = (files: FileList | null) => {
@@ -237,10 +304,11 @@ const OwnerListingWizard: React.FC<OwnerListingWizardProps> = ({ onComplete, onC
     setPublishing(true);
     let nextStep1 = step1;
     if (!step1.mapLocation) {
-      const places = await searchPlaces(`${step1.fullAddress} ${step1.locality} ${step1.city} India`);
+      const places = await searchPlaces(`${step1.fullAddress} ${step1.pincode} ${step1.city} India`);
       if (places[0]) {
         nextStep1 = {
           ...step1,
+          locality: step1.pincode,
           mapLocation: { lat: places[0].lat, lng: places[0].lng },
           nearbyLandmark: places[0].displayName,
         };
@@ -251,6 +319,14 @@ const OwnerListingWizard: React.FC<OwnerListingWizardProps> = ({ onComplete, onC
       ...buildListing('Published'),
       step1: nextStep1,
     });
+  };
+
+  const savePendingPayment = () => {
+    if (!step1Valid || !step2Valid) {
+      setStep(!step1Valid ? 1 : 2);
+      return;
+    }
+    onComplete?.(buildListing('Payment Pending'));
   };
 
   const titles = ['Property', 'Rooms', 'Extras', 'Publish'];
@@ -326,6 +402,19 @@ const OwnerListingWizard: React.FC<OwnerListingWizardProps> = ({ onComplete, onC
                     />
                   </Field>
                   <div className="grid grid-cols-2 gap-3">
+                    <Field label="Pincode" required>
+                      <input
+                        value={step1.pincode}
+                        onChange={(e) => {
+                          const pin = e.target.value.replace(/\D/g, '').slice(0, 6);
+                          setStep1({ ...step1, pincode: pin, locality: pin });
+                        }}
+                        placeholder="201301"
+                        inputMode="numeric"
+                        className={inputClass}
+                      />
+                      {pinLookupStatus && <p className="mt-1 text-[10px] font-semibold text-blue-700">{pinLookupStatus}</p>}
+                    </Field>
                     <Field label="City" required>
                       <select
                         value={step1.city}
@@ -333,11 +422,37 @@ const OwnerListingWizard: React.FC<OwnerListingWizardProps> = ({ onComplete, onC
                         className={inputClass}
                       >
                         <option value="">Select</option>
-                        {CITIES.map((c) => (
+                        {cityOptions.map((c) => (
                           <option key={c}>{c}</option>
                         ))}
                       </select>
                     </Field>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field label="State" required>
+                      <select
+                        value={step1.state}
+                        onChange={(e) => setStep1({ ...step1, state: e.target.value })}
+                        className={inputClass}
+                      >
+                        <option value="">Select</option>
+                        {stateOptions.map((s) => (
+                          <option key={s}>{s}</option>
+                        ))}
+                      </select>
+                    </Field>
+                    <Field label="Country" required>
+                      <select
+                        value={step1.country}
+                        onChange={(e) => setStep1({ ...step1, country: e.target.value })}
+                        className={inputClass}
+                      >
+                        {COUNTRIES.map((c) => (
+                          <option key={c}>{c}</option>
+                        ))}
+                      </select>
+                    </Field>
+                  </div>
                   <div>
                     <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">For</span>
                     <div className="mt-1 grid grid-cols-3 gap-1.5">
@@ -357,35 +472,34 @@ const OwnerListingWizard: React.FC<OwnerListingWizardProps> = ({ onComplete, onC
                       ))}
                     </div>
                   </div>
-                  </div>
-                  <Field label="Locality" required>
+                  <div className="hidden">
                     <input
                       value={step1.locality}
                       onChange={(e) => setStep1({ ...step1, locality: e.target.value })}
                       placeholder="HSR Layout, Koramangala…"
                       className={inputClass}
                     />
-                  </Field>
+                  </div>
                   <Field label="Full address" required>
                     <textarea
                       rows={2}
                       value={step1.fullAddress}
                       onChange={(e) => setStep1({ ...step1, fullAddress: e.target.value })}
-                      placeholder="Street, landmark, pincode"
+                      placeholder="House/building, street, landmark"
                       className={`${inputClass} resize-none`}
                     />
                   </Field>
                   <LocationPicker
                     city={step1.city}
-                    locality={step1.locality}
+                    locality={step1.pincode}
                     address={step1.fullAddress}
                     lat={step1.mapLocation?.lat}
                     lng={step1.mapLocation?.lng}
                     onPicked={(place) => {
                       setStep1({
                         ...step1,
-                        locality: place.locality || step1.locality,
-                        city: place.city && CITIES.includes(place.city) ? place.city : step1.city,
+                        locality: step1.pincode,
+                        city: place.city && cityOptions.includes(place.city) ? place.city : step1.city,
                         fullAddress: place.address || step1.fullAddress,
                         nearbyLandmark: place.displayName,
                         mapLocation: { lat: place.lat, lng: place.lng },
@@ -473,6 +587,89 @@ const OwnerListingWizard: React.FC<OwnerListingWizardProps> = ({ onComplete, onC
                     })}
                     {step3.foodAvailable && <Utensils className="w-4 h-4 text-blue-600 self-center" />}
                   </div>
+                  {step3.foodAvailable && (
+                    <label className="flex items-center justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs">
+                      <span>
+                        <strong className="block text-slate-900">Food included in rent</strong>
+                        <span className="text-slate-600">Untick if meals are billed separately.</span>
+                      </span>
+                      <input
+                        type="checkbox"
+                        checked={step3.foodIncludedInRate}
+                        onChange={(e) => setStep3({ ...step3, foodIncludedInRate: e.target.checked })}
+                        className="w-4 h-4 rounded border-slate-300 text-blue-600"
+                      />
+                    </label>
+                  )}
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field label="Electricity rate / unit">
+                      <input
+                        type="number"
+                        value={step3.electricityRatePerUnit || ''}
+                        onChange={(e) => setStep3({ ...step3, electricityRatePerUnit: Number(e.target.value) || 0 })}
+                        placeholder="8.5"
+                        className={inputClass}
+                      />
+                    </Field>
+                    <Field label="Tax percent">
+                      <input
+                        type="number"
+                        value={step3.taxPercent || ''}
+                        onChange={(e) => setStep3({ ...step3, taxPercent: Number(e.target.value) || 0 })}
+                        placeholder="0"
+                        className={inputClass}
+                      />
+                    </Field>
+                  </div>
+                  <div className="rounded-2xl border border-slate-200 p-3 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Optional charges</span>
+                      <button type="button" onClick={addOptionalCharge} className="text-[11px] font-bold text-blue-700 flex items-center gap-1">
+                        <Plus className="w-3.5 h-3.5" /> Add
+                      </button>
+                    </div>
+                    {step3.optionalCharges.length === 0 ? (
+                      <p className="text-[11px] text-slate-400">Add maintenance, laundry, parking or any owner-defined charge.</p>
+                    ) : (
+                      step3.optionalCharges.map((charge) => (
+                        <div key={charge.id} className="grid grid-cols-12 gap-2">
+                          <input
+                            value={charge.label}
+                            onChange={(e) =>
+                              setStep3({
+                                ...step3,
+                                optionalCharges: step3.optionalCharges.map((item) =>
+                                  item.id === charge.id ? { ...item, label: e.target.value } : item
+                                ),
+                              })
+                            }
+                            className={`${inputClass} col-span-5`}
+                          />
+                          <input
+                            type="number"
+                            value={charge.amount || ''}
+                            onChange={(e) =>
+                              setStep3({
+                                ...step3,
+                                optionalCharges: step3.optionalCharges.map((item) =>
+                                  item.id === charge.id ? { ...item, amount: Number(e.target.value) || 0 } : item
+                                ),
+                              })
+                            }
+                            placeholder="Amount"
+                            className={`${inputClass} col-span-4`}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setStep3({ ...step3, optionalCharges: step3.optionalCharges.filter((item) => item.id !== charge.id) })}
+                            className="col-span-3 rounded-xl border border-slate-200 text-slate-500 text-[11px] font-bold"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ))
+                    )}
+                  </div>
                   <label className="block rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4 text-center cursor-pointer hover:border-blue-400">
                     <Camera className="w-5 h-5 mx-auto text-slate-400 mb-1" />
                     <p className="text-xs font-bold text-slate-700">Add room photos</p>
@@ -501,7 +698,7 @@ const OwnerListingWizard: React.FC<OwnerListingWizardProps> = ({ onComplete, onC
                   <div className="rounded-2xl bg-blue-50 border border-blue-100 p-4">
                     <p className="text-sm font-black text-slate-900">{step1.propertyName || 'Untitled PG'}</p>
                     <p className="text-xs text-slate-600 mt-0.5">
-                      {step1.locality}
+                      PIN {step1.pincode}
                       {step1.city ? `, ${step1.city}` : ''} · {step1.genderOccupancy}
                     </p>
                     <p className="text-xs text-slate-600 mt-2">
@@ -534,8 +731,16 @@ const OwnerListingWizard: React.FC<OwnerListingWizardProps> = ({ onComplete, onC
                   </div>
                   <p className="text-[11px] text-slate-500 flex items-center gap-1">
                     <Sparkles className="w-3.5 h-3.5 text-blue-500" />
-                    Goes live on PGWalo as soon as you publish. KYC can be completed later.
+                    PGWalo is zero commission. Rent, tax, deposit and utilities are settled directly between tenant and owner.
                   </p>
+                  <div className="rounded-2xl border border-blue-100 bg-blue-50 p-4 text-xs text-blue-950">
+                    <div className="flex items-center gap-2 font-black">
+                      <CreditCard className="w-4 h-4 text-blue-700" />
+                      Owner publishing payment
+                    </div>
+                    <p className="mt-1 text-blue-800">Pay the listing fee to publish publicly. You can save now and pay later from your property card.</p>
+                    <p className="mt-2 font-black">Listing fee: Rs 999</p>
+                  </div>
                 </>
               )}
             </div>
@@ -571,7 +776,17 @@ const OwnerListingWizard: React.FC<OwnerListingWizardProps> = ({ onComplete, onC
               onClick={publish}
               className="ml-auto h-11 px-5 rounded-xl bg-blue-600 disabled:bg-slate-300 text-white text-sm font-bold shadow-md"
             >
-              {publishing ? 'Publishing…' : 'Publish listing'}
+              {publishing ? 'Publishing...' : 'Pay & publish listing'}
+            </button>
+          )}
+          {step === 4 && (
+            <button
+              type="button"
+              disabled={publishing || !step1Valid || !step2Valid}
+              onClick={savePendingPayment}
+              className="h-11 px-3 rounded-xl border border-slate-200 disabled:bg-slate-100 text-slate-600 text-xs font-bold"
+            >
+              Save without payment
             </button>
           )}
         </footer>
@@ -597,6 +812,8 @@ function getEmptyStep1(): OwnerListingStep1 {
   return {
     propertyName: '',
     city: 'Bengaluru',
+    state: 'Karnataka',
+    country: 'India',
     genderOccupancy: 'Unisex / Co-ed',
     locality: '',
     propertyType: 'PG',
@@ -621,11 +838,15 @@ function getEmptyStep3(): OwnerListingStep3 {
       { id: 'wardrobe', name: 'Wardrobe', selected: false },
     ],
     foodAvailable: true,
+    foodIncludedInRate: true,
     foodOptions: [
       { id: 'breakfast', name: 'Breakfast', selected: true },
       { id: 'lunch', name: 'Lunch', selected: true },
       { id: 'dinner', name: 'Dinner', selected: true },
     ],
+    electricityRatePerUnit: 8.5,
+    taxPercent: 0,
+    optionalCharges: [],
     otherServices: [],
   };
 }

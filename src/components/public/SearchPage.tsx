@@ -23,6 +23,7 @@ import {
   X,
   Navigation,
   CalendarCheck2,
+  UserRound,
 } from 'lucide-react';
 
 export const SearchPage: React.FC<{
@@ -31,7 +32,10 @@ export const SearchPage: React.FC<{
 }> = ({ onSelectPG, initialCriteria = {} as PublicSearchCriteria }) => {
   const { properties, beds, currentUser, bookingRequests } = useApp();
   const [remoteListings, setRemoteListings] = useState<Property[]>([]);
-  const catalog = useMemo(() => mergeProperties(properties, remoteListings), [properties, remoteListings]);
+  const catalog = useMemo(
+    () => mergeProperties(properties, remoteListings).filter((p) => p.listingStatus !== 'Payment Pending' && p.listingPaymentStatus !== 'Pending'),
+    [properties, remoteListings]
+  );
   const visitedIds = useMemo(() => visitedPropertyIds(bookingRequests, currentUser), [bookingRequests, currentUser]);
   const bookedIds = useMemo(() => bookedPropertyIds(bookingRequests, currentUser), [bookingRequests, currentUser]);
 
@@ -45,7 +49,9 @@ export const SearchPage: React.FC<{
   const [selectedAmenities, setSelectedAmenities] = useState<string[]>([]);
   const [sortBy, setSortBy] = useState<'recommended' | 'price-asc' | 'price-desc' | 'rating'>('recommended');
   const [viewMode, setViewMode] = useState<'grid' | 'map'>('grid');
+  const [mobileFilterOpen, setMobileFilterOpen] = useState(false);
   const [activeHoverPG, setActiveHoverPG] = useState<Property | null>(null);
+  const [selectedOwnerName, setSelectedOwnerName] = useState<string | null>(null);
   const [origin, setOrigin] = useState<{ lat: number; lng: number } | null>(
     initialCriteria.lat && initialCriteria.lng ? { lat: initialCriteria.lat, lng: initialCriteria.lng } : null
   );
@@ -55,6 +61,14 @@ export const SearchPage: React.FC<{
     [catalog, origin]
   );
   const areaOptions = useMemo(() => [{ label: 'All Localities', value: 'All' }, ...commonAreas], [commonAreas]);
+  const cityOptions = useMemo(
+    () => ['All', ...Array.from(new Set(catalog.map((p) => p.city).filter(Boolean))).sort()],
+    [catalog]
+  );
+  const ownerDirectory = useMemo(
+    () => (selectedOwnerName ? catalog.filter((p) => p.ownerName === selectedOwnerName) : []),
+    [catalog, selectedOwnerName]
+  );
 
   useEffect(() => {
     if (origin) return;
@@ -121,7 +135,10 @@ export const SearchPage: React.FC<{
           return false;
         }
         // Area / Locality
-        if (selectedArea !== 'All' && !p.locality.toLowerCase().includes(selectedArea.toLowerCase())) {
+        if (
+          selectedArea !== 'All' &&
+          !`${p.locality || ''} ${p.pincode || ''} ${p.state || ''}`.toLowerCase().includes(selectedArea.toLowerCase())
+        ) {
           return false;
         }
         // Gender
@@ -330,7 +347,7 @@ export const SearchPage: React.FC<{
                   Select City
                 </label>
                 <div className="flex flex-wrap gap-1.5">
-                  {['All', 'Bengaluru', 'Bangalore', 'Pune', 'Hyderabad', 'Delhi NCR'].map((c) => (
+                  {cityOptions.map((c) => (
                     <button
                       key={c}
                       onClick={() => setSelectedCity(c)}
@@ -552,11 +569,22 @@ export const SearchPage: React.FC<{
                       <div className="p-4">
                         <div className="flex items-center gap-1 text-[11px] text-slate-500 font-medium mb-1">
                           <MapPin className="w-3 h-3 text-blue-600 shrink-0" />
-                          <span className="truncate">{pg.locality}, {pg.city}</span>
+                          <span className="truncate">{pg.pincode || pg.locality}, {pg.city}</span>
                         </div>
                         <h3 className="font-bold text-slate-900 text-base leading-snug group-hover:text-blue-600 transition-colors">
                           {pg.name}
                         </h3>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedOwnerName(pg.ownerName)}
+                          className="mt-1 text-[11px] font-bold text-blue-700 hover:text-blue-900 flex items-center gap-1"
+                        >
+                          <UserRound className="w-3 h-3" />
+                          {pg.ownerName}
+                          {catalog.filter((item) => item.ownerName === pg.ownerName).length > 1
+                            ? ` (${catalog.filter((item) => item.ownerName === pg.ownerName).length} PGs)`
+                            : ''}
+                        </button>
                         <p className="text-xs text-slate-500 mt-1 line-clamp-2 leading-relaxed">
                           {pg.tagline}
                         </p>
@@ -572,6 +600,12 @@ export const SearchPage: React.FC<{
                             </span>
                           ))}
                         </div>
+                      </div>
+                    </div>
+
+                    <div className="px-4 pb-3">
+                      <div className="rounded-xl bg-emerald-50 border border-emerald-100 px-3 py-2 text-[10px] font-semibold text-emerald-900">
+                        PGWalo is 0% commission. Rent, tax and security deposit are settled only between tenant and owner.
                       </div>
                     </div>
 
@@ -720,7 +754,7 @@ export const SearchPage: React.FC<{
             <div>
               <label className="text-xs font-bold block mb-1">City</label>
               <div className="flex flex-wrap gap-1.5">
-                {['All', 'Bengaluru', 'Bangalore', 'Pune', 'Hyderabad', 'Delhi NCR'].map((c) => (
+                {cityOptions.map((c) => (
                   <button
                     key={c}
                     onClick={() => setSelectedCity(c)}
@@ -783,6 +817,44 @@ export const SearchPage: React.FC<{
             >
               Apply Filters ({filteredProperties.length} Results)
             </button>
+          </div>
+        </div>
+      )}
+      {selectedOwnerName && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4">
+          <div className="bg-white rounded-2xl w-full max-w-xl border border-slate-200 shadow-2xl p-5">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div>
+                <h3 className="text-sm font-black text-slate-900">{selectedOwnerName}</h3>
+                <p className="text-xs text-slate-500">
+                  {ownerDirectory.length} PG listing{ownerDirectory.length === 1 ? '' : 's'} around the city
+                </p>
+              </div>
+              <button onClick={() => setSelectedOwnerName(null)} className="p-2 rounded-xl hover:bg-slate-100">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {ownerDirectory.map((pg) => (
+                <button
+                  key={pg.id}
+                  type="button"
+                  onClick={() => {
+                    setSelectedOwnerName(null);
+                    onSelectPG(pg.id);
+                  }}
+                  className="text-left rounded-xl border border-slate-200 hover:border-blue-300 p-3"
+                >
+                  <p className="text-xs font-black text-slate-900">{pg.name}</p>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    PIN {pg.pincode || pg.locality}, {pg.city}
+                  </p>
+                  <p className="text-[11px] font-bold text-blue-700 mt-1">
+                    From Rs {(pg.startingPrice || 0).toLocaleString()} /mo
+                  </p>
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       )}

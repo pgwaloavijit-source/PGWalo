@@ -35,6 +35,7 @@ export const StaffDashboard: React.FC = () => {
     residents,
     mealPlan,
     properties,
+    addBroadcast,
   } = useApp();
 
   const workplace = properties.find((p) => p.id === currentStaff?.propertyId);
@@ -49,6 +50,7 @@ export const StaffDashboard: React.FC = () => {
   const [logResidentName, setLogResidentName] = useState('');
   const [logType, setLogType] = useState<'Check-In' | 'Check-Out'>('Check-In');
   const [logNotes, setLogNotes] = useState('');
+  const [residentNotice, setResidentNotice] = useState('');
 
   // Visitor Log state
   const [visitors, setVisitors] = useState<{
@@ -116,6 +118,21 @@ export const StaffDashboard: React.FC = () => {
     setNewVisitorName('');
     setNewVisitorRes('');
     setNewVisitorPurpose('');
+  };
+
+  const handleSendResidentNotice = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!residentNotice.trim() || !workplace) return;
+    addBroadcast({
+      title: `Notice from ${currentStaff.name}`,
+      message: residentNotice.trim(),
+      category: 'Event',
+      target: 'All Residents',
+      propertyId: workplace.id,
+      propertyName: workplace.name,
+      sender: `${currentStaff.name} (${currentStaff.role})`,
+    });
+    setResidentNotice('');
   };
 
   if (!currentStaff) {
@@ -206,6 +223,22 @@ export const StaffDashboard: React.FC = () => {
 
       {/* Tabs */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6">
+        <form onSubmit={handleSendResidentNotice} className="mb-4 bg-white rounded-2xl border border-slate-200 p-4 shadow-2xs flex flex-col sm:flex-row gap-2">
+          <input
+            value={residentNotice}
+            onChange={(e) => setResidentNotice(e.target.value)}
+            placeholder={`Send notice to ${workplace?.name || 'assigned PG'} residents`}
+            className="flex-1 px-3 py-2 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-blue-500 outline-hidden"
+          />
+          <button
+            type="submit"
+            disabled={!residentNotice.trim()}
+            className="px-4 py-2 rounded-xl bg-blue-600 disabled:bg-slate-300 text-white text-xs font-bold flex items-center justify-center gap-1.5"
+          >
+            <Bell className="w-3.5 h-3.5" />
+            Send to residents
+          </button>
+        </form>
         <div className="bg-white rounded-2xl p-1.5 border border-slate-200 shadow-2xs grid grid-cols-2 sm:grid-cols-5 gap-1 mb-6 text-xs font-bold">
           {[
             { key: 'tasks', label: `Maintenance Tasks (${tickets.length})`, icon: Wrench },

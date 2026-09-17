@@ -99,6 +99,9 @@ export const ResidentDashboard: React.FC = () => {
   const myBookings = myRequests.filter((r) => r.type === 'booking' || (!r.type && !r.visitDate));
   const pendingBookings = myBookings.filter((b) => b.status === 'Pending');
   const approvedBookings = myBookings.filter((b) => b.status === 'Approved');
+  const myBroadcasts = broadcasts.filter(
+    (broadcast) => !broadcast.propertyId || (currentResident?.propertyId && broadcast.propertyId === currentResident.propertyId)
+  );
 
   // Active tab: If not allocated, default to 'visits' or 'bookings'
   const [activeTab, setActiveTab] = useState<
@@ -1075,7 +1078,7 @@ export const ResidentDashboard: React.FC = () => {
                       <h3 className="font-extrabold text-xs text-slate-900">Campus Notices</h3>
                     </div>
                     <div className="space-y-2 text-xs">
-                      {broadcasts.slice(0, 2).map((b) => (
+                      {myBroadcasts.slice(0, 2).map((b) => (
                         <div key={b.id} className="p-2.5 rounded-xl border border-slate-100 bg-slate-50/50">
                           <span className="text-[10px] font-bold text-blue-600 uppercase">{b.category}</span>
                           <p className="font-bold text-slate-900 text-xs mt-0.5">{b.title}</p>

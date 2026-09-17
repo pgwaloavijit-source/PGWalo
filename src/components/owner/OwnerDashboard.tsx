@@ -31,6 +31,7 @@ import {
   PieChart,
   ArrowRightLeft,
   LogOut,
+  Pencil,
 } from 'lucide-react';
 import { BedMatrixTab } from './BedMatrixTab';
 import { LeadFunnelTab } from './LeadFunnelTab';
@@ -48,6 +49,7 @@ import { useOwnerScope } from '../../utils/ownership';
 export const OwnerDashboard: React.FC = () => {
   const {
     addProperty,
+    updateProperty,
     approveBookingRequest,
     rejectBookingRequest,
     addStaffMember,
@@ -97,6 +99,7 @@ export const OwnerDashboard: React.FC = () => {
   const [showAIOnboarding, setShowAIOnboarding] = useState(false);
   const [showTourModal, setShowTourModal] = useState(false);
   const [showListingWizard, setShowListingWizard] = useState(false);
+  const [editingProperty, setEditingProperty] = useState<Property | null>(null);
 
   // Convert listing data to Property object
   const convertListingToProperty = (listingData: OwnerListingData): Omit<Property, 'id'> => {
@@ -172,7 +175,10 @@ export const OwnerDashboard: React.FC = () => {
              step1?.genderOccupancy === 'Girls' ? 'Girls' :
              step1?.genderOccupancy === 'Unisex / Co-ed' ? 'Unisex' : 'Unisex',
       city: step1?.city || '',
-      locality: step1?.locality || '',
+      locality: step1?.pincode || step1?.locality || '',
+      state: step1?.state || '',
+      country: step1?.country || 'India',
+      pincode: step1?.pincode || step1?.locality || '',
       address: step1?.fullAddress || '',
       lat: step1?.mapLocation?.lat || 12.9716,
       lng: step1?.mapLocation?.lng || 77.5946,
@@ -190,15 +196,96 @@ export const OwnerDashboard: React.FC = () => {
                        step5?.noticePeriod === '60 Days' ? 60 : 30,
       gateClosingTime: step5?.curfewTime || '11:00 PM',
       foodIncluded: Boolean(step3?.foodAvailable),
+      foodIncludedInRate: Boolean(step3?.foodIncludedInRate),
+      electricityRatePerUnit: step3?.electricityRatePerUnit || 0,
+      taxPercent: step3?.taxPercent || 0,
+      optionalCharges: step3?.optionalCharges || [],
       verified: step7?.verificationStatus === 'Verified',
       featured: false,
       contactPhone: step6?.mobileNumber || currentUser?.phone || '',
       contactEmail: step6?.emailAddress || currentUser?.email || '',
       ownerName: step6?.fullName || currentUser?.name || 'Owner',
-      listingStatus: listingData.listingStatus === 'Published' ? 'Active' : 'Setup In Progress',
+      ownerProfileSlug: (step6?.fullName || currentUser?.name || 'owner').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, ''),
+      listingPaymentStatus: listingData.listingStatus === 'Published' ? 'Paid' : 'Pending',
+      listingFeeAmount: 999,
+      publishedAt: listingData.listingStatus === 'Published' ? new Date().toISOString() : undefined,
+      listingStatus: listingData.listingStatus === 'Published' ? 'Active' : 'Payment Pending',
       floors: (step2?.rooms || []).length,
     };
   };
+
+  const propertyToListingData = (property: Property): Partial<OwnerListingData> => ({
+    step1: {
+      propertyName: property.name,
+      city: property.city,
+      state: property.state || '',
+      country: property.country || 'India',
+      genderOccupancy:
+        property.gender === 'Boys' ? 'Boys' : property.gender === 'Girls' ? 'Girls' : 'Unisex / Co-ed',
+      locality: property.pincode || property.locality || '',
+      propertyType: 'PG',
+      propertyDescription: property.tagline || '',
+      fullAddress: property.address || '',
+      pincode: property.pincode || property.locality || '',
+      nearbyLandmark: property.placeLabel || '',
+      mapLocation: property.lat && property.lng ? { lat: property.lat, lng: property.lng } : undefined,
+    },
+    step2: {
+      rooms: (property.rooms || []).map((room) => ({
+        roomNumber: room.id,
+        floor: '1st Floor',
+        roomType: room.type === 'Single' ? 'Private' : 'Shared',
+        sharingCapacity: room.type === 'Four' ? '4 Sharing' : room.type,
+        numberOfBeds: room.totalBeds || 1,
+        beds: Array.from({ length: room.totalBeds || 1 }, (_, index) => ({
+          bedId: `${room.id}-${index}`,
+          bedName: `Bed ${String.fromCharCode(65 + index)}`,
+          status: index < (room.availableBeds || 0) ? 'Available' : 'Occupied',
+          monthlyRent: room.rentPerMonth,
+          securityDeposit: room.deposit,
+        })),
+      })),
+    },
+    step3: {
+      roomAmenities: [
+        { id: 'AC', name: 'AC', selected: property.rooms?.some((r) => r.hasAC) || false },
+        { id: 'Attached Bathroom', name: 'Attached Bathroom', selected: property.rooms?.some((r) => r.hasAttachedBath) || false },
+        { id: 'Balcony', name: 'Balcony', selected: property.rooms?.some((r) => r.hasBalcony) || false },
+      ],
+      propertyAmenities: (property.amenities || []).filter((id) => id !== 'food').map((id) => ({ id, name: id, selected: true })),
+      foodAvailable: property.foodIncluded,
+      foodIncludedInRate: Boolean(property.foodIncludedInRate ?? property.foodIncluded),
+      foodOptions: [
+        { id: 'breakfast', name: 'Breakfast', selected: property.foodIncluded },
+        { id: 'lunch', name: 'Lunch', selected: property.foodIncluded },
+        { id: 'dinner', name: 'Dinner', selected: property.foodIncluded },
+      ],
+      foodCharges: property.foodIncludedInRate ? 0 : undefined,
+      electricityRatePerUnit: property.electricityRatePerUnit || 8.5,
+      taxPercent: property.taxPercent || 0,
+      optionalCharges: property.optionalCharges || [],
+      otherServices: [],
+    },
+    step4: {
+      photos: (property.galleryImages?.length ? property.galleryImages : [property.coverImage]).filter(Boolean).map((url, index) => ({
+        id: `existing-${property.id}-${index}`,
+        url,
+        category: index === 0 ? 'Exterior' : 'Bedroom',
+        qualityScore: 90,
+        uploadDate: property.publishedAt || new Date().toISOString(),
+      })),
+    },
+    step6: {
+      fullName: property.ownerName,
+      mobileNumber: property.contactPhone,
+      whatsappNumber: property.contactPhone,
+      emailAddress: property.contactEmail,
+      role: 'Property Owner',
+      preferredContact: 'Phone',
+    },
+    createdAt: property.publishedAt || new Date().toISOString(),
+    listingStatus: property.listingStatus === 'Active' ? 'Published' : 'Payment Pending',
+  });
 
   // New Property Form Modal State
   const [showAddPropModal, setShowAddPropModal] = useState(false);
@@ -246,7 +333,7 @@ export const OwnerDashboard: React.FC = () => {
   const occupiedBeds = beds.filter((b) => b.status === 'Occupied').length;
   const visibleBroadcasts = currentUser?.isDemo
     ? broadcasts
-    : broadcasts.filter((b) => /^b-\d{10,}$/.test(b.id));
+    : broadcasts.filter((b) => properties.some((property) => property.id === b.propertyId));
 
   const handleCreateProperty = (e: React.FormEvent) => {
     e.preventDefault();
@@ -332,12 +419,14 @@ export const OwnerDashboard: React.FC = () => {
       message: broadcastMsg,
       category: broadcastCategory as any,
       target: 'All Residents',
+      propertyId: properties[0]?.id,
+      propertyName: properties[0]?.name,
       sender: currentUser?.name || 'Property Owner',
     });
 
     setBroadcastTitle('');
     setBroadcastMsg('');
-    setReminderToast('Broadcast published to all resident dashboards!');
+    setReminderToast('Broadcast published to this PG residents only!');
     setTimeout(() => setReminderToast(null), 3500);
   };
 
@@ -348,6 +437,8 @@ export const OwnerDashboard: React.FC = () => {
       message: `Dear residents with pending dues, kindly clear your room dues today. Instant online UPI payment is available in your Resident Portal.`,
       category: 'Rent',
       target: 'All Residents',
+      propertyId: properties[0]?.id,
+      propertyName: properties[0]?.name,
       sender: `${currentUser?.name || 'Owner'} (Owner)`,
     });
 
@@ -796,8 +887,13 @@ export const OwnerDashboard: React.FC = () => {
                       >
                         {prop.gender} PG
                       </span>
+                      {(prop.listingPaymentStatus === 'Pending' || prop.listingStatus === 'Payment Pending') && (
+                        <span className="ml-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800">
+                          Payment pending
+                        </span>
+                      )}
                       <h3 className="font-extrabold text-slate-900 text-base mt-1">{prop.name}</h3>
-                      <p className="text-xs text-slate-500 truncate">{prop.locality}, {prop.city}</p>
+                      <p className="text-xs text-slate-500 truncate">PIN {prop.pincode || prop.locality}, {prop.city}</p>
                       </div>
                     </div>
                     <span className="text-xs font-black text-blue-600 bg-blue-50 px-2.5 py-1 rounded-lg">
@@ -823,6 +919,41 @@ export const OwnerDashboard: React.FC = () => {
                   <div className="flex items-center justify-between text-xs text-slate-500 pt-2 border-t border-slate-100">
                     <span>Gate curfew: {prop.gateClosingTime}</span>
                     <span>Notice: {prop.noticePeriodDays} days</span>
+                  </div>
+                  <div className="rounded-xl bg-emerald-50 border border-emerald-100 px-3 py-2 text-[11px] text-emerald-900">
+                    PGWalo is 0% commission. Rent, tax, security deposit and utilities remain between tenant and owner.
+                  </div>
+                  <div className="flex items-center justify-end gap-2">
+                    {(prop.listingPaymentStatus === 'Pending' || prop.listingStatus === 'Payment Pending') && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          updateProperty(prop.id, {
+                            listingPaymentStatus: 'Paid',
+                            listingStatus: 'Active',
+                            listingFeeAmount: prop.listingFeeAmount || 999,
+                            publishedAt: new Date().toISOString(),
+                          });
+                          setReminderToast(`${prop.name} is paid and published.`);
+                          setTimeout(() => setReminderToast(null), 3500);
+                        }}
+                        className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold flex items-center gap-1"
+                      >
+                        <CreditCard className="w-3.5 h-3.5" />
+                        Pay & publish
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingProperty(prop);
+                        setShowListingWizard(true);
+                      }}
+                      className="px-3 py-1.5 rounded-xl border border-slate-200 hover:bg-slate-100 text-slate-700 text-xs font-bold flex items-center gap-1"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                      Edit
+                    </button>
                   </div>
                 </div>
               ))}
@@ -1301,7 +1432,7 @@ export const OwnerDashboard: React.FC = () => {
                   className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-xs transition flex items-center justify-center gap-1.5"
                 >
                   <Send className="w-3.5 h-3.5" />
-                  <span>Send Broadcast to All Residents</span>
+                  <span>Send to This PG Residents</span>
                 </button>
               </form>
             </div>
@@ -1773,18 +1904,32 @@ export const OwnerDashboard: React.FC = () => {
       {/* Owner Listing Wizard */}
       {showListingWizard && (
         <OwnerListingWizard
-          onCancel={() => setShowListingWizard(false)}
+          initialData={editingProperty ? propertyToListingData(editingProperty) : undefined}
+          onCancel={() => {
+            setShowListingWizard(false);
+            setEditingProperty(null);
+          }}
             onComplete={(listingData) => {
             try {
               const newProperty = convertListingToProperty(listingData);
-              addProperty(newProperty);
+              if (editingProperty) {
+                updateProperty(editingProperty.id, newProperty);
+              } else {
+                addProperty(newProperty);
+              }
               setShowListingWizard(false);
+              setEditingProperty(null);
               setActiveTab('properties');
-              setReminderToast(`${newProperty.name} is live on your account.`);
+              setReminderToast(
+                newProperty.listingPaymentStatus === 'Paid'
+                  ? `${newProperty.name} is live on your account.`
+                  : `${newProperty.name} is saved. Pay & publish when ready.`
+              );
               setTimeout(() => setReminderToast(null), 4000);
             } catch (error) {
               console.error('Failed to save listing', error);
               setShowListingWizard(false);
+              setEditingProperty(null);
             }
           }}
         />

@@ -66,14 +66,14 @@ export const AgreementsTab: React.FC = () => {
           <tbody className="divide-y divide-slate-100">
             {agreements.map((ag) => (
               <tr key={ag.id} className="hover:bg-slate-50">
-                <td className="p-3.5 font-bold text-slate-900">{ag.tenantName}</td>
+                <td className="p-3.5 font-bold text-slate-900">{ag.tenantName || ag.residentName}</td>
                 <td className="p-3.5 text-slate-600">
                   Room {ag.roomNumber} ({ag.bedNumber})
                 </td>
                 <td className="p-3.5 text-slate-500">
                   {ag.startDate} to {ag.endDate}
                   <span className="block text-[10px] text-slate-400">
-                    Notice: {ag.termsAndConditions.noticePeriodDays} days
+                    Notice: {ag.termsAndConditions?.noticePeriodDays || ag.noticePeriodDays} days
                   </span>
                 </td>
                 <td className="p-3.5 font-bold text-slate-800">₹{ag.monthlyRent.toLocaleString('en-IN')}</td>
@@ -104,7 +104,7 @@ export const AgreementsTab: React.FC = () => {
                   </button>
                   <button
                     onClick={() =>
-                      setActiveInspectionModal({ room: ag.roomNumber, tenant: ag.tenantName })
+                      setActiveInspectionModal({ room: ag.roomNumber, tenant: ag.tenantName || ag.residentName })
                     }
                     className="px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-100 text-slate-700 font-bold text-xs transition-colors"
                   >
