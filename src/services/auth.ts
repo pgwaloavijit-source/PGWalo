@@ -44,10 +44,6 @@ export async function loginWithWorkers(
   password: string,
   meta?: AuthOpenMeta
 ): Promise<AuthResponse> {
-  if (!isProductionApiEnabled()) {
-    return { success: false, error: 'API not available in demo mode' };
-  }
-
   try {
     const response = await fetch(apiUrl('/api/auth/login'), {
       method: 'POST',

@@ -22,6 +22,7 @@ import {
   UserAccount,
   UserRole,
 } from '../types';
+import { isPlatformAdmin } from '../utils/platformAdmin';
 
 export const DEFAULT_ORGANIZATION_ID = 'org-demo-pgwalo';
 
@@ -52,7 +53,7 @@ export const assertOrganizationAccess = (
   action: string
 ) => {
   const userOrgId = user?.organizationId || DEFAULT_ORGANIZATION_ID;
-  if (user && user.role !== 'admin' && userOrgId !== organizationId) {
+  if (user && !isPlatformAdmin(user.role) && userOrgId !== organizationId) {
     throw new Error(`Access denied for ${action}: organization mismatch.`);
   }
 };
@@ -93,7 +94,7 @@ export const hasPermission = (
   permissions: Record<string, RolePermissions>,
   permission: PermissionKey
 ) => {
-  if (role === 'admin') return true;
+  if (isPlatformAdmin(role)) return true;
   const legacy = permissions[role];
   return legacy ? LEGACY_PERMISSION_MAP[permission](legacy) : false;
 };

@@ -1,6 +1,7 @@
 import { Env } from '../types';
 import { addCorsHeaders } from '../utils/cors';
 import { authMiddleware } from '../middleware/auth';
+import { isPlatformAdmin } from '../utils/platformAdmin';
 
 function json(data: unknown, status = 200) {
   return addCorsHeaders(new Response(JSON.stringify(data), {
@@ -45,6 +46,11 @@ export async function inquiriesHandler(request: Request, env: Env): Promise<Resp
     try {
       let sql = `SELECT * FROM booking_requests WHERE 1=1`;
       const params: string[] = [];
+      if (isPlatformAdmin(auth.user?.role)) {
+        sql += ` ORDER BY created_at DESC LIMIT 200`;
+        const { results } = await env.DB.prepare(sql).all();
+        return json((results || []).map((row) => rowToInquiry(row as Record<string, unknown>)));
+      }
       if (ownerUserId) {
         sql += ` AND property_id IN (SELECT id FROM properties WHERE owner_user_id = ?)`;
         params.push(ownerUserId);

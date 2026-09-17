@@ -10,6 +10,7 @@ import { notifyHandler } from './handlers/notify';
 import { geoHandler } from './handlers/geo';
 import { listingsHandler } from './handlers/listings';
 import { inquiriesHandler } from './handlers/inquiries';
+import { adminHandler } from './handlers/admin';
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -50,6 +51,10 @@ export default {
 
       if (path.startsWith('/api/notify')) {
         return notifyHandler(request, env);
+      }
+
+      if (path.startsWith('/api/admin')) {
+        return adminHandler(request, env);
       }
 
       // Bootstrap endpoints (auth middleware applied)

@@ -1,5 +1,6 @@
 import { Env, User, AuthResult } from '../types';
 import { verifyJWT } from '../utils/jwt';
+import { isPlatformAdmin } from '../utils/platformAdmin';
 
 export async function authMiddleware(request: Request, env: Env): Promise<AuthResult> {
   const authHeader = request.headers.get('Authorization');
@@ -29,7 +30,7 @@ export async function authMiddleware(request: Request, env: Env): Promise<AuthRe
     const role = request.headers.get('x-user-role') || 'public';
     const organizationId = request.headers.get('x-organization-id') || env.DEFAULT_ORGANIZATION_ID;
     const userId = request.headers.get('x-user-id');
-    const validRoles = ['public', 'owner', 'resident', 'staff', 'admin', 'manager', 'warden', 'accountant'];
+    const validRoles = ['public', 'owner', 'resident', 'staff', 'admin', 'superadmin', 'manager', 'warden', 'accountant'];
     if (!validRoles.includes(role)) {
       return { success: false, error: 'Invalid role' };
     }

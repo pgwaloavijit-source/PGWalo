@@ -21,6 +21,8 @@ export interface Env {
   JWT_SECRET?: string;
   SUPERADMIN_USERNAME?: string;
   SUPERADMIN_PASSWORD?: string;
+  SUPERADMIN_PHONE?: string;
+  SUPERADMIN_PIN?: string;
 }
 
 export interface User {

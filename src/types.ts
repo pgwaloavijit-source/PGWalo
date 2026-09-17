@@ -133,12 +133,21 @@ export interface UserAccount {
   roomNumber?: string;
   staffRole?: string;
   createdAt: string;
-  status?: 'Active' | 'Suspended' | 'Pending Verification';
+  status?: 'Active' | 'Suspended' | 'Pending Verification' | 'Disabled';
   assignedProperties?: string[];
   permissions?: Partial<RolePermissions>;
 }
 
 export type SupportTicketStatus = 'Raised' | 'Open' | 'Resolved' | 'Closed';
+
+export interface SupportTicketMessage {
+  id: string;
+  authorId: string;
+  authorName: string;
+  authorRole: UserRole;
+  body: string;
+  createdAt: string;
+}
 
 export interface SupportTicket {
   id: string;
@@ -153,6 +162,10 @@ export interface SupportTicket {
   createdAt: string;
   updatedAt: string;
   adminNote?: string;
+  assignedTo?: string;
+  propertyId?: string;
+  bookingId?: string;
+  messages?: SupportTicketMessage[];
 }
 
 export type GenderPreference = 'Boys' | 'Girls' | 'Unisex';

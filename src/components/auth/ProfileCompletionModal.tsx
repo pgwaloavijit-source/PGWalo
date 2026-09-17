@@ -4,6 +4,7 @@ import { useApp } from '../../context/AppContext';
 import { isProductionApiEnabled } from '../../services/productionApi';
 import { saveProfileWithWorkers } from '../../services/auth';
 import { isValidAadhaar, isValidIndianPhone } from '../../utils/kyc';
+import { isPlatformAdmin } from '../../utils/platformAdmin';
 import { ComboField } from '../common/ComboField';
 import {
   AGE_OPTIONS,
@@ -53,7 +54,7 @@ export const ProfileCompletionModal: React.FC = () => {
     setAltPhone(currentUser.alternatePhone || '');
   }, [currentUser, profileModalOpen]);
 
-  if (!profileModalOpen || !currentUser) return null;
+  if (!profileModalOpen || !currentUser || isPlatformAdmin(currentUser.role)) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

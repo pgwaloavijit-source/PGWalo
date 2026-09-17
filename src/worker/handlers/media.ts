@@ -1,6 +1,7 @@
 import { Env } from '../types';
 import { addCorsHeaders } from '../utils/cors';
 import { authMiddleware } from '../middleware/auth';
+import { isPlatformAdmin } from '../utils/platformAdmin';
 
 const ENHANCE_PROMPT =
   'professional real estate photograph of a clean paying guest room in India, natural daylight, straight walls, balanced white, no people, no watermark, photorealistic interior';
@@ -48,7 +49,7 @@ export async function mediaHandler(request: Request, env: Env): Promise<Response
   if (request.method === 'POST' && (path === '/api/media/upload' || path === '/api/media/enhance')) {
     const auth = await authMiddleware(request, env);
     const signedIn = Boolean(auth.success && auth.user);
-    if (path === '/api/media/enhance' && (!signedIn || !['owner', 'admin'].includes(auth.user!.role))) {
+    if (path === '/api/media/enhance' && (!signedIn || (auth.user!.role !== 'owner' && !isPlatformAdmin(auth.user!.role)))) {
       return json({ error: 'Sign in as the property owner to enhance photos' }, 401);
     }
 
@@ -132,7 +133,7 @@ export async function mediaHandler(request: Request, env: Env): Promise<Response
 
   if (request.method === 'DELETE' && path.startsWith('/api/media/')) {
     const auth = await authMiddleware(request, env);
-    if (!auth.success || !['owner', 'admin'].includes(auth.user!.role)) {
+    if (!auth.success || (auth.user!.role !== 'owner' && !isPlatformAdmin(auth.user!.role))) {
       return json({ error: 'Forbidden' }, 403);
     }
     if (!env.MEDIA) return json({ error: 'Photo storage is not configured' }, 503);

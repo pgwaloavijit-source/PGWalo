@@ -21,6 +21,7 @@ import { AccountantDashboard } from './components/accountant/AccountantDashboard
 import { SupportCenter } from './components/common/SupportCenter';
 import { PublicSearchCriteria } from './types';
 import { useStandalonePWA } from './hooks/useStandalonePWA';
+import { isPlatformAdmin } from './utils/platformAdmin';
 
 const MainAppContent: React.FC = () => {
   const {
@@ -38,11 +39,24 @@ const MainAppContent: React.FC = () => {
   } = useApp();
   const isStandalone = useStandalonePWA();
 
-  const [currentTab, setCurrentTab] = useState<string>('landing');
+  const [currentTab, setCurrentTab] = useState<string>(() =>
+    typeof window !== 'undefined' && (window.location.hash === '#admin' || window.location.pathname === '/admin')
+      ? 'admin'
+      : 'landing'
+  );
   const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
   const [showNotifications, setShowNotifications] = useState<boolean>(false);
   const [searchParams, setSearchParams] = useState<PublicSearchCriteria>({});
+
+  useEffect(() => {
+    const applyAdminHash = () => {
+      if (window.location.hash === '#admin' || window.location.pathname === '/admin') setCurrentTab('admin');
+    };
+    applyAdminHash();
+    window.addEventListener('hashchange', applyAdminHash);
+    return () => window.removeEventListener('hashchange', applyAdminHash);
+  }, []);
 
   useEffect(() => {
     if (!shellIntent) return;
@@ -56,12 +70,15 @@ const MainAppContent: React.FC = () => {
       setCurrentTab('staff');
       return;
     }
+    if (window.location.hash === '#admin' || currentTab === 'admin') {
+      if (isPlatformAdmin(currentUser.role)) setCurrentTab('admin');
+      return;
+    }
     if (currentTab === 'profile' || currentTab === 'search' || currentTab === 'landing') return;
     if (currentUser.role === 'owner') setCurrentTab('owner');
     else if (currentUser.role === 'resident') setCurrentTab('resident');
     else if (currentUser.role === 'staff') setCurrentTab('staff');
-    else if (currentUser.role === 'admin') setCurrentTab('admin');
-    else if (currentUser.role === 'superadmin') setCurrentTab('admin');
+    else if (currentUser.role === 'admin' || currentUser.role === 'superadmin') setCurrentTab('admin');
     else if (currentUser.role === 'warden') setCurrentTab('warden');
     else if (currentUser.role === 'accountant') setCurrentTab('accountant');
   }, [currentUser?.id, currentUser?.role, profileModalOpen]);
@@ -88,10 +105,19 @@ const MainAppContent: React.FC = () => {
     handleExploreWithParams({ location: area, city });
   };
 
+  const isPlatformAdminSession = isPlatformAdmin(currentUser?.role);
+  const wantsAdminRoute = currentTab === 'admin' || (typeof window !== 'undefined' && window.location.hash === '#admin');
+
+  useEffect(() => {
+    if (isPlatformAdminSession && window.location.hash !== '#admin') {
+      window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}#admin`);
+    }
+  }, [isPlatformAdminSession]);
+
   const isDashboardView =
     currentTab === 'profile' ||
     currentTab === 'support' ||
-    role === 'superadmin' ||
+    isPlatformAdminSession ||
     (role === 'admin' || currentTab === 'admin') ||
     (role === 'warden' || currentTab === 'warden') ||
     (role === 'accountant' || currentTab === 'accountant') ||
@@ -103,7 +129,9 @@ const MainAppContent: React.FC = () => {
 
   const appContent = (
     <>
-        {currentUser?.role === 'staff' && currentTab !== 'profile' ? (
+        {isPlatformAdminSession || wantsAdminRoute ? (
+          <AdminDashboard />
+        ) : currentUser?.role === 'staff' && currentTab !== 'profile' ? (
           <StaffDashboard />
         ) : currentTab === 'profile' ? (
           <AccountDetailsPage />
@@ -113,8 +141,6 @@ const MainAppContent: React.FC = () => {
           <LandingPage onExploreClick={handleExploreWithParams} onSelectPG={handleSelectPG} />
         ) : currentTab === 'support' ? (
           <SupportCenter />
-        ) : role === 'admin' || role === 'superadmin' || currentTab === 'admin' ? (
-          <AdminDashboard />
         ) : role === 'warden' || currentTab === 'warden' ? (
           <WardenDashboard />
         ) : role === 'accountant' || currentTab === 'accountant' ? (
@@ -138,7 +164,9 @@ const MainAppContent: React.FC = () => {
       }`}
     >
       <OfflineIndicator />
-      {isStandalone ? (
+      {isPlatformAdminSession ? (
+        <main className="flex-1">{appContent}</main>
+      ) : isStandalone ? (
         <PWAMobileShell
           currentTab={currentTab}
           setCurrentTab={setCurrentTab}

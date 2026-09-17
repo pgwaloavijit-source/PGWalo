@@ -1,6 +1,7 @@
 import { Env, User } from '../types';
 import { addCorsHeaders } from '../utils/cors';
 import { hasPermission } from '../middleware/auth';
+import { isPlatformAdmin } from '../utils/platformAdmin';
 
 const READ_PERMISSIONS: Record<string, string> = {
   organizations: 'staff.view',
@@ -129,7 +130,7 @@ export async function collectionHandler(
       const conditions: string[] = [];
 
       // Filter by organization for non-admin users
-      if (user.role !== 'admin' && collection !== 'system_settings' && collection !== 'role_permissions') {
+      if (!isPlatformAdmin(user.role) && collection !== 'system_settings' && collection !== 'role_permissions') {
         conditions.push(`organization_id = ?`);
         params.push(organizationId);
       }
@@ -264,7 +265,7 @@ export async function collectionHandler(
       const body = await request.json() as Record<string, unknown>;
       
       // Add organization_id if not present
-      if (user.role !== 'admin' && !body.organization_id && collection !== 'system_settings' && collection !== 'role_permissions') {
+      if (!isPlatformAdmin(user.role) && !body.organization_id && collection !== 'system_settings' && collection !== 'role_permissions') {
         body.organization_id = organizationId;
       }
 
@@ -342,7 +343,7 @@ export async function collectionHandler(
       const existing = existingResults[0] as Record<string, unknown>;
       
       // Check organization access
-      if (user.role !== 'admin' && 
+      if (!isPlatformAdmin(user.role) && 
           collection !== 'system_settings' && 
           collection !== 'role_permissions' &&
           existing.organization_id !== organizationId) {

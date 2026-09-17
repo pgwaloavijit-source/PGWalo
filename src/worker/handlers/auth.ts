@@ -4,6 +4,7 @@ import { generateJWT } from '../utils/jwt';
 import { hashPassword, verifyPassword } from '../utils/password';
 import { logAuthEvent, getAuthAnalytics, AuthEventPayload } from '../utils/authAnalytics';
 import { authMiddleware } from '../middleware/auth';
+import { credentialsMatch, isPlatformAdmin, lastTenDigits, normalizeLoginId } from '../utils/platformAdmin';
 import {
   deliverOtp,
   hashOtp,
@@ -139,7 +140,7 @@ export async function authHandler(request: Request, env: Env): Promise<Response>
 
   if (path === '/api/auth/analytics' && request.method === 'GET') {
     const authResult = await authMiddleware(request, env);
-    if (!authResult.success || !['admin', 'owner'].includes(authResult.user!.role)) {
+    if (!authResult.success || (!isPlatformAdmin(authResult.user!.role) && authResult.user!.role !== 'owner')) {
       return json({ error: 'Forbidden' }, 403);
     }
     const data = await getAuthAnalytics(
@@ -234,12 +235,20 @@ export async function authHandler(request: Request, env: Env): Promise<Response>
         deviceType?: string;
       };
 
-      if (
-        env.SUPERADMIN_USERNAME &&
+      const ident = normalizeLoginId(body.email || body.phone);
+      const secret = body.password || '';
+      const phoneIdent = lastTenDigits(ident);
+      const envPhone = lastTenDigits(env.SUPERADMIN_PHONE);
+      const username = normalizeLoginId(env.SUPERADMIN_USERNAME);
+      const phoneOk = Boolean(envPhone && phoneIdent && phoneIdent === envPhone && env.SUPERADMIN_PIN && credentialsMatch(secret, env.SUPERADMIN_PIN));
+      const userOk = Boolean(
+        username && ident &&
+        ident.toLowerCase() === username.toLowerCase() &&
         env.SUPERADMIN_PASSWORD &&
-        (body.email === env.SUPERADMIN_USERNAME || body.phone === env.SUPERADMIN_USERNAME) &&
-        body.password === env.SUPERADMIN_PASSWORD
-      ) {
+        credentialsMatch(secret, env.SUPERADMIN_PASSWORD)
+      );
+
+      if (phoneOk || userOk) {
         const role = 'superadmin';
         const token = await generateJWT({
           userId: 'superadmin',
@@ -247,10 +256,35 @@ export async function authHandler(request: Request, env: Env): Promise<Response>
           organizationId: env.DEFAULT_ORGANIZATION_ID,
           name: 'Super Admin',
         }, env.JWT_SECRET || 'default-secret');
+        try {
+          await env.DB.prepare(`
+            INSERT INTO audit_logs (id, user_id, user_name, user_role, action, entity, timestamp, details)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          `).bind(
+            `aud-${Date.now()}-login`,
+            'superadmin',
+            'Super Admin',
+            role,
+            'Login',
+            'Session',
+            new Date().toISOString(),
+            JSON.stringify({ method: phoneOk ? 'phone' : 'username' })
+          ).run();
+        } catch {
+          /* audit table may be empty on fresh DBs */
+        }
         return json({
           success: true,
           token,
-          user: { id: 'superadmin', role, name: 'Super Admin', organizationId: env.DEFAULT_ORGANIZATION_ID },
+          user: {
+            id: 'superadmin',
+            role,
+            name: 'Super Admin',
+            phone: env.SUPERADMIN_PHONE || '',
+            email: env.SUPERADMIN_USERNAME || '',
+            organizationId: env.DEFAULT_ORGANIZATION_ID,
+            isProfileCompleted: true,
+          },
         });
       }
 
@@ -564,7 +598,7 @@ export async function authHandler(request: Request, env: Env): Promise<Response>
     if (!authResult.success) {
       return json({ error: authResult.error || 'Sign in again as the owner' }, 401);
     }
-    if (!['owner', 'admin'].includes(authResult.user!.role)) {
+    if (authResult.user!.role !== 'owner' && !isPlatformAdmin(authResult.user!.role)) {
       return json({ error: 'Only owners can add staff' }, 403);
     }
     try {

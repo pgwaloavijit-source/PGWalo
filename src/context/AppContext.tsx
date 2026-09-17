@@ -63,9 +63,17 @@ import {
   getAuthToken,
 } from '../services/productionApi';
 import { notifyVisitWithWorkers, fetchMeWithWorkers } from '../services/auth';
+import {
+  patchAdminProperty,
+  patchAdminTicket,
+  patchAdminUserStatus,
+  postAdminLogout,
+  postAdminTicketReply,
+} from '../services/adminApi';
 import { fetchPublicListings, publishListing } from '../services/listings';
 import { fetchInquiries, publishInquiry, patchInquiry, mergeBookings } from '../services/inquiries';
 import { mergeProperties } from '../utils/locationMatch';
+import { isPlatformAdmin } from '../utils/platformAdmin';
 import { uploadListingPhoto } from '../services/media';
 import { localIsoDate } from '../utils/datetime';
 import { CATALOG_OWNER_ID, ownsProperty } from '../utils/ownership';
@@ -258,7 +266,10 @@ interface AppContextType {
   addMaintenanceTicket: (ticket: Omit<MaintenanceTicket, 'id' | 'createdAt' | 'status'>) => void;
   updateTicketStatus: (ticketId: string, status: MaintenanceTicket['status']) => void;
   createSupportTicket: (ticket: Omit<SupportTicket, 'id' | 'requesterId' | 'requesterName' | 'requesterRole' | 'status' | 'createdAt' | 'updatedAt'>) => void;
-  updateSupportTicket: (ticketId: string, status: SupportTicketStatus, adminNote?: string) => void;
+  updateSupportTicket: (ticketId: string, status: SupportTicketStatus, adminNote?: string, assignedTo?: string) => void;
+  addSupportTicketReply: (ticketId: string, body: string) => void;
+  updateUserAccountStatus: (userId: string, status: NonNullable<UserAccount['status']>) => void;
+  setListingDecision: (propertyId: string, action: 'approve' | 'reject' | 'disable') => void;
   resetToDemoData: () => void;
 }
 
@@ -763,8 +774,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => {
     if (!isProductionApiEnabled() || !currentUser) return;
     let cancelled = false;
-    const filters =
-      currentUser.role === 'owner'
+    const filters = isPlatformAdmin(currentUser.role)
+      ? {}
+      : currentUser.role === 'owner'
         ? { ownerUserId: currentUser.id }
         : { email: currentUser.email, phone: currentUser.phone };
     const pull = () => {
@@ -1862,28 +1874,54 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const login = (email: string, password?: string, requestedRole?: UserRole, isDemo: boolean = false) => {
-    const cleanEmail = email.trim().toLowerCase();
-    if (
+    const ident = email.trim();
+    const identLower = ident.toLowerCase();
+    const phoneDigits = ident.replace(/\D/g, '').slice(-10);
+    const envPhone = (import.meta.env.VITE_SUPERADMIN_PHONE || '').replace(/\D/g, '').slice(-10);
+    const envPin = import.meta.env.VITE_SUPERADMIN_PIN || '';
+    const envUser = (import.meta.env.VITE_SUPERADMIN_USERNAME || '').toLowerCase();
+    const envPass = import.meta.env.VITE_SUPERADMIN_PASSWORD || '';
+    const demoAdminOk =
       requestedRole === 'superadmin' &&
-      cleanEmail === '7070696968' &&
-      password === '111111'
-    ) {
+      Boolean(
+        (envPhone && phoneDigits === envPhone && password === envPin) ||
+        (envUser && identLower === envUser && password === envPass)
+      );
+    if (demoAdminOk) {
       const superAdmin: UserAccount = {
         id: 'superadmin',
         name: 'Super Admin',
-        email: '',
-        phone: '7070696968',
+        email: import.meta.env.VITE_SUPERADMIN_USERNAME || '',
+        phone: import.meta.env.VITE_SUPERADMIN_PHONE || '',
         role: 'superadmin',
         organizationId: DEFAULT_ORGANIZATION_ID,
         createdAt: new Date().toISOString().split('T')[0],
         isProfileCompleted: true,
+        status: 'Active',
+        avatar: '',
       };
       setCurrentUser(superAdmin);
       setRoleState('superadmin');
       setAuthModalOpen(false);
+      setAuditLogs((prev) => [
+        {
+          id: `aud-${Date.now()}-login`,
+          userId: superAdmin.id,
+          userName: superAdmin.name,
+          userRole: 'superadmin',
+          action: 'Login',
+          entity: 'Session',
+          timestamp: new Date().toISOString().replace('T', ' ').substring(0, 16),
+          details: 'Super Admin signed in',
+        },
+        ...prev.slice(0, 99),
+      ]);
       return { success: true, message: 'Welcome, Super Admin!', user: superAdmin };
     }
-    let user = users.find((u) => u.email.toLowerCase() === cleanEmail);
+    if (requestedRole === 'superadmin') {
+      return { success: false, message: 'Invalid Super Admin credentials.' };
+    }
+    let user = users.find((u) => u.email.toLowerCase() === identLower);
 
     // Demo mode: Skip password validation and create/update demo user
     if (isDemo) {
@@ -1891,7 +1929,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       user = {
         id: `demo-user-${Date.now()}`,
         name: `Demo ${requestedRole || 'User'}`,
-        email: cleanEmail,
+        email: identLower,
         phone: '+91 98765 43210',
         role: requestedRole || 'resident',
         avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=200&q=80',
@@ -2023,7 +2061,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const matchedStaff = staff.find((s) => digits && s.phone.replace(/\D/g, '').slice(-10) === digits);
       if (matchedStaff) setCurrentStaffId(matchedStaff.id);
     }
-    if (!account.isProfileCompleted && account.role !== 'staff') {
+    if (!account.isProfileCompleted && account.role !== 'staff' && !isPlatformAdmin(account.role)) {
       setProfileModalOpen(true);
       return;
     }
@@ -2195,7 +2233,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const logout = () => {
-    // Clear demo data if current user is a demo user
+    if (isPlatformAdmin(currentUser?.role)) {
+      setAuditLogs((prev) => [
+        {
+          id: `aud-${Date.now()}-logout`,
+          userId: currentUser?.id || 'superadmin',
+          userName: currentUser?.name || 'Super Admin',
+          userRole: currentUser?.role || 'superadmin',
+          action: 'Logout',
+          entity: 'Session',
+          timestamp: new Date().toISOString().replace('T', ' ').substring(0, 16),
+          details: 'Super Admin signed out',
+        },
+        ...prev.slice(0, 99),
+      ]);
+      if (isProductionApiEnabled() && getAuthToken()) {
+        void postAdminLogout().catch(() => undefined);
+      }
+    }
     if (currentUser?.isDemo) {
       setUsers((prev) => prev.filter(u => !u.isDemo));
       setProperties((prev) => prev.filter(p => !p.id.startsWith('demo-')));
@@ -2281,6 +2336,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     );
     if (updated && updated.listingStatus === 'Active') {
       void publishListing(updated);
+    }
+    if (
+      updated &&
+      isPlatformAdmin(currentUser?.role) &&
+      isProductionApiEnabled() &&
+      getAuthToken() &&
+      (updates.name || updates.tagline || updates.description)
+    ) {
+      void patchAdminProperty(propertyId, {
+        name: updates.name,
+        tagline: updates.tagline,
+        description: updates.description,
+      }).then((ok) => {
+        if (!ok) console.warn(`[admin] property edit for ${propertyId} could not be persisted to the database`);
+      });
     }
   };
 
@@ -3208,10 +3278,76 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setSupportTickets((prev) => [newTicket, ...prev]);
   };
 
-  const updateSupportTicket = (ticketId: string, status: SupportTicketStatus, adminNote?: string) => {
+  const updateSupportTicket = (ticketId: string, status: SupportTicketStatus, adminNote?: string, assignedTo?: string) => {
     setSupportTickets((prev) => prev.map((ticket) => ticket.id === ticketId
-      ? { ...ticket, status, adminNote: adminNote ?? ticket.adminNote, updatedAt: new Date().toISOString() }
+      ? {
+          ...ticket,
+          status,
+          adminNote: adminNote ?? ticket.adminNote,
+          assignedTo: assignedTo ?? ticket.assignedTo,
+          updatedAt: new Date().toISOString(),
+        }
       : ticket));
+    logAuditEvent('Ticket status changed', `Ticket ${ticketId}`, `${status} ${assignedTo || ''}`.trim());
+    if (isProductionApiEnabled() && getAuthToken()) {
+      void patchAdminTicket(ticketId, { status, assignedTo }).then((ok) => {
+        if (!ok) console.warn(`[admin] ticket ${ticketId} status change could not be persisted to the database`);
+      });
+    }
+  };
+
+  const addSupportTicketReply = (ticketId: string, body: string) => {
+    if (!currentUser || !body.trim()) return;
+    setSupportTickets((prev) => prev.map((ticket) => ticket.id === ticketId
+      ? {
+          ...ticket,
+          status: ticket.status === 'Raised' ? 'Open' : ticket.status,
+          updatedAt: new Date().toISOString(),
+          messages: [
+            ...(ticket.messages || []),
+            {
+              id: `msg-${Date.now()}`,
+              authorId: currentUser.id,
+              authorName: currentUser.name,
+              authorRole: currentUser.role,
+              body: body.trim(),
+              createdAt: new Date().toISOString(),
+            },
+          ],
+        }
+      : ticket));
+    logAuditEvent('Ticket reply added', `Ticket ${ticketId}`, body.trim().slice(0, 120));
+    if (isProductionApiEnabled() && getAuthToken()) {
+      void postAdminTicketReply(ticketId, body.trim(), currentUser.name).then((ok) => {
+        if (!ok) console.warn(`[admin] reply on ticket ${ticketId} could not be persisted to the database`);
+      });
+    }
+  };
+
+  const updateUserAccountStatus = (userId: string, status: NonNullable<UserAccount['status']>) => {
+    setUsers((prev) => prev.map((account) => (account.id === userId ? { ...account, status } : account)));
+    logAuditEvent('Account status changed', `User ${userId}`, status);
+    if (isProductionApiEnabled() && getAuthToken()) {
+      void patchAdminUserStatus(userId, status).then((ok) => {
+        if (!ok) console.warn(`[admin] status change for user ${userId} could not be persisted to the database`);
+      });
+    }
+  };
+
+  const setListingDecision = (propertyId: string, action: 'approve' | 'reject' | 'disable') => {
+    const patch: Partial<Property> =
+      action === 'approve'
+        ? { verified: true, listingStatus: 'Active', status: 'Active' }
+        : action === 'reject'
+          ? { verified: false, listingStatus: 'Archived', status: 'Restricted' }
+          : { verified: false, listingStatus: 'Archived', status: 'Archived' };
+    updateProperty(propertyId, patch);
+    logAuditEvent(`Listing ${action}`, `Property ${propertyId}`, action);
+    if (isProductionApiEnabled() && getAuthToken()) {
+      void patchAdminProperty(propertyId, { action }).then((ok) => {
+        if (!ok) console.warn(`[admin] listing ${action} for property ${propertyId} could not be persisted to the database`);
+      });
+    }
   };
 
   const resetToDemoData = () => {
@@ -3411,6 +3547,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         supportTickets,
         createSupportTicket,
         updateSupportTicket,
+        addSupportTicketReply,
+        updateUserAccountStatus,
+        setListingDecision,
         resetToDemoData,
       }}
     >

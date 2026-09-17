@@ -74,7 +74,7 @@ export const saveProductionSnapshot = async (
   snapshot: Partial<ProductionSnapshot>,
   organizationId = DEFAULT_ORGANIZATION_ID
 ) => {
-  if (!isProductionApiEnabled() || !['owner', 'admin'].includes(role)) return;
+  if (!['owner', 'admin', 'superadmin'].includes(role)) return;
   const response = await fetch(apiUrl('/api/bootstrap'), {
     method: 'POST',
     headers: headers(role, organizationId),

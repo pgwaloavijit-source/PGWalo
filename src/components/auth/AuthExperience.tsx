@@ -3,6 +3,7 @@ import { useApp } from '../../context/AppContext';
 import { UserRole } from '../../types';
 import { isProductionApiEnabled } from '../../services/productionApi';
 import { loginWithWorkers, registerWithWorkers, sendAuthOtp, verifyAuthOtp } from '../../services/auth';
+import { isPlatformAdmin } from '../../utils/platformAdmin';
 import {
   trackAuthEvent,
   getLastAuthUser,
@@ -143,6 +144,7 @@ export const AuthExperience: React.FC = () => {
   const [otpHint, setOtpHint] = useState('');
   const [pin, setPin] = useState('');
   const [passwordText, setPasswordText] = useState('');
+  const [adminMode, setAdminMode] = useState<'pin' | 'password'>('password');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
@@ -171,7 +173,7 @@ export const AuthExperience: React.FC = () => {
     setStep(authModalMode === 'register' || authMeta.path ? (authModalMode === 'register' ? 'signup' : 'login') : 'path');
     trackAuthEvent('modal_opened', { ...meta, path: p, mode: authModalMode });
     const last = getLastAuthUser();
-    if (last && authModalMode === 'login') {
+    if (last && authModalMode === 'login' && !authMeta.path) {
       setPhone(last.email.includes('@') ? '' : last.email);
       setEmail(last.email.includes('@') ? last.email : '');
       setPath(last.path);
@@ -226,23 +228,38 @@ export const AuthExperience: React.FC = () => {
   };
 
   const submitLogin = async () => {
-    const credential = path === 'superadmin' ? passwordText : pin;
-    if (path !== 'superadmin' && pin.length < 6) { setError('Enter your 6-digit PIN'); return; }
-    if (path === 'superadmin' && !passwordText) { setError('Enter your Super Admin password'); return; }
+    const isAdminPath = path === 'superadmin';
+    const credential = isAdminPath ? (passwordText || pin) : pin;
+    if (!isAdminPath && pin.length < 6) { setError('Enter your 6-digit PIN'); return; }
+    if (isAdminPath && !passwordText && pin.length < 6) { setError('Enter Super Admin PIN or password'); return; }
     setLoading(true);
     setError(null);
     try {
-      if (useCloud) {
-        const id = path === 'superadmin' ? { email: email || phone } : phone.length >= 10 ? { phone } : { email };
-        const res = await loginWithWorkers(id, credential, meta);
-        if (!res.success || !res.user) { setError(res.error || 'Sign in failed'); return; }
-        finishAuth(res.user);
-      } else {
-        const res = login(email || phone, credential, PATH_CONFIG[path].role);
-        if (!res.success) { setError(res.message || 'Sign in failed'); return; }
-        setAuthModalOpen(false);
-        runPendingAuthAction();
+      const id = isAdminPath
+        ? { email: email || phone, phone: phone || email }
+        : phone.length >= 10 ? { phone } : { email };
+      const apiRes = await loginWithWorkers(id, credential, meta);
+      if (apiRes.success && apiRes.user) {
+        if (!isPlatformAdmin(apiRes.user.role) && isAdminPath) {
+          setError('This account is not a Super Admin.');
+          return;
+        }
+        finishAuth(apiRes.user);
+        return;
       }
+      if (isAdminPath && (apiRes.error === 'Network error during login' || apiRes.error?.includes('Network'))) {
+        const res = login(email || phone, credential, 'superadmin');
+        if (!res.success) { setError(res.message || 'Sign in failed'); return; }
+        return;
+      }
+      if (useCloud || isAdminPath) {
+        setError(apiRes.error || 'Sign in failed');
+        return;
+      }
+      const res = login(email || phone, credential, PATH_CONFIG[path].role);
+      if (!res.success) { setError(res.message || 'Sign in failed'); return; }
+      setAuthModalOpen(false);
+      runPendingAuthAction();
     } finally {
       setLoading(false);
     }
@@ -379,15 +396,54 @@ export const AuthExperience: React.FC = () => {
                 </button>
               )}
               {path === 'superadmin' ? (
-                <div>
-                  <label className="text-xs font-bold text-slate-600">Super Admin username</label>
-                  <input
-                    type="text"
-                    placeholder="Username or phone"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className="mt-1 w-full px-4 py-3.5 rounded-2xl border border-slate-200 text-base tracking-wide focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-2 p-1 rounded-2xl bg-slate-100">
+                    <button type="button" onClick={() => setAdminMode('password')} className={`py-2 rounded-xl text-xs font-bold ${adminMode === 'password' ? 'bg-white shadow text-slate-900' : 'text-slate-500'}`}>Username</button>
+                    <button type="button" onClick={() => setAdminMode('pin')} className={`py-2 rounded-xl text-xs font-bold ${adminMode === 'pin' ? 'bg-white shadow text-slate-900' : 'text-slate-500'}`}>Phone + PIN</button>
+                  </div>
+                  {adminMode === 'password' ? (
+                    <>
+                      <div>
+                        <label className="text-xs font-bold text-slate-600">Username</label>
+                        <input
+                          type="text"
+                          autoComplete="username"
+                          placeholder="Super Admin username"
+                          value={email}
+                          onChange={(e) => setEmail(e.target.value)}
+                          className="mt-1 w-full px-4 py-3.5 rounded-2xl border border-slate-200 text-base tracking-wide focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs font-bold text-slate-600">Password</label>
+                        <input
+                          type="password"
+                          autoComplete="current-password"
+                          value={passwordText}
+                          onChange={(e) => setPasswordText(e.target.value)}
+                          className="mt-1 w-full px-4 py-3.5 rounded-2xl border border-slate-200 text-base focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div>
+                        <label className="text-xs font-bold text-slate-600">Phone</label>
+                        <input
+                          type="tel"
+                          inputMode="numeric"
+                          placeholder="Registered admin phone"
+                          value={phone}
+                          onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                          className="mt-1 w-full px-4 py-3.5 rounded-2xl border border-slate-200 text-lg tracking-wide focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs font-bold text-slate-600 mb-2 block">6-digit PIN</label>
+                        <PinPad value={pin} onChange={setPin} />
+                      </div>
+                    </>
+                  )}
                 </div>
               ) : (
                 <div>
@@ -402,7 +458,7 @@ export const AuthExperience: React.FC = () => {
                   />
                 </div>
               )}
-              {path === 'owner' && (
+              {path !== 'superadmin' && path === 'owner' && (
                 <div>
                   <label className="text-xs font-bold text-slate-600">Or email</label>
                   <input
@@ -414,17 +470,7 @@ export const AuthExperience: React.FC = () => {
                   />
                 </div>
               )}
-              {path === 'superadmin' ? (
-                <div>
-                  <label className="text-xs font-bold text-slate-600">Password</label>
-                  <input
-                    type="password"
-                    value={passwordText}
-                    onChange={(e) => setPasswordText(e.target.value)}
-                    className="mt-1 w-full px-4 py-3.5 rounded-2xl border border-slate-200 text-base focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-              ) : (
+              {path !== 'superadmin' && (
                 <div>
                   <label className="text-xs font-bold text-slate-600 mb-2 block">6-digit PIN</label>
                   <PinPad value={pin} onChange={setPin} />
@@ -432,21 +478,27 @@ export const AuthExperience: React.FC = () => {
               )}
               <button
                 type="button"
-                disabled={loading || (path === 'superadmin' ? !passwordText : pin.length < 6)}
+                disabled={loading || (path === 'superadmin'
+                  ? (adminMode === 'password' ? !passwordText : pin.length < 6)
+                  : pin.length < 6)}
                 onClick={submitLogin}
                 className="w-full py-4 rounded-2xl bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold flex items-center justify-center gap-2"
               >
                 <LogIn className="w-4 h-4" /> {loading ? 'Signing in…' : 'Sign in'}
               </button>
+              {path !== 'superadmin' && (
+                <>
               <p className="text-[11px] text-center text-slate-500">Staff: use the mobile + PIN your owner shared.</p>
               <button type="button" onClick={() => { setAuthModalMode('register'); setStep('signup'); setPin(''); }} className="w-full text-sm text-blue-600 font-semibold">
                 New here? Create account
               </button>
+                </>
+              )}
             </div>
           )}
 
           {/* Step: Signup fields */}
-          {step === 'signup' && (
+          {step === 'signup' && path !== 'superadmin' && (
             <div className="space-y-3">
               <input placeholder="Your name" value={name} onChange={(e) => setName(e.target.value)}
                 className="w-full px-4 py-3.5 rounded-2xl border border-slate-200 text-base focus:ring-2 focus:ring-blue-500 outline-none" />

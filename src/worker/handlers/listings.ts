@@ -1,6 +1,7 @@
 import { Env } from '../types';
 import { addCorsHeaders } from '../utils/cors';
 import { authMiddleware } from '../middleware/auth';
+import { isPlatformAdmin } from '../utils/platformAdmin';
 import { propertyToRow, rowToProperty } from '../utils/propertyMap';
 
 const CITY_GROUPS = [
@@ -69,7 +70,7 @@ export async function listingsHandler(request: Request, env: Env): Promise<Respo
     if (!body?.name || !body.city || !body.locality) {
       return json({ error: 'Name, city and locality are required' }, 400);
     }
-    if (auth.success && !['owner', 'admin'].includes(auth.user!.role)) {
+    if (auth.success && auth.user!.role !== 'owner' && !isPlatformAdmin(auth.user!.role)) {
       return json({ error: 'Only owners can publish listings' }, 403);
     }
     const property = {

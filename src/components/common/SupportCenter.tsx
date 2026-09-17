@@ -57,6 +57,10 @@ export const SupportCenter: React.FC = () => {
               </select>
             </div>
             <div className="mt-3 flex items-center gap-2 text-xs text-slate-500"><CheckCircle2 className="w-4 h-4" /> {ticket.requesterName} · {new Date(ticket.createdAt).toLocaleString()}</div>
+            {ticket.adminNote && <p className="mt-2 text-xs bg-slate-50 rounded-xl p-2">{ticket.adminNote}</p>}
+            {(ticket.messages || []).map((message) => (
+              <p key={message.id} className="mt-2 text-xs bg-indigo-50 rounded-xl p-2"><b>{message.authorName}:</b> {message.body}</p>
+            ))}
           </div>
         ))}
       </div>

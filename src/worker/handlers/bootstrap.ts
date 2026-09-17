@@ -2,6 +2,7 @@ import { Env, User } from '../types';
 import { addCorsHeaders } from '../utils/cors';
 import { hasPermission } from '../middleware/auth';
 import { limitForTable, tablesForRole } from '../utils/bootstrapScope';
+import { isPlatformAdmin } from '../utils/platformAdmin';
 
 const READ_PERMISSIONS: Record<string, string> = {
   organizations: 'staff.view',
@@ -55,7 +56,7 @@ export async function bootstrapHandler(request: Request, env: Env, user: User): 
         let query = `SELECT * FROM ${table}`;
         const params: unknown[] = [];
 
-        if (user.role !== 'admin' && table !== 'system_settings' && table !== 'role_permissions') {
+        if (!isPlatformAdmin(user.role) && table !== 'system_settings' && table !== 'role_permissions') {
           query += ` WHERE organization_id = ?`;
           params.push(organizationId);
         }
@@ -102,7 +103,7 @@ export async function bootstrapHandler(request: Request, env: Env, user: User): 
 
         for (const row of rows) {
           const typedRow = row as Record<string, unknown>;
-          if (user.role !== 'admin' && !typedRow.organization_id) {
+          if (!isPlatformAdmin(user.role) && !typedRow.organization_id) {
             typedRow.organization_id = organizationId;
           }
           const columns = Object.keys(typedRow).join(', ');

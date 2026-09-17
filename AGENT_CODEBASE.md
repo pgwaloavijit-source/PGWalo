@@ -179,6 +179,22 @@ npm run d1:migrate            # apply schema.sql to remote D1
 ## Known gaps
 
 1. **R2** — enable in Cloudflare Dashboard, create bucket, uncomment `wrangler.toml` binding
+
+---
+
+## Admin Console (Super Admin) data flow
+
+`AdminDashboard.tsx` renders live DB rows in production (JWT + `isProductionApiEnabled()`); local state in demo mode.
+
+| Concern | Path |
+|---------|------|
+| Filtered queries (search/date/PG/status/pagination) | `services/adminApi.ts` → `/api/admin/{users,bookings,payments,support-tickets}` → `handlers/admin.ts` → D1 |
+| Durable support tickets | `support_tickets` table (`database/admin-console-migration.sql` → `npm run d1:admin`); replies stored as JSON in `messages` |
+| Mutations | `AppContext` → `patchAdminUserStatus/patchAdminProperty/patchAdminTicket/postAdminTicketReply` (each returns ok; failures logged, not swallowed) |
+| Audit trail | every admin mutation writes `audit_logs` server-side |
+| Tests | `npm run test:admin` — RBAC 403/401, allow-list 400s, PATCH→D1→audit flow (in-memory D1 stub) |
+
+---
 2. **AppContext** — still syncs owner snapshots; bootstrap is role-scoped with row limits
 3. **TypeScript** — pre-existing errors in mockData/types (non-blocking for Vite build)
 

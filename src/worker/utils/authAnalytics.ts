@@ -1,4 +1,5 @@
 import { Env } from '../types';
+import { isPlatformAdmin } from './platformAdmin';
 
 export interface AuthEventPayload {
   sessionId: string;
@@ -37,7 +38,7 @@ export async function logAuthEvent(env: Env, payload: AuthEventPayload): Promise
 }
 
 export async function getAuthAnalytics(env: Env, organizationId: string, role: string) {
-  const isAdmin = role === 'admin';
+    const isAdmin = isPlatformAdmin(role);
   const orgFilter = isAdmin ? '' : 'WHERE organization_id = ?';
   const bind = isAdmin ? [] : [organizationId];
 

@@ -76,7 +76,7 @@ export const Navbar: React.FC<NavbarProps> = ({
     else if (r === 'staff') setCurrentTab('staff');
     else if (r === 'warden') setCurrentTab('warden');
     else if (r === 'accountant') setCurrentTab('accountant');
-    else if (r === 'admin') setCurrentTab('admin');
+    else if (r === 'admin' || r === 'superadmin') setCurrentTab('admin');
     else setCurrentTab('resident');
   };
 
@@ -103,6 +103,8 @@ export const Navbar: React.FC<NavbarProps> = ({
         return 'Accountant';
       case 'admin':
         return 'Admin';
+      case 'superadmin':
+        return 'Super Admin';
       default:
         return 'User';
     }

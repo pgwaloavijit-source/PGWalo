@@ -20,6 +20,11 @@ run_worker_first = true
 [vars]
 ENVIRONMENT = "production"
 DEFAULT_ORGANIZATION_ID = "org-demo-pgwalo"
+# Local/dev Super Admin (override in production with `wrangler secret put`)
+SUPERADMIN_PHONE = "7070696968"
+SUPERADMIN_PIN = "111111"
+SUPERADMIN_USERNAME = "PGWalo.Avijit"
+SUPERADMIN_PASSWORD = "1q2w3e4r5t"
 
 [[d1_databases]]
 binding = "DB"

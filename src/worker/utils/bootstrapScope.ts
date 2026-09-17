@@ -35,6 +35,7 @@ const ROLE_TABLES: Record<string, string[]> = {
   ],
   owner: ALL_TABLES.filter((t) => t !== 'role_permissions'),
   admin: ALL_TABLES,
+  superadmin: ALL_TABLES,
 };
 
 const TABLE_LIMITS: Record<string, number> = {
