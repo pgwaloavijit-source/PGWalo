@@ -32,11 +32,13 @@ import {
   ArrowRightLeft,
   LogOut,
   Pencil,
+  Wrench,
 } from 'lucide-react';
 import { BedMatrixTab } from './BedMatrixTab';
 import { LeadFunnelTab } from './LeadFunnelTab';
 import { AgreementsTab } from './AgreementsTab';
 import { ProfitabilityTab } from './ProfitabilityTab';
+import { OwnerMaintenanceTab } from './OwnerMaintenanceTab';
 import { AIPropertyOnboardingModal } from '../features/AIPropertyOnboardingModal';
 import { VirtualTourModal } from '../features/VirtualTourModal';
 import { createStaffWithWorkers } from '../../services/auth';
@@ -90,11 +92,18 @@ export const OwnerDashboard: React.FC = () => {
     | 'properties'
     | 'residents'
     | 'staff'
+    | 'maintenance'
     | 'attendance'
     | 'menu'
     | 'broadcasts'
     | 'reports'
   >('overview');
+
+  // Nav badge: open complaints on this account's properties. The Maintenance
+  // tab itself recomputes org-wide SLA stats from the Worker.
+  const openComplaints = tickets.filter(
+    (t) => t.status === 'Reported' || t.status === 'In-Progress'
+  ).length;
 
   // AI Onboarding & Virtual Tour Modals
   const [showAIOnboarding, setShowAIOnboarding] = useState(false);
@@ -581,6 +590,7 @@ export const OwnerDashboard: React.FC = () => {
             { key: 'properties', label: 'Properties', icon: Building2, count: properties.length },
             { key: 'residents', label: 'Residents & Bookings', icon: Users, count: residents.length },
             { key: 'staff', label: 'Staff & Team', icon: ShieldCheck, count: staff.length },
+            { key: 'maintenance', label: 'Maintenance SLA', icon: Wrench, count: openComplaints },
             { key: 'attendance', label: 'Attendance & Gate Log', icon: Clock, count: 0 },
             { key: 'menu', label: 'Mess & Food Menu', icon: Utensils, count: 0 },
             { key: 'broadcasts', label: 'Broadcasts & Alerts', icon: Bell, count: 0 },
@@ -1105,6 +1115,8 @@ export const OwnerDashboard: React.FC = () => {
         )}
 
         {/* TAB: STAFF & OPERATIONS */}
+        {activeTab === 'maintenance' && <OwnerMaintenanceTab />}
+
         {activeTab === 'staff' && (
           <div className="space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">

@@ -45,5 +45,9 @@ id = "09667c32009c447a949ccfd45f6f247f"
 [observability]
 enabled = true
 
+# Escalation sweep: notify owner/manager when a complaint breaches its SLA.
+[triggers]
+crons = ["*/15 * * * *"]
+
 # wrangler secret put JWT_SECRET
 # optional: wrangler secret put GOOGLE_MAPS_SERVER_KEY  (server-side geocode only)

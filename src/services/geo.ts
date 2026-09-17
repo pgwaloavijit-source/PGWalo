@@ -1,3 +1,4 @@
+import { apiUrl as sharedApiUrl } from './apiBase';
 import { isProductionApiEnabled } from './productionApi';
 
 export interface GeoPlace {
@@ -9,10 +10,7 @@ export interface GeoPlace {
   address?: string;
 }
 
-const apiUrl = (path: string) => {
-  const base = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, '') ?? '';
-  return `${base}${path}`;
-};
+const apiUrl = (path: string) => sharedApiUrl(path);
 
 export async function searchPlaces(query: string): Promise<GeoPlace[]> {
   const q = query.trim();

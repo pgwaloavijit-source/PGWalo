@@ -13,7 +13,7 @@
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
 
-    <meta name="theme-color" content="#2563EB" />
+    <meta name="theme-color" content="#020617" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -21,9 +21,258 @@
     <meta name="format-detection" content="telephone=no" />
     <link rel="apple-touch-icon" href="/pgwalo-logo.png" />
     <link rel="icon" type="image/png" href="/pgwalo-logo.png" />
+
+    <!-- Inline splash styles: must paint before Tailwind/JS loads. -->
+    <style>
+      html {
+        background: #020617;
+      }
+      #pgwalo-boot {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        background: #020617;
+        color: #fff;
+        font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        transition: opacity 0.45s ease;
+      }
+      #pgwalo-boot.is-done {
+        opacity: 0;
+        pointer-events: none;
+      }
+      #pgwalo-boot .glow {
+        position: absolute;
+        left: 50%;
+        top: 38%;
+        width: 420px;
+        height: 420px;
+        margin: -210px 0 0 -210px;
+        border-radius: 9999px;
+        background: rgba(37, 99, 235, 0.25);
+        filter: blur(64px);
+        animation: pgwalo-breathe 2.4s ease-in-out infinite;
+      }
+      #pgwalo-boot .wrap {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        width: min(320px, 82vw);
+      }
+      #pgwalo-boot .mark {
+        position: relative;
+        display: grid;
+        place-items: center;
+        width: 112px;
+        height: 112px;
+        margin-bottom: 26px;
+        animation: pgwalo-rise 3s ease-in-out infinite;
+      }
+      #pgwalo-boot .mark svg {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        animation: pgwalo-orbit 2.6s linear infinite;
+      }
+      #pgwalo-boot .mark .dash {
+        animation: pgwalo-dash 2.2s ease-in-out infinite;
+      }
+      #pgwalo-boot .badge {
+        display: grid;
+        place-items: center;
+        width: 64px;
+        height: 64px;
+        border-radius: 18px;
+        background: #fff;
+        box-shadow: 0 18px 40px rgba(30, 64, 175, 0.45);
+      }
+      #pgwalo-boot .badge img {
+        width: 44px;
+        height: 44px;
+        object-fit: contain;
+      }
+      #pgwalo-boot .eyebrow {
+        margin: 0;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.42em;
+        text-transform: uppercase;
+        color: #93c5fd;
+      }
+      #pgwalo-boot h1 {
+        margin: 8px 0 0;
+        font-size: 22px;
+        font-weight: 900;
+        letter-spacing: -0.01em;
+        text-align: center;
+      }
+      #pgwalo-boot .brandline {
+        margin: 26px 0 0;
+        font-size: 13px;
+        font-weight: 900;
+        letter-spacing: 0.3em;
+        text-transform: uppercase;
+        color: rgba(255, 255, 255, 0.9);
+      }
+      #pgwalo-boot .track {
+        position: relative;
+        width: 100%;
+        height: 10px;
+        margin-top: 12px;
+        border-radius: 9999px;
+        background: rgba(255, 255, 255, 0.1);
+        overflow: hidden;
+      }
+      #pgwalo-boot .bar {
+        position: relative;
+        height: 100%;
+        width: 6%;
+        border-radius: 9999px;
+        background: linear-gradient(90deg, #60a5fa, #2563eb, #6366f1);
+        transition: width 0.3s ease-out;
+      }
+      #pgwalo-boot .bar span {
+        position: absolute;
+        inset: 0 auto 0 0;
+        width: 33%;
+        border-radius: 9999px;
+        background: rgba(255, 255, 255, 0.45);
+        filter: blur(2px);
+        animation: pgwalo-shimmer 1.6s ease-in-out infinite;
+      }
+      #pgwalo-boot .meta {
+        display: flex;
+        justify-content: space-between;
+        width: 100%;
+        margin-top: 12px;
+        font-size: 11px;
+        font-weight: 600;
+        color: #94a3b8;
+      }
+      #pgwalo-boot .dots {
+        display: flex;
+        gap: 6px;
+        margin-top: 20px;
+      }
+      #pgwalo-boot .dots i {
+        width: 6px;
+        height: 6px;
+        border-radius: 9999px;
+        background: #93c5fd;
+        animation: pgwalo-dot 1.4s ease-in-out infinite;
+      }
+      @keyframes pgwalo-orbit { to { transform: rotate(360deg); } }
+      @keyframes pgwalo-dash {
+        0% { stroke-dashoffset: 168; }
+        50% { stroke-dashoffset: 42; }
+        100% { stroke-dashoffset: 168; }
+      }
+      @keyframes pgwalo-breathe {
+        0%, 100% { transform: scale(1); opacity: 0.55; }
+        50% { transform: scale(1.12); opacity: 0.95; }
+      }
+      @keyframes pgwalo-shimmer {
+        0% { transform: translateX(-120%); }
+        100% { transform: translateX(320%); }
+      }
+      @keyframes pgwalo-rise {
+        0%, 100% { transform: translateY(0); }
+        50% { transform: translateY(-6px); }
+      }
+      @keyframes pgwalo-dot {
+        0%, 100% { opacity: 0.25; transform: translateY(0); }
+        50% { opacity: 1; transform: translateY(-4px); }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #pgwalo-boot * { animation: none !important; }
+      }
+    </style>
   </head>
   <body class="native-shell bg-slate-50 text-slate-900 antialiased selection:bg-blue-600 selection:text-white">
     <div id="root"></div>
+
+    <!-- Branded boot splash: removed by main.tsx once React has mounted. -->
+    <div id="pgwalo-boot" role="status" aria-live="polite">
+      <div class="glow"></div>
+      <div class="wrap">
+        <div class="mark">
+          <svg viewBox="0 0 100 100" aria-hidden="true">
+            <defs>
+              <linearGradient id="pgwalo-boot-ring" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0%" stop-color="#60a5fa" />
+                <stop offset="50%" stop-color="#2563eb" />
+                <stop offset="100%" stop-color="#a855f7" />
+              </linearGradient>
+            </defs>
+            <circle cx="50" cy="50" r="44" fill="none" stroke="#1e293b" stroke-width="6" />
+            <circle
+              class="dash"
+              cx="50"
+              cy="50"
+              r="44"
+              fill="none"
+              stroke="url(#pgwalo-boot-ring)"
+              stroke-width="6"
+              stroke-linecap="round"
+              stroke-dasharray="168 108"
+            />
+          </svg>
+          <div class="badge"><img src="/pgwalo-logo.png" alt="" /></div>
+        </div>
+
+        <p class="eyebrow">PGWalo</p>
+        <h1>Your Home Away From Home</h1>
+
+        <p class="brandline">PG Walo</p>
+        <div class="track"><div class="bar" id="pgwalo-boot-bar"><span></span></div></div>
+        <div class="meta">
+          <span id="pgwalo-boot-status">Starting up</span>
+          <span id="pgwalo-boot-pct">6%</span>
+        </div>
+        <div class="dots"><i></i><i style="animation-delay:.16s"></i><i style="animation-delay:.32s"></i></div>
+      </div>
+    </div>
+
+    <script>
+      // Ramp the splash bar while the bundle parses, then let main.tsx remove it.
+      (function () {
+        var progress = 6;
+        var bar = document.getElementById('pgwalo-boot-bar');
+        var pct = document.getElementById('pgwalo-boot-pct');
+        var status = document.getElementById('pgwalo-boot-status');
+        var timer = window.setInterval(function () {
+          if (progress >= 92) return;
+          progress = Math.min(92, progress + Math.max(0.6, (92 - progress) * 0.07));
+          if (bar) bar.style.width = progress + '%';
+          if (pct) pct.textContent = Math.round(progress) + '%';
+          if (status && progress > 40) status.textContent = 'Loading PGWalo';
+        }, 180);
+
+        window.__pgwaloFinishBoot = function () {
+          window.clearInterval(timer);
+          var boot = document.getElementById('pgwalo-boot');
+          if (!boot) return;
+          if (bar) bar.style.width = '100%';
+          if (pct) pct.textContent = '100%';
+          if (status) status.textContent = 'Ready';
+          boot.classList.add('is-done');
+          window.setTimeout(function () {
+            if (boot.parentNode) boot.parentNode.removeChild(boot);
+          }, 500);
+        };
+
+        // Safety net: never let the splash trap the user.
+        window.setTimeout(function () {
+          if (document.getElementById('pgwalo-boot')) window.__pgwaloFinishBoot();
+        }, 8000);
+      })();
+    </script>
+
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

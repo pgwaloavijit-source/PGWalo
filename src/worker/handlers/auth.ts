@@ -314,6 +314,7 @@ export async function authHandler(request: Request, env: Env): Promise<Response>
         role,
         organizationId: user.organization_id || env.DEFAULT_ORGANIZATION_ID,
         name: user.name,
+        email: user.email,
       }, env.JWT_SECRET || 'default-secret');
 
       await track({
@@ -405,6 +406,7 @@ export async function authHandler(request: Request, env: Env): Promise<Response>
         role,
         organizationId,
         name: body.name.trim(),
+        email,
       }, env.JWT_SECRET || 'default-secret');
 
       await track({ ...trackBase, eventType: 'register_success', userId, organizationId, role }, env);
@@ -568,6 +570,7 @@ export async function authHandler(request: Request, env: Env): Promise<Response>
         role: nextRole,
         organizationId: current.organization_id || env.DEFAULT_ORGANIZATION_ID,
         name: current.name,
+        email: current.email,
       }, env.JWT_SECRET || 'default-secret');
 
       return json({
@@ -625,6 +628,8 @@ export async function authHandler(request: Request, env: Env): Promise<Response>
       const staffId = `staff-${Date.now()}`;
       const passwordHash = await hashPassword(body.pin);
       const orgId = authResult.user!.organizationId || env.DEFAULT_ORGANIZATION_ID;
+      // Staff must belong to the owner's organisation, otherwise the owner's
+      // bootstrap can never return the row (it filters on organization_id).
       if (!body.propertyId) {
         return json({ success: false, error: 'Assign this staff member to a listed PG' }, 400);
       }

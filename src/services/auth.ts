@@ -1,3 +1,4 @@
+import { apiUrl as sharedApiUrl } from './apiBase';
 import { setAuthToken, clearAuthToken, getAuthToken, isProductionApiEnabled } from './productionApi';
 import { getAuthSessionId, AuthOpenMeta } from './authAnalytics';
 import { UserRole } from '../types';
@@ -25,10 +26,7 @@ export interface AuthResponse {
   userId?: string;
 }
 
-const apiUrl = (path: string) => {
-  const base = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, '') ?? '';
-  return `${base}${path}`;
-};
+const apiUrl = (path: string) => sharedApiUrl(path);
 
 const trackingPayload = (meta?: AuthOpenMeta) => ({
   sessionId: getAuthSessionId(),

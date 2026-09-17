@@ -46,9 +46,15 @@ export const Navbar: React.FC<NavbarProps> = ({
     setRole,
     currentUser,
     broadcasts,
+    markNotificationsRead,
     openAuthModal,
     logout,
   } = useApp();
+
+  // Personal notices (complaint status changes etc.) carry a recipient id.
+  const isPersonal = (b: (typeof broadcasts)[number]) =>
+    Boolean((b as unknown as { recipientId?: string }).recipientId);
+  const unreadCount = broadcasts.filter((b) => !b.read).length;
 
   const [internalShowNotifications, setInternalShowNotifications] = useState(false);
   const [internalMobileMenuOpen, setInternalMobileMenuOpen] = useState(false);
@@ -220,7 +226,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                    - Mobile hamburger toggle
                 */
                 <>
-                  <div className="relative" ref={accountMenuRef}>
+                  <div className="relative hidden md:block" ref={accountMenuRef}>
                     <button
                       id="nav-user-profile-btn"
                       onClick={() => setAccountMenuOpen((open) => !open)}
@@ -293,12 +299,14 @@ export const Navbar: React.FC<NavbarProps> = ({
                     <button
                       id="notifications-toggle-btn"
                       onClick={() => setShowNotifications(!showNotifications)}
-                      className="relative p-2 rounded-xl text-slate-600 hover:text-blue-600 hover:bg-blue-50 border border-slate-200 transition min-w-[40px] min-h-[40px] flex items-center justify-center"
+                      className="relative hidden md:flex p-2 rounded-xl text-slate-600 hover:text-blue-600 hover:bg-blue-50 border border-slate-200 transition min-w-[40px] min-h-[40px] items-center justify-center"
                       aria-label="View notifications"
                     >
                       <Bell className="w-4 h-4" />
-                      {broadcasts.length > 0 && (
-                        <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-blue-600 rounded-full ring-2 ring-white animate-pulse" />
+                      {unreadCount > 0 && (
+                        <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 bg-red-500 text-white text-[10px] font-bold rounded-full ring-2 ring-white flex items-center justify-center animate-pulse">
+                          {unreadCount > 9 ? '9+' : unreadCount}
+                        </span>
                       )}
                     </button>
 
@@ -311,9 +319,14 @@ export const Navbar: React.FC<NavbarProps> = ({
                             <span className="text-xs font-bold text-slate-900">Notifications & Alerts</span>
                           </div>
                           <div className="flex items-center gap-2">
-                            <span className="text-[11px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-bold">
-                              {broadcasts.length} notices
-                            </span>
+                            {unreadCount > 0 && (
+                              <button
+                                onClick={() => markNotificationsRead()}
+                                className="text-[11px] text-blue-600 hover:text-blue-800 font-bold"
+                              >
+                                Mark all read
+                              </button>
+                            )}
                             <button
                               onClick={() => setShowNotifications(false)}
                               className="p-1 rounded-lg hover:bg-slate-100 text-slate-400 sm:hidden"
@@ -323,20 +336,33 @@ export const Navbar: React.FC<NavbarProps> = ({
                           </div>
                         </div>
                         <div className="max-h-72 overflow-y-auto space-y-2 mt-2 divide-y divide-slate-100">
-                          {broadcasts.slice(0, 6).map((b) => (
-                            <div key={b.id} className="pt-2 px-1 text-xs">
+                          {broadcasts.length === 0 && (
+                            <p className="text-[11px] text-slate-400 text-center py-6">
+                              No notifications yet.
+                            </p>
+                          )}
+                          {broadcasts.slice(0, 8).map((b) => (
+                            <div
+                              key={b.id}
+                              className={`pt-2 px-1 text-xs ${!b.read ? 'bg-blue-50/60 rounded-lg' : ''}`}
+                            >
                               <div className="flex items-center justify-between gap-1 mb-1">
-                                <span
-                                  className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                                    b.category === 'Rent'
-                                      ? 'bg-amber-100 text-amber-800'
-                                      : b.category === 'Food'
-                                      ? 'bg-emerald-100 text-emerald-800'
-                                      : 'bg-blue-100 text-blue-800'
-                                  }`}
-                                >
-                                  {b.category}
-                                </span>
+                                <div className="flex items-center gap-1.5">
+                                  <span
+                                    className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                                      isPersonal(b)
+                                        ? 'bg-purple-100 text-purple-800'
+                                        : b.category === 'Rent'
+                                        ? 'bg-amber-100 text-amber-800'
+                                        : b.category === 'Food'
+                                        ? 'bg-emerald-100 text-emerald-800'
+                                        : 'bg-blue-100 text-blue-800'
+                                    }`}
+                                  >
+                                    {isPersonal(b) ? 'Update' : b.category}
+                                  </span>
+                                  {!b.read && <span className="w-1.5 h-1.5 bg-blue-600 rounded-full" />}
+                                </div>
                                 <span className="text-[10px] text-slate-400">{b.timestamp}</span>
                               </div>
                               <p className="font-semibold text-slate-900">{b.title}</p>
@@ -350,11 +376,11 @@ export const Navbar: React.FC<NavbarProps> = ({
                     )}
                   </div>
 
-                  {/* Logout Button */}
+                  {/* Logout Button (desktop — mobile keeps it in the drawer) */}
                   <button
                     id="nav-logout-btn"
                     onClick={handleLogout}
-                    className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-rose-50 text-slate-700 hover:text-rose-600 text-xs font-bold transition flex items-center gap-1.5 border border-slate-200 hover:border-rose-200 min-h-[40px] active:scale-98"
+                    className="hidden md:flex px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-rose-50 text-slate-700 hover:text-rose-600 text-xs font-bold transition items-center gap-1.5 border border-slate-200 hover:border-rose-200 min-h-[40px] active:scale-98"
                     title={currentUser?.isDemo ? "Exit Demo Mode" : "Logout of your account"}
                   >
                     <LogOut className="w-3.5 h-3.5" />
@@ -522,6 +548,28 @@ export const Navbar: React.FC<NavbarProps> = ({
                     >
                       <span>Go to My Dashboard</span>
                       <ChevronRight className="w-4 h-4" />
+                    </button>
+
+                    {/* Notifications live in the drawer on mobile — the header
+                        bell is desktop-only to keep the mobile bar clean. */}
+                    <button
+                      onClick={() => {
+                        setMobileMenuOpen(false);
+                        setShowNotifications(true);
+                      }}
+                      className="w-full flex items-center justify-between p-3 rounded-xl hover:bg-slate-50 text-slate-700 font-medium text-xs min-h-[44px]"
+                    >
+                      <span className="flex items-center gap-2">
+                        <Bell className="w-4 h-4 text-blue-600" />
+                        Notifications
+                      </span>
+                      {unreadCount > 0 ? (
+                        <span className="min-w-[20px] h-5 px-1.5 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
+                          {unreadCount > 9 ? '9+' : unreadCount}
+                        </span>
+                      ) : (
+                        <ChevronRight className="w-4 h-4 text-slate-400" />
+                      )}
                     </button>
 
                     <button

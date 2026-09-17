@@ -1,10 +1,8 @@
+import { apiUrl as sharedApiUrl } from './apiBase';
 import { BookingRequest } from '../types';
 import { getAuthToken, isProductionApiEnabled } from './productionApi';
 
-const apiUrl = (path: string) => {
-  const base = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, '') ?? '';
-  return `${base}${path}`;
-};
+const apiUrl = (path: string) => sharedApiUrl(path);
 
 function authHeaders() {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };

@@ -2,6 +2,7 @@ import { Env, User } from '../types';
 import { addCorsHeaders } from '../utils/cors';
 import { authMiddleware } from '../middleware/auth';
 import { isPlatformAdmin } from '../utils/platformAdmin';
+import { rowToBookingRequest, rowToPayment, rowToSupportTicket, rowToUserAccount } from '../utils/rowMap';
 
 function json(data: unknown, status = 200) {
   return addCorsHeaders(new Response(JSON.stringify(data), {
@@ -15,6 +16,42 @@ async function requireAdmin(request: Request, env: Env): Promise<{ user: User } 
   if (!auth.success || !auth.user) return json({ error: auth.error || 'Authentication required' }, 401);
   if (!isPlatformAdmin(auth.user.role)) return json({ error: 'Forbidden' }, 403);
   return { user: auth.user };
+}
+
+/**
+ * Deliver an in-app notification to the person who raised a support ticket.
+ * Without this a status change only existed in the admin's own browser tab —
+ * the requester was never told anything.
+ */
+async function notifyTicketRequester(
+  env: Env,
+  ticketId: string,
+  title: string,
+  message: string
+) {
+  try {
+    const ticket = await env.DB.prepare(
+      'SELECT requester_id, title FROM support_tickets WHERE id = ?'
+    ).bind(ticketId).first<{ requester_id: string | null; title: string | null }>();
+    if (!ticket?.requester_id) return;
+
+    await env.DB.prepare(`
+      INSERT INTO broadcast_notifications
+        (id, title, message, category, target, timestamp, sender, read, created_at, recipient_id)
+      VALUES (?, ?, ?, 'Event', 'All Residents', ?, 'PGWalo Support', 0, ?, ?)
+    `).bind(
+      `bc-ticket-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      title,
+      message,
+      new Date().toISOString(),
+      new Date().toISOString(),
+      ticket.requester_id
+    ).run();
+  } catch (error) {
+    // The notification column/table may predate this deploy — never fail the
+    // ticket mutation because of it.
+    console.error('ticket notification', error);
+  }
 }
 
 async function writeAudit(env: Env, user: User, action: string, entity: string, entityId: string, details: string) {
@@ -54,56 +91,6 @@ const parseIntParam = (value: string | null, fallback: number, max: number) => {
 };
 
 // ---------- Support ticket <-> client shape ----------
-
-interface TicketRow extends Record<string, unknown> {
-  id: string;
-  organization_id?: string | null;
-  requester_id: string;
-  requester_name: string;
-  requester_role: string;
-  type?: string | null;
-  title: string;
-  description?: string | null;
-  image_url?: string | null;
-  status?: string | null;
-  admin_note?: string | null;
-  assigned_to?: string | null;
-  property_id?: string | null;
-  booking_id?: string | null;
-  messages?: string | null;
-  created_at?: string | null;
-  updated_at?: string | null;
-}
-
-function rowToTicket(row: TicketRow) {
-  let messages: unknown = [];
-  if (row.messages) {
-    try {
-      messages = JSON.parse(row.messages);
-    } catch {
-      messages = [];
-    }
-  }
-  return {
-    id: String(row.id),
-    organizationId: row.organization_id || undefined,
-    requesterId: String(row.requester_id || ''),
-    requesterName: String(row.requester_name || ''),
-    requesterRole: row.requester_role || 'public',
-    type: row.type || 'General',
-    title: String(row.title || ''),
-    description: row.description || '',
-    imageUrl: row.image_url || undefined,
-    status: row.status || 'Raised',
-    adminNote: row.admin_note || undefined,
-    assignedTo: row.assigned_to || undefined,
-    propertyId: row.property_id || undefined,
-    bookingId: row.booking_id || undefined,
-    messages: Array.isArray(messages) ? messages : [],
-    createdAt: row.created_at || '',
-    updatedAt: row.updated_at || '',
-  };
-}
 
 function ensureSupportTicketsTable(env: Env) {
   return env.DB.prepare(`
@@ -198,7 +185,7 @@ export async function adminHandler(request: Request, env: Env): Promise<Response
         LIMIT ? OFFSET ?
       `).bind(...params, pageSize, offset).all();
       return json({
-        users: results || [],
+        users: (results || []).map((row) => rowToUserAccount(row as Record<string, unknown>)),
         page,
         pageSize,
         total,
@@ -267,7 +254,14 @@ export async function adminHandler(request: Request, env: Env): Promise<Response
         ORDER BY created_at DESC
         LIMIT ? OFFSET ?
       `).bind(...params, pageSize, offset).all();
-      return json({ bookings: results || [], page, pageSize, total, totalPages: Math.max(1, Math.ceil(total / pageSize)) });
+      // The console reads camelCase (applicantName, propertyName, requestDate…).
+      return json({
+        bookings: (results || []).map((row) => rowToBookingRequest(row as Record<string, unknown>)),
+        page,
+        pageSize,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / pageSize)),
+      });
     } catch (error) {
       console.error('admin bookings', error);
       return json({ bookings: [], page: 1, pageSize, total: 0, totalPages: 1 }, 500);
@@ -328,7 +322,7 @@ export async function adminHandler(request: Request, env: Env): Promise<Response
         LIMIT ? OFFSET ?
       `).bind(...params, pageSize, offset).all();
       return json({
-        payments: results || [], page, pageSize, total,
+        payments: (results || []).map((row) => rowToPayment(row as Record<string, unknown>)), page, pageSize, total,
         totalPages: Math.max(1, Math.ceil(total / pageSize)),
         stats: { transactions: txns, revenue, pending, failed },
       });
@@ -361,7 +355,7 @@ export async function adminHandler(request: Request, env: Env): Promise<Response
         ORDER BY created_at DESC
         LIMIT 300
       `).bind(...params).all();
-      return json((results || []).map((row) => rowToTicket(row as TicketRow)));
+      return json((results || []).map((row) => rowToSupportTicket(row as Record<string, unknown>)));
     } catch (error) {
       console.error('admin support tickets', error);
       return json([]);
@@ -394,6 +388,14 @@ export async function adminHandler(request: Request, env: Env): Promise<Response
         return json({ error: 'Could not update ticket' }, 500);
       }
       await writeAudit(env, user, 'Ticket updated', 'Ticket', ticketId, `${body.status || ''} ${body.assignedTo || ''}`.trim());
+      if (body.status) {
+        await notifyTicketRequester(
+          env,
+          ticketId,
+          'Support ticket updated',
+          `Your ticket status is now "${body.status}".${body.adminNote ? ` Note: ${body.adminNote}` : ''}`
+        );
+      }
       return json({ ok: true });
     }
 
@@ -431,6 +433,12 @@ export async function adminHandler(request: Request, env: Env): Promise<Response
         return json({ error: 'Could not save reply' }, 500);
       }
       await writeAudit(env, user, 'Ticket reply added', 'Ticket', ticketId, text.slice(0, 120));
+      await notifyTicketRequester(
+        env,
+        ticketId,
+        'New reply on your support ticket',
+        text.slice(0, 180)
+      );
       return json({ ok: true });
     }
   }

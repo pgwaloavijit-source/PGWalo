@@ -18,7 +18,8 @@ import { normalizeListingPhoto } from '../../utils/photoEnhance';
 import { uploadListingPhoto } from '../../services/media';
 import { searchPlaces } from '../../services/geo';
 import { useApp } from '../../context/AppContext';
-import { cachedPinLocations, lookupIndianPincode } from '../../utils/indiaLocations';
+import { cachedPinLocations } from '../../utils/indiaLocations';
+import { PincodeInput } from '../common/PincodeInput';
 import { AMENITIES } from '../../utils/amenities';
 import {
   OwnerListingData,
@@ -75,7 +76,6 @@ const OwnerListingWizard: React.FC<OwnerListingWizardProps> = ({ onComplete, onC
   const { currentUser, properties } = useApp();
   const [step, setStep] = useState(1);
   const [publishing, setPublishing] = useState(false);
-  const [pinLookupStatus, setPinLookupStatus] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const [step1, setStep1] = useState<OwnerListingStep1>(initialData?.step1 || getEmptyStep1());
@@ -104,37 +104,7 @@ const OwnerListingWizard: React.FC<OwnerListingWizardProps> = ({ onComplete, onC
     new Set([...DEFAULT_STATES, ...cachedPinLocations().map((p) => p.state), ...properties.map((p) => p.state || '')].filter(Boolean))
   ).sort();
 
-  useEffect(() => {
-    const pin = step1.pincode.replace(/\D/g, '').slice(0, 6);
-    if (pin !== step1.pincode) {
-      setStep1((prev) => ({ ...prev, pincode: pin, locality: pin }));
-      return;
-    }
-    if (pin.length !== 6) {
-      setPinLookupStatus('');
-      return;
-    }
-    let cancelled = false;
-    setPinLookupStatus('Checking PIN...');
-    lookupIndianPincode(pin).then((location) => {
-      if (cancelled) return;
-      if (!location) {
-        setPinLookupStatus('PIN not found. Select city and state manually.');
-        return;
-      }
-      setStep1((prev) => ({
-        ...prev,
-        city: location.city || prev.city,
-        state: location.state || prev.state,
-        country: location.country || prev.country || 'India',
-        locality: location.pincode,
-      }));
-      setPinLookupStatus(`${location.city}, ${location.state}, ${location.country} selected`);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [step1.pincode]);
+  // Pincode → city/state autofill now lives inside <PincodeInput />.
 
   useEffect(() => {
     const prevBody = document.body.style.overflow;
@@ -379,19 +349,21 @@ const OwnerListingWizard: React.FC<OwnerListingWizardProps> = ({ onComplete, onC
                     />
                   </Field>
                   <div className="grid grid-cols-2 gap-3">
-                    <Field label="Pincode" required>
-                      <input
-                        value={step1.pincode}
-                        onChange={(e) => {
-                          const pin = e.target.value.replace(/\D/g, '').slice(0, 6);
-                          setStep1({ ...step1, pincode: pin, locality: pin });
-                        }}
-                        placeholder="201301"
-                        inputMode="numeric"
-                        className={inputClass}
-                      />
-                      {pinLookupStatus && <p className="mt-1 text-[10px] font-semibold text-blue-700">{pinLookupStatus}</p>}
-                    </Field>
+                    <PincodeInput
+                      label="Pincode"
+                      required
+                      value={step1.pincode}
+                      onPincodeChange={(pin) => setStep1({ ...step1, pincode: pin, locality: pin })}
+                      onResolved={({ city, state, country }) => {
+                        setStep1((prev) => ({
+                          ...prev,
+                          city: city || prev.city,
+                          state: state || prev.state,
+                          country: country || prev.country || 'India',
+                        }));
+                      }}
+                      className=""
+                    />
                     <Field label="City" required>
                       <select
                         value={step1.city}

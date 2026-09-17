@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { Suspense, lazy, useEffect, useState } from 'react';
 import { AppProvider, useApp } from './context/AppContext';
 import { Navbar } from './components/common/Navbar';
 import { Footer } from './components/common/Footer';
@@ -9,19 +9,24 @@ import { SearchPage } from './components/public/SearchPage';
 import { PGDetailModal } from './components/public/PGDetailModal';
 import { AuthExperience } from './components/auth/AuthExperience';
 import { ProfileCompletionModal } from './components/auth/ProfileCompletionModal';
-import { AccountDetailsPage } from './components/auth/AccountDetailsPage';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { PWAMobileShell } from './components/common/PWAMobileShell';
-import { OwnerDashboard } from './components/owner/OwnerDashboard';
-import { ResidentDashboard } from './components/resident/ResidentDashboard';
-import { StaffDashboard } from './components/staff/StaffDashboard';
-import { AdminDashboard } from './components/admin/AdminDashboard';
-import { WardenDashboard } from './components/warden/WardenDashboard';
-import { AccountantDashboard } from './components/accountant/AccountantDashboard';
-import { SupportCenter } from './components/common/SupportCenter';
+
+// Role dashboards are only reachable after sign-in, so they are split out of
+// the public first-paint bundle. Each loads on demand behind the branded loader.
+const AccountDetailsPage = lazy(() => import('./components/auth/AccountDetailsPage').then((m) => ({ default: m.AccountDetailsPage })));
+const OwnerDashboard = lazy(() => import('./components/owner/OwnerDashboard').then((m) => ({ default: m.OwnerDashboard })));
+const ResidentDashboard = lazy(() => import('./components/resident/ResidentDashboard').then((m) => ({ default: m.ResidentDashboard })));
+const StaffDashboard = lazy(() => import('./components/staff/StaffDashboard').then((m) => ({ default: m.StaffDashboard })));
+const AdminDashboard = lazy(() => import('./components/admin/AdminDashboard').then((m) => ({ default: m.AdminDashboard })));
+const WardenDashboard = lazy(() => import('./components/warden/WardenDashboard').then((m) => ({ default: m.WardenDashboard })));
+const AccountantDashboard = lazy(() => import('./components/accountant/AccountantDashboard').then((m) => ({ default: m.AccountantDashboard })));
+const SupportCenter = lazy(() => import('./components/common/SupportCenter').then((m) => ({ default: m.SupportCenter })));
+import { PGWaloLoader } from './components/common/PGWaloLoader';
 import { PublicSearchCriteria } from './types';
 import { useStandalonePWA } from './hooks/useStandalonePWA';
 import { isPlatformAdmin } from './utils/platformAdmin';
+import { getAuthToken, isProductionApiEnabled } from './services/productionApi';
 
 const MainAppContent: React.FC = () => {
   const {
@@ -36,6 +41,7 @@ const MainAppContent: React.FC = () => {
     shellIntent,
     clearShellIntent,
     broadcasts,
+    productionHydrated,
   } = useApp();
   const isStandalone = useStandalonePWA();
 
@@ -48,6 +54,9 @@ const MainAppContent: React.FC = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
   const [showNotifications, setShowNotifications] = useState<boolean>(false);
   const [searchParams, setSearchParams] = useState<PublicSearchCriteria>({});
+  // Only a signed-in session has a snapshot worth waiting for; anonymous
+  // visitors go straight to the landing page. Decided once, at mount.
+  const [awaitingSnapshot] = useState<boolean>(() => isProductionApiEnabled() && Boolean(getAuthToken()));
 
   useEffect(() => {
     const applyAdminHash = () => {
@@ -128,7 +137,7 @@ const MainAppContent: React.FC = () => {
   const showPublicFooter = !isDashboardView || currentTab === 'landing' || currentTab === 'search';
 
   const appContent = (
-    <>
+    <Suspense fallback={<PGWaloLoader done={false} message="Loading this section" />}>
         {isPlatformAdminSession || wantsAdminRoute ? (
           <AdminDashboard />
         ) : currentUser?.role === 'staff' && currentTab !== 'profile' ? (
@@ -154,7 +163,7 @@ const MainAppContent: React.FC = () => {
         ) : (
           <LandingPage onExploreClick={handleExploreWithParams} onSelectPG={handleSelectPG} />
         )}
-    </>
+    </Suspense>
   );
 
   return (
@@ -163,6 +172,7 @@ const MainAppContent: React.FC = () => {
         isStandalone ? 'standalone-shell' : ''
       }`}
     >
+      {awaitingSnapshot && <PGWaloLoader done={productionHydrated} message="Loading your PGWalo workspace" />}
       <OfflineIndicator />
       {isPlatformAdminSession ? (
         <main className="flex-1">{appContent}</main>

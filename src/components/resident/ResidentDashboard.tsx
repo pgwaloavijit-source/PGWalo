@@ -31,9 +31,11 @@ import {
   ExternalLink,
   FileText,
   LogOut,
+  ImagePlus,
 } from 'lucide-react';
 import { downloadInvoicePdf, downloadReceiptPdf } from '../../utils/pdfDocuments';
 import { DigitalAgreementModal } from '../features/DigitalAgreementModal';
+import { uploadComplaintPhoto } from '../../services/media';
 
 export const ResidentDashboard: React.FC = () => {
   const {
@@ -49,6 +51,7 @@ export const ResidentDashboard: React.FC = () => {
     sendChatMessage,
     tickets,
     addMaintenanceTicket,
+    updateTicketStatus,
     bookingRequests,
     approveBookingRequest,
     cancelBookingRequest,
@@ -142,10 +145,62 @@ export const ResidentDashboard: React.FC = () => {
 
   // Maintenance form state
   const [ticketTitle, setTicketTitle] = useState('');
-  const [ticketCategory, setTicketCategory] = useState<'Plumbing' | 'Electrical' | 'WiFi' | 'Cleaning'>('Plumbing');
+  const [ticketCategory, setTicketCategory] = useState<'Plumbing' | 'Electrical' | 'WiFi' | 'Cleaning' | 'Other'>('Plumbing');
   const [ticketDesc, setTicketDesc] = useState('');
-  const [ticketPriority, setTicketPriority] = useState<'Normal' | 'Urgent'>('Normal');
+  const [ticketPriority, setTicketPriority] = useState<'Normal' | 'Urgent' | 'Emergency'>('Normal');
   const [ticketSuccess, setTicketSuccess] = useState(false);
+  const [ticketPhotoUrl, setTicketPhotoUrl] = useState('');
+  const [ticketPhotoUploading, setTicketPhotoUploading] = useState(false);
+  const [ticketPhotoError, setTicketPhotoError] = useState('');
+
+  const handleCreateTicket = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!ticketTitle || !currentResident) return;
+    addMaintenanceTicket({
+      title: ticketTitle,
+      category: ticketCategory,
+      roomNumber: currentResident.roomNumber,
+      residentName: currentResident.name,
+      description: ticketDesc.trim() || ticketTitle,
+      priority: ticketPriority,
+      photoUrl: ticketPhotoUrl || undefined,
+    });
+    setTicketTitle('');
+    setTicketDesc('');
+    setTicketPriority('Normal');
+    setTicketPhotoUrl('');
+    setTicketPhotoError('');
+    setTicketSuccess(true);
+    setTimeout(() => setTicketSuccess(false), 4000);
+  };
+
+  const handlePickTicketPhoto = async (file?: File) => {
+    if (!file) return;
+    setTicketPhotoError('');
+    setTicketPhotoUploading(true);
+    try {
+      const result = await uploadComplaintPhoto(file);
+      if (result.url) {
+        setTicketPhotoUrl(result.url);
+      } else {
+        setTicketPhotoError('Photo upload failed. The complaint will still be saved without it.');
+      }
+    } catch {
+      setTicketPhotoError('Photo upload failed. The complaint will still be saved without it.');
+    } finally {
+      setTicketPhotoUploading(false);
+    }
+  };
+
+  // Only this resident's complaints — the store can hold org-level tickets for
+  // other roles, so a bare `tickets.map` would leak other tenants' rows here.
+  const myTickets = tickets.filter(
+    (t) =>
+      (currentUser && t.requesterId === currentUser.id) ||
+      (currentResident && t.residentName === currentResident.name) ||
+      (currentUser?.email && t.residentName === currentUser.name)
+  );
+  const openTickets = myTickets.filter((t) => t.status === 'Reported' || t.status === 'In-Progress');
 
   // Resident Notice Period State
   const [showNoticeModal, setShowNoticeModal] = useState(false);
@@ -204,24 +259,6 @@ export const ResidentDashboard: React.FC = () => {
     sendChatMessage(chatInput.trim(), false);
     setChatInput('');
   };
-
-  const handleCreateTicket = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!ticketTitle || !currentResident) return;
-    addMaintenanceTicket({
-      title: ticketTitle,
-      category: ticketCategory,
-      roomNumber: currentResident.roomNumber,
-      residentName: currentResident.name,
-      description: ticketDesc || ticketTitle,
-      priority: ticketPriority,
-    });
-    setTicketTitle('');
-    setTicketDesc('');
-    setTicketSuccess(true);
-    setTimeout(() => setTicketSuccess(false), 3500);
-  };
-
   const handleConfirmReschedule = (e: React.FormEvent) => {
     e.preventDefault();
     if (!reschedulingVisit || !newVisitDate) return;
@@ -1521,7 +1558,7 @@ export const ResidentDashboard: React.FC = () => {
                   {ticketSuccess && (
                     <div className="p-3 rounded-xl bg-emerald-50 text-emerald-800 text-xs font-semibold flex items-center gap-2">
                       <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                      <span>Ticket lodged! Assigned to supervisor Sunil Kumar.</span>
+                      <span>Complaint lodged. Your PG staff has been notified — you'll get an update here.</span>
                     </div>
                   )}
 
@@ -1533,10 +1570,23 @@ export const ResidentDashboard: React.FC = () => {
                       <input
                         type="text"
                         required
-                        placeholder="e.g. Geyser not heating properly in Room 204"
+                        placeholder="e.g. Geyser not heating properly"
                         value={ticketTitle}
                         onChange={(e) => setTicketTitle(e.target.value)}
                         className="w-full px-3 py-2 border rounded-xl focus:ring-2 focus:ring-blue-600"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">
+                        Describe the problem
+                      </label>
+                      <textarea
+                        rows={3}
+                        placeholder="Since when? What exactly is happening? (optional — helps staff come prepared)"
+                        value={ticketDesc}
+                        onChange={(e) => setTicketDesc(e.target.value)}
+                        className="w-full px-3 py-2 border rounded-xl focus:ring-2 focus:ring-blue-600 resize-none"
                       />
                     </div>
 
@@ -1554,6 +1604,7 @@ export const ResidentDashboard: React.FC = () => {
                           <option value="Electrical">Electrical / Geyser / AC</option>
                           <option value="WiFi">Wi-Fi / Internet</option>
                           <option value="Cleaning">Cleaning / Housekeeping</option>
+                          <option value="Other">Other</option>
                         </select>
                       </div>
 
@@ -1566,48 +1617,134 @@ export const ResidentDashboard: React.FC = () => {
                           onChange={(e) => setTicketPriority(e.target.value as any)}
                           className="w-full px-3 py-2 border rounded-xl bg-white"
                         >
-                          <option value="Normal">Normal</option>
-                          <option value="Urgent">Urgent</option>
+                          <option value="Normal">Normal — fix when possible</option>
+                          <option value="Urgent">Urgent — same day</option>
+                          <option value="Emergency">Emergency — water/power out</option>
                         </select>
                       </div>
                     </div>
 
+                    <div className="space-y-1.5">
+                      <div className="flex items-center gap-2">
+                        <label className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 px-3 py-2 text-[11px] font-bold text-slate-600 cursor-pointer hover:bg-slate-50">
+                          <ImagePlus className="w-3.5 h-3.5" />
+                          {ticketPhotoUploading ? 'Uploading…' : ticketPhotoUrl ? 'Replace photo' : 'Attach photo'}
+                          <input
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            disabled={ticketPhotoUploading}
+                            onChange={(e) => { void handlePickTicketPhoto(e.target.files?.[0]); e.target.value = ''; }}
+                          />
+                        </label>
+                        {ticketPhotoUrl && (
+                          <span className="inline-flex items-center gap-1.5 text-[11px] text-slate-500">
+                            <img src={ticketPhotoUrl} alt="Attachment preview" className="h-9 w-9 rounded-lg object-cover border border-slate-200" />
+                            <button type="button" onClick={() => setTicketPhotoUrl('')} className="font-bold hover:text-slate-900">Remove</button>
+                          </span>
+                        )}
+                      </div>
+                      {ticketPhotoError && <p className="text-[10px] font-bold text-amber-700">{ticketPhotoError}</p>}
+                    </div>
+
                     <button
                       type="submit"
-                      className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-xs transition"
+                      disabled={ticketPhotoUploading}
+                      className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-xs transition disabled:opacity-60"
                     >
-                      Submit Ticket
+                      Submit Complaint
                     </button>
                   </form>
                 </div>
 
-                {/* Past Tickets */}
+                {/* My Complaints */}
                 <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-2xs space-y-3">
-                  <h4 className="font-bold text-xs text-slate-900">Your Past & Active Requests</h4>
+                  <div className="flex items-center justify-between">
+                    <h4 className="font-bold text-xs text-slate-900">My Complaints</h4>
+                    {openTickets.length > 0 && (
+                      <span className="text-[10px] bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full font-bold">
+                        {openTickets.length} open
+                      </span>
+                    )}
+                  </div>
                   <div className="space-y-2">
-                    {tickets.map((t) => (
+                    {myTickets.length === 0 && (
+                      <p className="text-[11px] text-slate-400 py-3 text-center">
+                        No complaints yet. Raise one above and track its progress here.
+                      </p>
+                    )}
+                    {myTickets.map((t) => (
                       <div
                         key={t.id}
-                        className="p-3 rounded-xl bg-slate-50 border border-slate-100 text-xs flex items-center justify-between"
+                        className="p-3 rounded-xl bg-slate-50 border border-slate-100 text-xs"
                       >
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className="font-bold text-slate-900">{t.title}</span>
-                            <span className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded font-semibold">
-                              {t.category}
-                            </span>
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-bold text-slate-900">{t.title}</span>
+                              <span className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded font-semibold">
+                                {t.category}
+                              </span>
+                              {t.priority === 'Emergency' && (
+                                <span className="text-[10px] bg-red-100 text-red-700 px-2 py-0.5 rounded font-bold">
+                                  Emergency
+                                </span>
+                              )}
+                            </div>
+                            {t.description !== t.title && (
+                              <span className="text-[11px] text-slate-500 block mt-0.5">{t.description}</span>
+                            )}
+                            {t.photoUrl && (
+                              <a href={t.photoUrl} target="_blank" rel="noreferrer" className="block mt-1.5">
+                                <img src={t.photoUrl} alt="Complaint attachment" className="h-20 rounded-lg border border-slate-200 object-cover" />
+                              </a>
+                            )}
+                            {t.status !== 'Resolved' && t.status !== 'Closed' && t.slaDeadline && (
+                              <span
+                                className={`text-[10px] block mt-0.5 font-semibold ${
+                                  new Date(t.slaDeadline).getTime() < Date.now()
+                                    ? 'text-red-600'
+                                    : 'text-slate-400'
+                                }`}
+                              >
+                                {new Date(t.slaDeadline).getTime() < Date.now()
+                                  ? `⚠ Past expected fix time — escalated to the PG owner`
+                                  : `Expected fix by ${new Date(t.slaDeadline).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' })}`}
+                              </span>
+                            )}
+                            {t.assignedStaffName && (
+                              <span className="text-[10px] text-slate-400 block mt-0.5">
+                                Assigned to {t.assignedStaffName}
+                              </span>
+                            )}
+                            {t.resolutionNotes && t.status !== 'Reported' && (
+                              <span className="text-[10px] text-emerald-700 block mt-1 bg-emerald-50 rounded-lg px-2 py-1">
+                                ✓ {t.resolutionNotes}
+                              </span>
+                            )}
                           </div>
-                          <span className="text-[11px] text-slate-500 block mt-0.5">{t.description}</span>
+                          <div className="flex flex-col items-end gap-1.5 shrink-0">
+                            <span
+                              className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                t.status === 'Resolved' || t.status === 'Closed'
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : t.status === 'In-Progress'
+                                  ? 'bg-blue-100 text-blue-800'
+                                  : 'bg-amber-100 text-amber-800'
+                              }`}
+                            >
+                              {t.status}
+                            </span>
+                            {(t.status === 'Resolved' || t.status === 'In-Progress') && (
+                              <button
+                                onClick={() => updateTicketStatus(t.id, 'Closed')}
+                                className="text-[10px] text-slate-400 hover:text-slate-700 underline"
+                              >
+                                Close
+                              </button>
+                            )}
+                          </div>
                         </div>
-                        <span
-                          className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                            t.status === 'Resolved'
-                              ? 'bg-emerald-100 text-emerald-800'
-                              : 'bg-amber-100 text-amber-800'
-                          }`}
-                        >
-                          {t.status}
-                        </span>
                       </div>
                     ))}
                   </div>

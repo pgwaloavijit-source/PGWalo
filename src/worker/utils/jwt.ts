@@ -8,6 +8,8 @@ export interface JWTPayload {
   role: string;
   organizationId?: string;
   name?: string;
+  /** Used to scope resident rows to the signed-in account. */
+  email?: string;
   exp: number;
   iat: number;
 }

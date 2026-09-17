@@ -13,7 +13,9 @@ import {
   ORGANIZATION_OPTIONS,
   PROFESSION_OPTIONS,
   RELATION_OPTIONS,
+  STATE_OPTIONS,
 } from '../../data/profileOptions';
+import { PincodeInput } from '../common/PincodeInput';
 
 export const ProfileCompletionModal: React.FC = () => {
   const {
@@ -29,6 +31,8 @@ export const ProfileCompletionModal: React.FC = () => {
   const [age, setAge] = useState('');
   const [gender, setGender] = useState('');
   const [address, setAddress] = useState('');
+  const [pincode, setPincode] = useState('');
+  const [state, setState] = useState('');
   const [city, setCity] = useState('');
   const [occupation, setOccupation] = useState('');
   const [organization, setOrganization] = useState('');
@@ -45,6 +49,8 @@ export const ProfileCompletionModal: React.FC = () => {
     setAge(currentUser.age ? String(currentUser.age) : '');
     setGender(currentUser.gender || '');
     setAddress(currentUser.permanentAddress || '');
+    setPincode((currentUser as any).pincode || '');
+    setState((currentUser as any).state || '');
     setCity(currentUser.city || '');
     setOccupation(currentUser.occupation || '');
     setOrganization(currentUser.organization || '');
@@ -90,6 +96,8 @@ export const ProfileCompletionModal: React.FC = () => {
         occupation: occupation.trim(),
         organization: organization.trim(),
         permanentAddress: address.trim(),
+        pincode: pincode.trim(),
+        state: state.trim(),
         city: city.trim(),
         emergencyContactName: emergencyName.trim(),
         emergencyContactPhone: emergencyPhone,
@@ -162,7 +170,21 @@ export const ProfileCompletionModal: React.FC = () => {
             />
           </div>
 
-          <ComboField label="City" value={city} onChange={setCity} options={CITY_OPTIONS} placeholder="Bengaluru, Pune…" />
+          <PincodeInput
+            label="Pincode"
+            required
+            value={pincode}
+            onPincodeChange={setPincode}
+            onResolved={({ city: resolvedCity, state: resolvedState }) => {
+              setCity(resolvedCity || city);
+              setState(resolvedState || state);
+            }}
+          />
+
+          <div className="grid sm:grid-cols-2 gap-3">
+            <ComboField label="City" value={city} onChange={setCity} options={CITY_OPTIONS} placeholder="Bengaluru, Pune…" />
+            <ComboField label="State" value={state} onChange={setState} options={STATE_OPTIONS} placeholder="Karnataka…" />
+          </div>
 
           {!isOwner && (
             <>

@@ -193,11 +193,6 @@ const AdminBody: React.FC<{
   const failedPay = payments.filter((p) => ['Failed', 'Refunded', 'Rejected'].includes(p.status));
 
   const isoDay = (date: Date) => date.toISOString().split('T')[0];
-  const rangeQuery = (submittedField: boolean) => ({
-    from: props.range === 'custom' ? (props.customFrom || undefined) : isoDay(bounds.from),
-    to: props.range === 'custom' ? (props.customTo || undefined) : isoDay(bounds.to),
-    ...(submittedField ? {} : {}),
-  });
 
   // Live server queries for the Bookings and Payments sections. In demo mode
   // (no API/token) these effects no-op and local arrays are rendered.
@@ -319,18 +314,15 @@ const AdminBody: React.FC<{
   }
 
   if (props.section === 'users' || props.section === 'owners' || props.section === 'tenants') {
-    // Prefer the live server directory (searched server-side, paginated);
-    // fall back to local AppContext arrays in demo mode.
+    // Strict live mode: only server rows. Demo mode: local arrays.
     const source: UserAccount[] = serverUsers
       ? (props.section === 'tenants'
-          ? serverUsers.filter((u) => u.role === 'resident')
+          ? serverUsers.filter((u) => u.role === 'resident' || u.role === 'public')
           : props.section === 'owners'
             ? serverUsers.filter((u) => u.role === 'owner')
             : serverUsers)
       : (props.section === 'owners' ? owners : props.section === 'tenants' ? tenants : users);
     const rows = source.filter((u) => {
-      // Server already applied q/role/status filters; only status needs a
-      // local pass when the server list is absent.
       const matchQ = serverUsers ? true : (!q || [u.name, u.email, u.phone, u.role, u.status].join(' ').toLowerCase().includes(q));
       const matchRole = roleFilter === 'all' || props.section !== 'users' || u.role === roleFilter;
       const matchStatus = statusFilter === 'all' || (u.status || 'Active') === statusFilter;

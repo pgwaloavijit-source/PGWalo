@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Camera, Save, ShieldCheck } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { ComboField } from '../common/ComboField';
+import { PincodeInput } from '../common/PincodeInput';
 import { UserAvatar } from '../common/UserAvatar';
 import { isProductionApiEnabled } from '../../services/productionApi';
 import { fetchMeWithWorkers, saveProfileWithWorkers } from '../../services/auth';
@@ -10,6 +11,7 @@ import {
   CITY_OPTIONS,
   FOOD_OPTIONS,
   GENDER_OPTIONS,
+  STATE_OPTIONS,
   LANGUAGE_OPTIONS,
   MARITAL_OPTIONS,
   ORGANIZATION_OPTIONS,
@@ -50,6 +52,8 @@ export const AccountDetailsPage: React.FC = () => {
   const [preferredLanguage, setPreferredLanguage] = useState(currentUser?.preferredLanguage || '');
   const [emergencyRelation, setEmergencyRelation] = useState(currentUser?.emergencyContactRelation || '');
   const [address, setAddress] = useState(currentUser?.permanentAddress || '');
+  const [pincode, setPincode] = useState((currentUser as any)?.pincode || '');
+  const [stateName, setStateName] = useState((currentUser as any)?.state || '');
 
   useEffect(() => {
     if (!currentUser) return;
@@ -100,6 +104,8 @@ export const AccountDetailsPage: React.FC = () => {
       preferredLanguage,
       emergencyContactRelation: emergencyRelation,
       permanentAddress: address.trim(),
+      pincode: pincode.trim(),
+      state: stateName.trim(),
     };
     try {
       if (isProductionApiEnabled()) {
@@ -195,6 +201,16 @@ export const AccountDetailsPage: React.FC = () => {
               className="w-full px-4 py-3 rounded-2xl border border-slate-200 min-h-[72px] text-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500/30"
             />
           </div>
+
+          <PincodeInput
+            value={pincode}
+            onPincodeChange={setPincode}
+            onResolved={({ city: resolvedCity, state: resolvedState }) => {
+              if (resolvedCity && !city) setCity(resolvedCity);
+              setStateName(resolvedState || stateName);
+            }}
+          />
+          <ComboField label="State" value={stateName} onChange={setStateName} options={STATE_OPTIONS} />
         </div>
 
         {notice && (

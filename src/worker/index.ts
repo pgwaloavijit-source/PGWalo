@@ -11,8 +11,17 @@ import { geoHandler } from './handlers/geo';
 import { listingsHandler } from './handlers/listings';
 import { inquiriesHandler } from './handlers/inquiries';
 import { adminHandler } from './handlers/admin';
+import { supportTicketsHandler } from './handlers/supportTickets';
+import { maintenanceTicketsHandler } from './handlers/maintenanceTickets';
+import { eventsHandler } from './handlers/events';
+import { notificationsHandler } from './handlers/notifications';
+import { runEscalationSweep } from './handlers/maintenanceTickets';
 
 export default {
+  // Escalation sweep: breach detection + owner notifications every 15 minutes.
+  async scheduled(_controller: ScheduledController, env: Env, _ctx: ExecutionContext): Promise<void> {
+    await runEscalationSweep(env);
+  },
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     setCorsContext(request, env);
     const url = new URL(request.url);
@@ -51,6 +60,24 @@ export default {
 
       if (path.startsWith('/api/notify')) {
         return notifyHandler(request, env);
+      }
+
+      if (path === '/api/support-tickets') {
+        return supportTicketsHandler(request, env);
+      }
+
+      if (path === '/api/maintenance-tickets') {
+        return maintenanceTicketsHandler(request, env);
+      }
+
+      // Server-Sent Events push channel (JWT via ?token= — EventSource cannot
+      // set headers). Kept above the generic /api/<collection> matcher.
+      if (path === '/api/events') {
+        return eventsHandler(request, env);
+      }
+
+      if (path === '/api/notifications') {
+        return notificationsHandler(request, env);
       }
 
       if (path.startsWith('/api/admin')) {

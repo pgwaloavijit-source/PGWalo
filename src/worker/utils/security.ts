@@ -4,6 +4,9 @@ const ALLOWED_ORIGINS = new Set([
   'http://localhost:3000',
   'http://127.0.0.1:3000',
   'http://localhost:8787',
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+  'http://localhost:4173',
 ]);
 
 export function resolveCorsOrigin(request: Request, environment: string): string {

@@ -1,3 +1,10 @@
+export const STATE_OPTIONS = [
+  'Andhra Pradesh', 'Assam', 'Bihar', 'Chhattisgarh', 'Delhi', 'Goa', 'Gujarat',
+  'Haryana', 'Himachal Pradesh', 'Jharkhand', 'Karnataka', 'Kerala',
+  'Madhya Pradesh', 'Maharashtra', 'Odisha', 'Punjab', 'Rajasthan', 'Tamil Nadu',
+  'Telangana', 'Uttar Pradesh', 'Uttarakhand', 'West Bengal',
+];
+
 export const CITY_OPTIONS = [
   'Bengaluru', 'Hyderabad', 'Pune', 'Mumbai', 'Delhi', 'Noida', 'Gurugram', 'Chennai',
   'Kolkata', 'Ahmedabad', 'Jaipur', 'Indore', 'Chandigarh', 'Kochi', 'Coimbatore',

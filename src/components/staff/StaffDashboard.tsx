@@ -277,23 +277,90 @@ export const StaffDashboard: React.FC = () => {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {tickets.map((t) => (
+            {/* Active first, then resolved — newest on top within each group. */}
+            {(() => {
+              const rank = (s: MaintenanceTicket['status']) =>
+                s === 'Reported' ? 0 : s === 'In-Progress' ? 1 : s === 'Resolved' ? 2 : 3;
+              const priorityRank = (p: string) =>
+                p === 'Emergency' ? 0 : p === 'Urgent' ? 1 : p === 'High' ? 2 : 3;
+              const sorted = [...tickets].sort(
+                (a, b) =>
+                  rank(a.status) - rank(b.status) ||
+                  priorityRank(a.priority) - priorityRank(b.priority) ||
+                  String(b.createdAt).localeCompare(String(a.createdAt))
+              );
+
+              const slaInfo = (t: MaintenanceTicket): { label: string; cls: string } | null => {
+                if (t.status === 'Resolved' || t.status === 'Closed' || !t.slaDeadline) return null;
+                const ms = new Date(t.slaDeadline).getTime() - Date.now();
+                if (ms <= 0) return { label: `Overdue ${Math.floor(-ms / 3_600_000)}h`, cls: 'bg-red-600 text-white' };
+                const h = Math.floor(ms / 3_600_000);
+                const m = Math.floor((ms % 3_600_000) / 60_000);
+                const label = h >= 24 ? `${Math.floor(h / 24)}d ${h % 24}h left` : h >= 1 ? `${h}h ${m}m left` : `${m}m left`;
+                return h < 2
+                  ? { label: `Due in ${label}`, cls: 'bg-amber-500 text-white' }
+                  : { label: `Fix by ${new Date(t.slaDeadline).toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`, cls: 'bg-slate-100 text-slate-600' };
+              };
+
+              if (sorted.length === 0) {
+                return (
+                  <div className="bg-white rounded-2xl border border-dashed border-slate-300 p-10 text-center">
+                    <Wrench className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                    <p className="text-sm font-bold text-slate-500">No maintenance tickets yet</p>
+                    <p className="text-xs text-slate-400 mt-1">
+                      When a resident raises a complaint, it appears here instantly and you get a notification.
+                    </p>
+                  </div>
+                );
+              }
+
+              return (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {sorted.map((t) => (
                 <div
                   key={t.id}
-                  className="bg-white rounded-2xl border border-slate-200 p-5 shadow-2xs space-y-3"
+                  className={`bg-white rounded-2xl border p-5 shadow-2xs space-y-3 ${
+                    t.priority === 'Emergency' ? 'border-red-300 ring-1 ring-red-100' : 'border-slate-200'
+                  }`}
                 >
                   <div className="flex items-start justify-between">
                     <div>
-                      <span className="text-[10px] font-bold uppercase text-blue-600 bg-blue-50 px-2 py-0.5 rounded">
-                        Room {t.roomNumber} • {t.category}
-                      </span>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-[10px] font-bold uppercase text-blue-600 bg-blue-50 px-2 py-0.5 rounded">
+                          Room {t.roomNumber} • {t.category}
+                        </span>
+                        {(t.priority === 'Emergency' || t.priority === 'Urgent') && (
+                          <span
+                            className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded ${
+                              t.priority === 'Emergency'
+                                ? 'bg-red-600 text-white'
+                                : 'bg-amber-600 text-white'
+                            }`}
+                          >
+                            {t.priority}
+                          </span>
+                        )}
+                        {(() => {
+                          const sla = slaInfo(t);
+                          if (!sla) return null;
+                          return (
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${sla.cls}`}>
+                              {t.escalatedAt ? '⚠ Escalated · ' : ''}{sla.label}
+                            </span>
+                          );
+                        })()}
+                      </div>
                       <h3 className="font-extrabold text-slate-900 text-sm mt-1">{t.title}</h3>
                       <p className="text-xs text-slate-500 mt-0.5">{t.description}</p>
+                      {t.photoUrl && (
+                        <a href={t.photoUrl} target="_blank" rel="noreferrer" className="block mt-2">
+                          <img src={t.photoUrl} alt="Complaint photo" className="h-24 rounded-lg border border-slate-200 object-cover" />
+                        </a>
+                      )}
                     </div>
                     <span
-                      className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold ${
-                        t.status === 'Resolved'
+                      className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold shrink-0 ${
+                        t.status === 'Resolved' || t.status === 'Closed'
                           ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
                           : t.status === 'In-Progress'
                           ? 'bg-blue-50 text-blue-700 border border-blue-200'
@@ -304,21 +371,39 @@ export const StaffDashboard: React.FC = () => {
                     </span>
                   </div>
 
+                  {(t.assignedStaffName || t.resolutionNotes) && (
+                    <div className="text-[11px] space-y-0.5">
+                      {t.assignedStaffName && (
+                        <p className="text-slate-500">
+                          <span className="font-bold">Assigned:</span> {t.assignedStaffName}
+                        </p>
+                      )}
+                      {t.resolutionNotes && (
+                        <p className="text-emerald-700 bg-emerald-50 rounded-lg px-2 py-1">
+                          <span className="font-bold">Notes:</span> {t.resolutionNotes}
+                        </p>
+                      )}
+                    </div>
+                  )}
+
                   <div className="flex items-center justify-between pt-3 border-t border-slate-100 text-xs">
-                    <span className="text-slate-400 text-[11px]">By: {t.residentName} ({t.createdAt})</span>
+                    <span className="text-slate-400 text-[11px]">By: {t.residentName} ({new Date(t.createdAt).toLocaleDateString()})</span>
                     <div className="flex items-center gap-2">
-                      {t.status !== 'In-Progress' && t.status !== 'Resolved' && (
+                      {t.status === 'Reported' && (
                         <button
-                          onClick={() => updateTicketStatus(t.id, 'In-Progress')}
+                          onClick={() => updateTicketStatus(t.id, 'In-Progress', { assignedStaffName: currentStaff?.name || currentUser?.name })}
                           className="px-2.5 py-1 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg font-bold text-[11px]"
                         >
                           Start Work
                         </button>
                       )}
-                      {t.status !== 'Resolved' && (
+                      {t.status === 'In-Progress' && (
                         <button
-                          id={`resolve-ticket-${t.id}`}
-                          onClick={() => updateTicketStatus(t.id, 'Resolved')}
+                          onClick={() => {
+                            const notes = window.prompt('Resolution notes (visible to the resident):', t.resolutionNotes || '');
+                            if (notes === null) return;
+                            updateTicketStatus(t.id, 'Resolved', { resolutionNotes: notes.trim() });
+                          }}
                           className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-[11px] shadow-2xs"
                         >
                           Mark Resolved
@@ -327,8 +412,10 @@ export const StaffDashboard: React.FC = () => {
                     </div>
                   </div>
                 </div>
-              ))}
-            </div>
+                  ))}
+                </div>
+              );
+            })()}
           </div>
         )}
 

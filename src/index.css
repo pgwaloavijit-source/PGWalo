@@ -150,3 +150,105 @@ img.listing-photo {
   filter: saturate(1.04) contrast(1.03);
   background: #e2e8f0;
 }
+
+/* ---------------------------------------------------------------
+   PGWalo boot loader
+   Shared by the pre-hydration splash in index.html and the React
+   <PGWaloLoader /> overlay so the branding never flickers.
+   --------------------------------------------------------------- */
+
+@keyframes pgwalo-orbit {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes pgwalo-dash {
+  0% {
+    stroke-dashoffset: 168;
+  }
+  50% {
+    stroke-dashoffset: 42;
+  }
+  100% {
+    stroke-dashoffset: 168;
+  }
+}
+
+@keyframes pgwalo-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.55;
+  }
+  50% {
+    transform: scale(1.12);
+    opacity: 0.95;
+  }
+}
+
+@keyframes pgwalo-shimmer {
+  0% {
+    transform: translateX(-120%);
+  }
+  100% {
+    transform: translateX(320%);
+  }
+}
+
+@keyframes pgwalo-rise {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-6px);
+  }
+}
+
+@keyframes pgwalo-dot {
+  0%,
+  100% {
+    opacity: 0.25;
+    transform: translateY(0);
+  }
+  50% {
+    opacity: 1;
+    transform: translateY(-4px);
+  }
+}
+
+.pgwalo-orbit {
+  animation: pgwalo-orbit 2.6s linear infinite;
+}
+
+.pgwalo-dash {
+  animation: pgwalo-dash 2.2s ease-in-out infinite;
+}
+
+.pgwalo-breathe {
+  animation: pgwalo-breathe 2.4s ease-in-out infinite;
+}
+
+.pgwalo-rise {
+  animation: pgwalo-rise 3s ease-in-out infinite;
+}
+
+.pgwalo-shimmer {
+  animation: pgwalo-shimmer 1.6s ease-in-out infinite;
+}
+
+.pgwalo-dot {
+  animation: pgwalo-dot 1.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pgwalo-orbit,
+  .pgwalo-dash,
+  .pgwalo-breathe,
+  .pgwalo-rise,
+  .pgwalo-shimmer,
+  .pgwalo-dot {
+    animation: none;
+  }
+}

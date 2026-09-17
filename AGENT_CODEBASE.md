@@ -6,7 +6,8 @@
 
 - **Live version:** `586fac68-4359-4c6f-8d66-2cd60cddd9df` — https://pgwalo.com (also `www.`, `api.pgwalo.com`, `pgwalo.pgwalo-avijit.workers.dev`)
 - **Super admin console deployed** per `superadmin-flow.md`: login (env secrets), 15-section shell, DB-backed filters/pagination, durable support tickets, audit logging.
-- **D1 migrations applied to remote:** `schema.sql`, `auth-migration.sql`, `profile-kyc.sql`, `profile-extras.sql`, `admin-console-migration.sql` (adds `support_tickets` + admin lookup indexes).
+- **D1 migrations applied to remote:** `schema.sql`, `auth-migration.sql`, `profile-kyc.sql`, `profile-extras.sql`, `admin-console-migration.sql` (adds `support_tickets` + admin lookup indexes), **`listings.sql`** (`properties.owner_user_id`, `properties.place_label`), **`tenant-staff.sql`** (`staff_members.owner_user_id`, `organization_id`), `auth-events.sql`.
+- **Use `npm run db:migrate:remote`** — it probes the live schema first and only applies what is still missing, so it is safe to re-run. The two migrations above were previously missing from remote D1, which made `POST /api/listings` fail with `no column named owner_user_id` (owners could not publish a PG).
 - **Post-deploy smoke checks (all passed):** `/api/health` 200; `/api/admin/*` without token → 401; superadmin login issues JWT; `/api/admin/{overview,users,bookings,payments,support-tickets}` return live D1 data with `Authorization: Bearer <jwt>`.
 - **Test suite:** `npm run test:admin` — 20/20 passing (RBAC 403/401, allow-list 400s, PATCH→D1→audit flow).
 
@@ -186,6 +187,23 @@ npm run d1:migrate            # apply schema.sql to remote D1
 - `owner@pgwalo.com` / `PGWalo@2026`
 - `admin@pgwalo.com` / `PGWalo@2026`
 
+## Client/server data contract (do not regress)
+
+* `GET /api/admin/{users,bookings,payments}` answers
+  `{ users|bookings|payments: [...], page, pageSize, total, totalPages }`.
+  `services/adminApi.ts` reads the **named** key — reading `items` blanks every
+  admin list (Users, PG Owners, Tenants, Bookings, Payments). Guarded by
+  `npm run test:e2e`.
+* `GET /api/bootstrap` returns snake_case for most tables but runs
+  `ROW_MAPPERS` for the ones the client consumes, and `sanitizeRow()` strips
+  `password_hash` / `aadhaar_hash` before anything leaves the Worker.
+* Bootstrap row scoping: platform admin = all rows; everyone else = their
+  `organization_id`; **residents are additionally requester-scoped** (own
+  resident row, own ledger via `resident_id`, own tickets via `requester_id`).
+* The resident role deliberately does **not** hold `resident.view`; its snapshot
+  is served by the requester-scoped bootstrap, which keeps the org-wide
+  collection routes closed.
+
 ## Known gaps
 
 1. **R2** — enable in Cloudflare Dashboard, create bucket, uncomment `wrangler.toml` binding
@@ -220,9 +238,14 @@ npm run d1:migrate            # apply schema.sql to remote D1
 | `deploy` | `build` + `wrangler deploy` |
 | `d1:migrate` | Remote schema apply |
 | `d1:admin` | Remote `admin-console-migration.sql` (support_tickets) |
+| `d1:listings` | Remote `listings.sql` (properties owner columns) |
+| `d1:staff` | Remote `tenant-staff.sql` (staff owner columns) |
+| `db:migrate` | Idempotent local migration run (`database/apply-migrations.sh`) |
+| `db:migrate:remote` | Idempotent remote migration run |
 | `test:admin` | Admin console unit tests (in-memory D1 stub) |
+| `test:e2e` | Full-flow regression suite against a running Worker (`E2E_BASE`) |
 | `local:db:init` | Local D1 seed |
-| `test:worker` | Worker smoke test |
+| `test:worker` | Worker smoke test — **stale**, relies on the disabled `x-user-role` bypass |
 
 ---
 

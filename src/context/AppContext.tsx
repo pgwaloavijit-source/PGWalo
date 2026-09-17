@@ -63,6 +63,13 @@ import {
   getAuthToken,
 } from '../services/productionApi';
 import { notifyVisitWithWorkers, fetchMeWithWorkers } from '../services/auth';
+import { fetchMySupportTickets, postSupportTicket, fetchMyNotifications } from '../services/supportTickets';
+import { connectEventStream } from '../services/eventStream';
+import {
+  fetchMaintenanceTickets,
+  postMaintenanceTicket,
+  patchMaintenanceTicketStatus,
+} from '../services/maintenanceTickets';
 import {
   patchAdminProperty,
   patchAdminTicket,
@@ -261,16 +268,23 @@ interface AppContextType {
   toggleTaskCompleted: (taskId: string) => void;
   addTask: (task: Omit<StaffTask, 'id' | 'completed'>) => void;
   addBroadcast: (broadcast: Omit<BroadcastNotification, 'id' | 'timestamp'>) => void;
+  markNotificationsRead: (ids?: string[]) => void;
   updateMealPlanDay: (day: MealPlanDay['day'], field: keyof MealPlanDay, value: string) => void;
   sendChatMessage: (text: string, isOwner: boolean) => void;
   addMaintenanceTicket: (ticket: Omit<MaintenanceTicket, 'id' | 'createdAt' | 'status'>) => void;
-  updateTicketStatus: (ticketId: string, status: MaintenanceTicket['status']) => void;
+  updateTicketStatus: (
+    ticketId: string,
+    status: MaintenanceTicket['status'],
+    extra?: { assignedStaffName?: string; resolutionNotes?: string; cost?: number }
+  ) => void;
   createSupportTicket: (ticket: Omit<SupportTicket, 'id' | 'requesterId' | 'requesterName' | 'requesterRole' | 'status' | 'createdAt' | 'updatedAt'>) => void;
   updateSupportTicket: (ticketId: string, status: SupportTicketStatus, adminNote?: string, assignedTo?: string) => void;
   addSupportTicketReply: (ticketId: string, body: string) => void;
   updateUserAccountStatus: (userId: string, status: NonNullable<UserAccount['status']>) => void;
   setListingDecision: (propertyId: string, action: 'approve' | 'reject' | 'disable') => void;
   resetToDemoData: () => void;
+  /** False while the API snapshot is still in flight, so the shell can show the boot loader. */
+  productionHydrated: boolean;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -728,18 +742,55 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (cancelled || !snapshot) return;
         if (snapshot.organizations?.length) setOrganizations(snapshot.organizations);
         // Public catalog is loaded from /api/listings so owners' PGs appear in other browsers.
-        if (snapshot.residents?.length) setResidents(snapshot.residents);
-        if (snapshot.beds?.length) setBeds(snapshot.beds);
-        if (snapshot.stays?.length) setStays(snapshot.stays);
-        if (snapshot.rentPlans?.length) setRentPlans(snapshot.rentPlans);
-        if (snapshot.invoices?.length) setInvoices(snapshot.invoices);
-        if (snapshot.payments?.length) setPayments(snapshot.payments);
-        if (snapshot.paymentAllocations?.length) setPaymentAllocations(snapshot.paymentAllocations);
-        if (snapshot.depositTransactions?.length) setDepositTransactions(snapshot.depositTransactions);
-        if (snapshot.notices?.length) setNotices(snapshot.notices);
-        if (snapshot.checkouts?.length) setCheckouts(snapshot.checkouts);
+        if (snapshot.residents) setResidents(snapshot.residents);
+        if (snapshot.beds) setBeds(snapshot.beds);
+        if (snapshot.stays) setStays(snapshot.stays);
+        if (snapshot.rentPlans) setRentPlans(snapshot.rentPlans);
+        if (snapshot.invoices) setInvoices(snapshot.invoices);
+        if (snapshot.payments) setPayments(snapshot.payments);
+        if (snapshot.paymentAllocations) setPaymentAllocations(snapshot.paymentAllocations);
+        if (snapshot.depositTransactions) setDepositTransactions(snapshot.depositTransactions);
+        if (snapshot.notices) setNotices(snapshot.notices);
+        if (snapshot.checkouts) setCheckouts(snapshot.checkouts);
         if (snapshot.checkoutSettlements?.length) setCheckoutSettlements(snapshot.checkoutSettlements);
-        if (snapshot.auditLogs?.length) setAuditLogs(snapshot.auditLogs);
+        if (snapshot.auditLogs) setAuditLogs(snapshot.auditLogs);
+        if (snapshot.rent_agreements) setAgreements(snapshot.rent_agreements);
+        if (snapshot.broadcast_notifications) {
+          // Server rows have no read memory — apply this account's stored read
+          // ids so the bell badge reflects what the user has already seen.
+          let readSet = new Set<string>();
+          try {
+            if (currentUser) {
+              const raw = localStorage.getItem('pgwalo_notifications_read');
+              const byUser: Record<string, string[]> = raw ? JSON.parse(raw) : {};
+              readSet = new Set(byUser[currentUser.id] || []);
+            }
+          } catch { /* best-effort */ }
+          setBroadcasts(
+            snapshot.broadcast_notifications.map((b: BroadcastNotification) => ({
+              ...b,
+              read: readSet.has(b.id) ? true : b.read,
+            }))
+          );
+        }
+        if (snapshot.support_tickets) setSupportTickets(snapshot.support_tickets);
+        if (snapshot.staff_members?.length) {
+          // Staff dashboards match the signed-in user by phone, so a genuine
+          // staff account in a fresh browser needs these rows to recognise
+          // their property and shift.
+          setStaff((prev) => {
+            const byId = new Map<string, StaffMember>(prev.map((s) => [s.id, s] as [string, StaffMember]));
+            for (const serverStaff of snapshot.staff_members as StaffMember[]) {
+              byId.set(serverStaff.id, serverStaff);
+            }
+            return Array.from(byId.values());
+          });
+        }
+        if (snapshot.attendance_records?.length) setAttendance(snapshot.attendance_records as AttendanceRecord[]);
+        if (snapshot.users) setUsers(snapshot.users);
+        if (snapshot.booking_requests) setBookingRequests((prev) => mergeBookings(prev, snapshot.booking_requests as BookingRequest[]));
+        // Demo/mock rows must never survive a production hydration.
+        setProperties((prev) => prev.filter((p) => !p.id.startsWith('demo-') && !['prop-1', 'prop-2', 'prop-3', 'prop-4'].includes(p.id)));
       })
       .catch((error) => {
         console.warn('PGNest production API bootstrap failed; using local cache.', error);
@@ -792,6 +843,97 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return () => {
       cancelled = true;
       window.clearInterval(timer);
+    };
+  }, [currentUser?.id, currentUser?.role]);
+
+  // Maintenance complaints: pull the signed-in user's tickets from D1 on
+  // sign-in, then keep them fresh via the SSE push channel (a resident sees
+  // status changes and staff/warden see new complaints within ~1-2 s). A slow
+  // interval remains as a fallback for browsers where the stream can't open.
+  useEffect(() => {
+    if (!isProductionApiEnabled() || !currentUser) return;
+    let cancelled = false;
+    const mergeTickets = (remote: MaintenanceTicket[]) => {
+      setTickets((prev) => {
+        const byId = new Map<string, MaintenanceTicket>(prev.map((t) => [t.id, t] as [string, MaintenanceTicket]));
+        for (const remoteTicket of remote) {
+          const local = byId.get(remoteTicket.id);
+          // Keep any locally newer fields, but server status wins so
+          // notifications match what the resident sees.
+          byId.set(remoteTicket.id, local ? { ...local, ...remoteTicket } : remoteTicket);
+        }
+        return Array.from(byId.values()).sort((a, b) =>
+          String(b.createdAt).localeCompare(String(a.createdAt))
+        );
+      });
+    };
+    const pull = () => {
+      fetchMaintenanceTickets()
+        .then((remote) => {
+          if (cancelled || !remote) return;
+          mergeTickets(remote as MaintenanceTicket[]);
+        })
+        .catch(() => undefined);
+    };
+    pull();
+    let fallbackTimer: number | null = window.setInterval(pull, 30000);
+
+    const stopStream = connectEventStream(['tickets'], {
+      onTicketsChanged: pull,
+      onStatus: (status) => {
+        if (status === 'open') {
+          // Push is live — the fallback poll can idle.
+          if (fallbackTimer) {
+            window.clearInterval(fallbackTimer);
+            fallbackTimer = null;
+          }
+        } else if (status === 'offline' && !fallbackTimer) {
+          fallbackTimer = window.setInterval(pull, 30000);
+        }
+      },
+    });
+
+    return () => {
+      cancelled = true;
+      stopStream();
+      if (fallbackTimer) window.clearInterval(fallbackTimer);
+    };
+  }, [currentUser?.id, currentUser?.role]);
+
+  // Notifications inbox: initial fetch with the bootstrap hydration, then
+  // refreshed by the SSE push channel whenever a new notice is addressed to
+  // this account (complaint status changes) or announcements change.
+  useEffect(() => {
+    if (!isProductionApiEnabled() || !currentUser) return;
+    let cancelled = false;
+    const pullNotifications = () => {
+      fetchMyNotifications()
+        .then((remote) => {
+          if (cancelled || !remote) return;
+          setBroadcasts((prev) => {
+            const readSet = new Set(prev.filter((b) => b.read).map((b) => b.id));
+            const byId = new Map<string, BroadcastNotification>();
+            for (const b of remote) byId.set(b.id, { ...b, read: readSet.has(b.id) });
+            // Keep locally-created notices (not yet in D1) visible.
+            for (const b of prev) if (!byId.has(b.id)) byId.set(b.id, b);
+            return Array.from(byId.values()).sort((a, b) =>
+              String(b.timestamp).localeCompare(String(a.timestamp))
+            );
+          });
+        })
+        .catch(() => undefined);
+    };
+    pullNotifications();
+
+    const stopStream = connectEventStream(['notifications'], {
+      onNotificationsChanged: pullNotifications,
+    });
+    const fallbackTimer = window.setInterval(pullNotifications, 45000);
+
+    return () => {
+      cancelled = true;
+      stopStream();
+      window.clearInterval(fallbackTimer);
     };
   }, [currentUser?.id, currentUser?.role]);
 
@@ -974,7 +1116,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           depositTransactions,
           notices,
           checkouts,
-          checkoutSettlements,
+          // Agreements and broadcasts were missing from this payload, so an
+          // owner could "send" an agreement or a notice and no other device —
+          // including the resident's — could ever receive it.
+          rent_agreements: agreements,
+          broadcast_notifications: broadcasts,
         },
         currentUser?.organizationId || DEFAULT_ORGANIZATION_ID
       ).catch((error) => {
@@ -999,7 +1145,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     depositTransactions,
     notices,
     checkouts,
-    checkoutSettlements,
+    agreements,
+    broadcasts,
   ]);
 
   const hasPermission = (permission: PermissionKey) =>
@@ -1876,48 +2023,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const login = (email: string, password?: string, requestedRole?: UserRole, isDemo: boolean = false) => {
     const ident = email.trim();
     const identLower = ident.toLowerCase();
-    const phoneDigits = ident.replace(/\D/g, '').slice(-10);
-    const envPhone = (import.meta.env.VITE_SUPERADMIN_PHONE || '').replace(/\D/g, '').slice(-10);
-    const envPin = import.meta.env.VITE_SUPERADMIN_PIN || '';
-    const envUser = (import.meta.env.VITE_SUPERADMIN_USERNAME || '').toLowerCase();
-    const envPass = import.meta.env.VITE_SUPERADMIN_PASSWORD || '';
-    const demoAdminOk =
-      requestedRole === 'superadmin' &&
-      Boolean(
-        (envPhone && phoneDigits === envPhone && password === envPin) ||
-        (envUser && identLower === envUser && password === envPass)
-      );
-    if (demoAdminOk) {
-      const superAdmin: UserAccount = {
-        id: 'superadmin',
-        name: 'Super Admin',
-        email: import.meta.env.VITE_SUPERADMIN_USERNAME || '',
-        phone: import.meta.env.VITE_SUPERADMIN_PHONE || '',
-        role: 'superadmin',
-        organizationId: DEFAULT_ORGANIZATION_ID,
-        createdAt: new Date().toISOString().split('T')[0],
-        isProfileCompleted: true,
-        status: 'Active',
-        avatar: '',
-      };
-      setCurrentUser(superAdmin);
-      setRoleState('superadmin');
-      setAuthModalOpen(false);
-      setAuditLogs((prev) => [
-        {
-          id: `aud-${Date.now()}-login`,
-          userId: superAdmin.id,
-          userName: superAdmin.name,
-          userRole: 'superadmin',
-          action: 'Login',
-          entity: 'Session',
-          timestamp: new Date().toISOString().replace('T', ' ').substring(0, 16),
-          details: 'Super Admin signed in',
-        },
-        ...prev.slice(0, 99),
-      ]);
-      return { success: true, message: 'Welcome, Super Admin!', user: superAdmin };
-    }
+    // Super Admin authentication is enforced by the Worker (`POST /api/auth/login`)
+    // against `SUPERADMIN_*` secrets. There is deliberately no browser-side
+    // credential fallback: any `VITE_`-prefixed value is inlined into the
+    // shipped bundle, which previously exposed the Super Admin password to
+    // every visitor. Do not reintroduce a client-side check here.
     if (requestedRole === 'superadmin') {
       return { success: false, message: 'Invalid Super Admin credentials.' };
     }
@@ -2535,13 +2645,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       // Record Stay
       const todayStr = new Date().toISOString().split('T')[0];
+      const allocatedBed = beds.find((b) => b.bedNumber === assignedBed);
       const newStay: Stay = {
         id: `stay-${Date.now()}`,
         organizationId: newRes.organizationId || DEFAULT_ORGANIZATION_ID,
         residentId: newRes.id,
         propertyId: newRes.propertyId,
-        roomId: beds.find(b => b.bedNumber === assignedBed)?.roomId,
+        roomId: allocatedBed?.roomId,
+        // D1 declares room_number / bed_id / bed_number / monthly_rent_at_start
+        // NOT NULL, so the stay row was rejected and never reached the DB.
+        roomNumber: newRes.roomNumber,
+        bedId: allocatedBed?.id,
+        bedNumber: newRes.bedNumber,
         startDate: newRes.moveInDate || todayStr,
+        monthlyRentAtStart: newRes.monthlyRent,
         status: 'Current',
         endDate: undefined,
         createdAt: todayStr,
@@ -3153,6 +3270,31 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return receipt;
   };
 
+  // Mark notifications as read: either specific ids (a personal
+  // complaint-status notice) or every current one ("mark all" in the bell).
+  // Read ids are persisted so the unread badge survives reloads and hydration.
+  const readIdsKey = 'pgwalo_notifications_read';
+  const persistReadIds = (ids: string[]) => {
+    if (!currentUser) return;
+    try {
+      const raw = localStorage.getItem(readIdsKey);
+      const byUser: Record<string, string[]> = raw ? JSON.parse(raw) : {};
+      const mine = new Set(byUser[currentUser.id] || []);
+      ids.forEach((id) => mine.add(id));
+      byUser[currentUser.id] = Array.from(mine).slice(-300);
+      localStorage.setItem(readIdsKey, JSON.stringify(byUser));
+    } catch {
+      // Storage unavailable — read state is best-effort.
+    }
+  };
+  const markNotificationsRead = (ids?: string[]) => {
+    setBroadcasts((prev) => {
+      const toMark = ids ? ids : prev.map((b) => b.id);
+      persistReadIds(toMark);
+      return prev.map((b) => (!ids || ids.includes(b.id)) && !b.read ? { ...b, read: true } : b);
+    });
+  };
+
   const recordAttendance = (record: Omit<AttendanceRecord, 'id' | 'date' | 'timestamp'>) => {
     const now = new Date();
     const timeString = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -3251,15 +3393,38 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       ...ticket,
       id: `tkt-${Date.now()}`,
       status: 'Reported',
-      createdAt: new Date().toISOString().split('T')[0],
+      createdAt: new Date().toISOString(),
+      requesterId: currentUser?.id,
     };
     setTickets((prev) => [newTkt, ...prev]);
+    if (isProductionApiEnabled() && getAuthToken()) {
+      void postMaintenanceTicket(newTkt).then((result) => {
+        if (result.ok && result.id && result.id !== newTkt.id) {
+          // The Worker kept its own id — re-key the local copy so status
+          // changes and notifications stay on the same record.
+          setTickets((prev) =>
+            prev.map((t) => (t.id === newTkt.id ? { ...t, id: result.id as string } : t))
+          );
+        }
+        if (!result.ok) console.warn('[maintenance] complaint could not be persisted to the database');
+      });
+    }
   };
 
-  const updateTicketStatus = (ticketId: string, status: MaintenanceTicket['status']) => {
+  const updateTicketStatus = (
+    ticketId: string,
+    status: MaintenanceTicket['status'],
+    extra?: { assignedStaffName?: string; resolutionNotes?: string; cost?: number }
+  ) => {
     setTickets((prev) =>
-      prev.map((t) => (t.id === ticketId ? { ...t, status } : t))
+      prev.map((t) => (t.id === ticketId ? { ...t, status, ...extra } : t))
     );
+    // Persist so the resident's dashboard sees the change and gets notified.
+    if (isProductionApiEnabled() && getAuthToken()) {
+      void patchMaintenanceTicketStatus(ticketId, status, extra).then((ok) => {
+        if (!ok) console.warn('[maintenance] status change could not be persisted');
+      });
+    }
   };
 
   const createSupportTicket = (ticket: Omit<SupportTicket, 'id' | 'requesterId' | 'requesterName' | 'requesterRole' | 'status' | 'createdAt' | 'updatedAt'>) => {
@@ -3276,6 +3441,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       updatedAt: now,
     };
     setSupportTickets((prev) => [newTicket, ...prev]);
+    if (isProductionApiEnabled() && getAuthToken()) {
+      void postSupportTicket(newTicket).then((result) => {
+        if (result.ok && result.id && result.id !== newTicket.id) {
+          // The Worker kept its own id — re-key the local copy so replies match.
+          setSupportTickets((prev) =>
+            prev.map((t) => (t.id === newTicket.id ? { ...t, id: result.id as string } : t))
+          );
+        }
+        if (!result.ok) console.warn('[support] ticket could not be persisted to the database');
+      });
+    }
   };
 
   const updateSupportTicket = (ticketId: string, status: SupportTicketStatus, adminNote?: string, assignedTo?: string) => {
@@ -3540,6 +3716,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         toggleTaskCompleted,
         addTask,
         addBroadcast,
+        markNotificationsRead,
         updateMealPlanDay,
         sendChatMessage,
         addMaintenanceTicket,
@@ -3551,6 +3728,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updateUserAccountStatus,
         setListingDecision,
         resetToDemoData,
+        productionHydrated,
       }}
     >
       {children}

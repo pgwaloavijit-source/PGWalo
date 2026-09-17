@@ -1,3 +1,4 @@
+import { apiUrl as sharedApiUrl } from './apiBase';
 import { BookingRequest, Invoice, Payment, SupportTicket, UserAccount } from '../types';
 import { getAuthToken, isProductionApiEnabled } from './productionApi';
 
@@ -5,10 +6,7 @@ import { getAuthToken, isProductionApiEnabled } from './productionApi';
 // filtered data. In demo mode every loader resolves to `null` so callers fall
 // back to the local AppContext state without breaking the UI.
 
-const apiUrl = (path: string) => {
-  const base = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, '') ?? '';
-  return `${base}${path}`;
-};
+const apiUrl = (path: string) => sharedApiUrl(path);
 
 function authHeaders(): Record<string, string> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -26,12 +24,35 @@ interface ListEnvelope<T> {
   stats?: Record<string, number>;
 }
 
-async function fetchEnvelope<T>(path: string): Promise<ListEnvelope<T> | null> {
+/**
+ * The Worker answers with a *named* collection plus pagination meta, e.g.
+ * `{ users: [...], page, pageSize, total, totalPages }`. Reading `data.items`
+ * here silently produced empty lists on the live site (Users / Owners /
+ * Tenants / Bookings / Payments all showed "No matching accounts").
+ * Accept the named key first and keep `items` as a fallback.
+ */
+async function fetchEnvelope<T>(
+  path: string,
+  collectionKey: 'users' | 'bookings' | 'payments'
+): Promise<ListEnvelope<T> | null> {
   if (!isProductionApiEnabled() || !getAuthToken()) return null;
   try {
     const response = await fetch(apiUrl(path), { headers: authHeaders() });
     if (!response.ok) return null;
-    return (await response.json()) as ListEnvelope<T>;
+    const data = (await response.json()) as Record<string, unknown>;
+    const items = Array.isArray(data[collectionKey])
+      ? (data[collectionKey] as T[])
+      : Array.isArray(data.items)
+        ? (data.items as T[])
+        : [];
+    return {
+      items,
+      page: Number(data.page) || 1,
+      pageSize: Number(data.pageSize) || items.length,
+      total: Number(data.total) || items.length,
+      totalPages: Number(data.totalPages) || 1,
+      stats: (data.stats as Record<string, number>) || undefined,
+    };
   } catch {
     return null;
   }
@@ -77,7 +98,7 @@ export async function fetchAdminUsers(query: AdminUserQuery = {}) {
   if (query.status && query.status !== 'all') params.set('status', query.status);
   params.set('page', String(query.page || 1));
   params.set('pageSize', String(query.pageSize || 50));
-  const data = await fetchEnvelope<AdminUserRow>(`/api/admin/users?${params.toString()}`);
+  const data = await fetchEnvelope<AdminUserRow>(`/api/admin/users?${params.toString()}`, 'users');
   if (!data) return null;
   const users: UserAccount[] = (data.items || []).map((row) => ({
     id: row.id,
@@ -102,7 +123,7 @@ export async function fetchAdminBookings(query: AdminDateQuery = {}) {
   if (query.to) params.set('to', query.to);
   params.set('page', String(query.page || 1));
   params.set('pageSize', String(query.pageSize || 200));
-  const data = await fetchEnvelope<Record<string, unknown>>(`/api/admin/bookings?${params.toString()}`);
+  const data = await fetchEnvelope<Record<string, unknown>>(`/api/admin/bookings?${params.toString()}`, 'bookings');
   if (!data) return null;
   return {
     bookings: (data.items || []) as unknown as BookingRequest[],
@@ -121,7 +142,7 @@ export async function fetchAdminPayments(query: AdminDateQuery = {}) {
   if (query.to) params.set('to', query.to);
   params.set('page', String(query.page || 1));
   params.set('pageSize', String(query.pageSize || 200));
-  const data = await fetchEnvelope<Record<string, unknown>>(`/api/admin/payments?${params.toString()}`);
+  const data = await fetchEnvelope<Record<string, unknown>>(`/api/admin/payments?${params.toString()}`, 'payments');
   if (!data) return null;
   return {
     payments: (data.items || []) as unknown as (Payment | Invoice)[],

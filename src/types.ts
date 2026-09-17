@@ -260,6 +260,7 @@ export interface Property {
   listingPaymentStatus?: 'Pending' | 'Paid' | 'Failed';
   listingFeeAmount?: number;
   publishedAt?: string;
+  description?: string;
   foodIncludedInRate?: boolean;
   electricityRatePerUnit?: number;
   taxPercent?: number;
@@ -468,6 +469,68 @@ export interface MaintenanceTicket {
   photoUrl?: string;
   cost?: number;
   resolutionNotes?: string;
+  propertyId?: string;
+  propertyName?: string;
+  updatedAt?: string;
+  requesterId?: string;
+  escalatedAt?: string;
+}
+
+/** Owner maintenance rollup: SLA health per priority + per-staff throughput. */
+export interface MaintenanceSlaRow {
+  priority: string;
+  total: number;
+  open: number;
+  resolved: number;
+  breachedOpen: number;
+  avgResolutionHours: number | null;
+  withinSlaPct: number | null;
+}
+
+export interface MaintenanceStaffStat {
+  name: string;
+  assigned: number;
+  open: number;
+  resolved: number;
+  avgResolutionHours: number | null;
+  lateResolutions: number;
+  escalations: number;
+}
+
+export interface MaintenanceBreachRow {
+  id: string;
+  title: string;
+  priority: string;
+  status: string;
+  roomNumber?: string;
+  propertyName?: string;
+  assignedStaffName?: string;
+  createdAt: string;
+  slaDeadline?: string;
+  escalatedAt?: string;
+}
+
+export interface MaintenanceOverview {
+  totals: {
+    total: number;
+    open: number;
+    resolved: number;
+    closed: number;
+    unassigned: number;
+    escalated: number;
+  };
+  sla: {
+    breachedOpen: number;
+    resolvedInSla: number;
+    resolvedLate: number;
+    withinSlaPct: number | null;
+    avgResolutionHours: number | null;
+    medianResolutionHours: number | null;
+    byPriority: MaintenanceSlaRow[];
+  };
+  staff: MaintenanceStaffStat[];
+  breached: MaintenanceBreachRow[];
+  generatedAt: string;
 }
 
 export interface PaymentReceipt {
@@ -909,15 +972,7 @@ export interface StayRecord {
   createdAt: string;
 }
 
-export type InvoiceStatus =
-  | 'Upcoming'
-  | 'Due'
-  | 'Partially Paid'
-  | 'Paid'
-  | 'Overdue'
-  | 'Adjusted'
-  | 'Waived'
-  | 'Cancelled';
+// InvoiceStatus is declared once above (RentPlan section).
 
 export interface InvoiceLineItem {
   id: string;

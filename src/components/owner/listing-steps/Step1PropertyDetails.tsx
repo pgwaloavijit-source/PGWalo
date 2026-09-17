@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { MapPin, Building2, Home, Info } from 'lucide-react';
 import { OwnerListingStep1, PropertyType, GenderOccupancy } from '../../../types';
+import { PincodeInput } from '../../common/PincodeInput';
 
 interface Step1PropertyDetailsProps {
   data: OwnerListingStep1;
@@ -186,26 +187,22 @@ const Step1PropertyDetails: React.FC<Step1PropertyDetailsProps> = ({ data, onDat
             {errors.fullAddress && <p className="mt-1 text-sm text-red-600">{errors.fullAddress}</p>}
           </div>
 
-          {/* Pincode */}
-          <div>
-            <label className="block text-sm font-semibold text-slate-700 mb-2">
-              Pincode <span className="text-red-500">*</span>
-            </label>
-            <div className="relative">
-              <MapPin className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-              <input
-                type="text"
-                value={data.pincode}
-                onChange={(e) => handleChange('pincode', e.target.value.replace(/\D/g, '').slice(0, 6))}
-                placeholder="6-digit pincode"
-                maxLength={6}
-                className={`w-full pl-12 pr-4 py-3 rounded-xl border ${
-                  errors.pincode ? 'border-red-300 bg-red-50' : 'border-slate-300 bg-slate-50'
-                } focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all outline-none`}
-              />
-            </div>
-            {errors.pincode && <p className="mt-1 text-sm text-red-600">{errors.pincode}</p>}
-          </div>
+          {/* Pincode — autofills city/state/country via India Post */}
+          <PincodeInput
+            label="Pincode"
+            required
+            value={data.pincode}
+            onPincodeChange={(pin) => handleChange('pincode', pin)}
+            onResolved={({ city, state, country }) => {
+              onDataChange({
+                ...data,
+                city: city || data.city,
+                state: state || data.state,
+                country: country || data.country || 'India',
+              });
+            }}
+            error={errors.pincode}
+          />
 
           {/* Nearby Landmark */}
           <div>

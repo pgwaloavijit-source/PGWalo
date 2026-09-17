@@ -58,6 +58,12 @@ export async function mediaHandler(request: Request, env: Env): Promise<Response
     const category = String(formData.get('category') || 'Bedroom').slice(0, 40);
     if (!file || typeof file === 'string') return json({ error: 'No file provided' }, 400);
 
+    // Residents are allowed to upload — complaint evidence photos. Everything
+    // else (photo enhance, owner categories) stays owner/admin-only.
+    if (!signedIn && path !== '/api/media/upload') {
+      return json({ error: 'Sign in to upload photos' }, 401);
+    }
+
     const blob = file as File;
     if (blob.size > 8 * 1024 * 1024) return json({ error: 'Photo must be under 8 MB' }, 400);
     if (!String(blob.type || '').startsWith('image/')) return json({ error: 'Only images are allowed' }, 400);
@@ -91,8 +97,12 @@ export async function mediaHandler(request: Request, env: Env): Promise<Response
       }
     }
 
-    const ownerId = (auth.user?.id || 'listing').replace(/[^a-zA-Z0-9_-]/g, '');
-    const filename = safeName(`owners/${ownerId}/${category}/${Date.now()}-${crypto.randomUUID().slice(0, 8)}.${contentType.includes('png') ? 'png' : 'jpg'}`);
+    const uploaderId = (auth.user?.id || 'listing').replace(/[^a-zA-Z0-9_-]/g, '');
+    // Complaint photos live under complaints/<residentId>/ so they cannot
+    // collide with (or be deleted through) an owner's listing photos.
+    const isComplaint = category === 'Complaint';
+    const prefix = isComplaint ? 'complaints' : 'owners';
+    const filename = safeName(`${prefix}/${uploaderId}/${category}/${Date.now()}-${crypto.randomUUID().slice(0, 8)}.${contentType.includes('png') ? 'png' : 'jpg'}`);
 
     if (env.MEDIA) {
       await env.MEDIA.put(filename, bytes, { httpMetadata: { contentType } });

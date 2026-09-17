@@ -1,6 +1,9 @@
 import {
   AuditLogEntry,
+  AttendanceRecord,
   Bed,
+  BookingRequest,
+  BroadcastNotification,
   Checkout,
   DepositTransaction,
   Invoice,
@@ -10,10 +13,15 @@ import {
   PaymentAllocation,
   Property,
   PublicSearchCriteria,
+  RentAgreement,
   RentPlan,
   Resident,
   Stay,
+  StaffMember,
+  SupportTicket,
+  UserAccount,
   UserRole,
+  MaintenanceTicket,
 } from '../types';
 import { DEFAULT_ORGANIZATION_ID } from '../domain/productionWorkflow';
 
@@ -31,14 +39,24 @@ export interface ProductionSnapshot {
   notices: Notice[];
   checkouts: Checkout[];
   auditLogs: AuditLogEntry[];
+  booking_requests?: BookingRequest[];
+  rent_agreements?: RentAgreement[];
+  broadcast_notifications?: BroadcastNotification[];
+  support_tickets?: SupportTicket[];
+  staff_members?: StaffMember[];
+  attendance_records?: AttendanceRecord[];
+  maintenance_tickets?: MaintenanceTicket[];
+  users?: UserAccount[];
 }
 
-const configuredBase = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, '') ?? '';
-const apiBaseUrl = configuredBase;
+import { apiUrl as sharedApiUrl } from './apiBase';
+
+const configuredBase = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/+$/, '') ?? '';
+const apiBaseUrl = configuredBase.endsWith('/api') ? configuredBase.slice(0, -4) : configuredBase;
 
 export const isProductionApiEnabled = () => import.meta.env.PROD || Boolean(configuredBase);
 
-const apiUrl = (path: string) => `${apiBaseUrl}${path}`;
+const apiUrl = (path: string) => sharedApiUrl(path);
 
 const headers = (role: UserRole, organizationId = DEFAULT_ORGANIZATION_ID) => {
   const requestHeaders: Record<string, string> = {
