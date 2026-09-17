@@ -1,6 +1,16 @@
 # PGWalo — Agent Codebase Reference
 
-> Single source of truth for architecture, flow, and deployment. Last updated: 2026-09-16.
+> Single source of truth for architecture, flow, and deployment. Last updated: 2026-09-17.
+
+## Deployment state (2026-09-17)
+
+- **Live version:** `586fac68-4359-4c6f-8d66-2cd60cddd9df` — https://pgwalo.com (also `www.`, `api.pgwalo.com`, `pgwalo.pgwalo-avijit.workers.dev`)
+- **Super admin console deployed** per `superadmin-flow.md`: login (env secrets), 15-section shell, DB-backed filters/pagination, durable support tickets, audit logging.
+- **D1 migrations applied to remote:** `schema.sql`, `auth-migration.sql`, `profile-kyc.sql`, `profile-extras.sql`, `admin-console-migration.sql` (adds `support_tickets` + admin lookup indexes).
+- **Post-deploy smoke checks (all passed):** `/api/health` 200; `/api/admin/*` without token → 401; superadmin login issues JWT; `/api/admin/{overview,users,bookings,payments,support-tickets}` return live D1 data with `Authorization: Bearer <jwt>`.
+- **Test suite:** `npm run test:admin` — 20/20 passing (RBAC 403/401, allow-list 400s, PATCH→D1→audit flow).
+
+> Security note: `SUPERADMIN_*` credentials are currently plain `[vars]` in `wrangler.toml` (visible to anyone with Wrangler access). Move to `wrangler secret put SUPERADMIN_PHONE|PIN|USERNAME|PASSWORD` and remove the vars block.
 
 ## Product
 
@@ -209,6 +219,8 @@ npm run d1:migrate            # apply schema.sql to remote D1
 | `build` | Production frontend → `dist/` |
 | `deploy` | `build` + `wrangler deploy` |
 | `d1:migrate` | Remote schema apply |
+| `d1:admin` | Remote `admin-console-migration.sql` (support_tickets) |
+| `test:admin` | Admin console unit tests (in-memory D1 stub) |
 | `local:db:init` | Local D1 seed |
 | `test:worker` | Worker smoke test |
 
@@ -216,9 +228,12 @@ npm run d1:migrate            # apply schema.sql to remote D1
 
 ## Approval Checklist (architecture)
 
-- [ ] Single deploy path: Worker + assets (no separate Pages Functions)
-- [ ] Demo vs production toggle via `VITE_API_BASE_URL` only
-- [ ] D1 as sole persistence (Supabase/Express removed)
-- [ ] JWT auth hardened against D1 `users` table
-- [ ] Align `DEFAULT_ORGANIZATION_ID` across env, workflow, wrangler
-- [ ] Enable R2 when media uploads go live
+- [x] Single deploy path: Worker + assets (no separate Pages Functions)
+- [x] Demo vs production toggle via `VITE_API_BASE_URL` only
+- [x] D1 as sole persistence (Supabase/Express removed)
+- [x] JWT auth hardened against D1 `users` table
+- [x] Align `DEFAULT_ORGANIZATION_ID` across env, workflow, wrangler
+- [x] Enable R2 when media uploads go live
+- [x] Super admin console (superadmin-flow.md) — deployed 2026-09-17
+- [ ] Move `SUPERADMIN_*` from `[vars]` to Wrangler secrets
+- [ ] JWT revocation list (stateless 24h tokens currently cannot be revoked server-side)
