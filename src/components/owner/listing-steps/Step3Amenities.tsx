@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Check, Wifi, Camera, Shield, Utensils, Zap, Home } from 'lucide-react';
 import { OwnerListingStep3 } from '../../../types';
+import { AMENITIES } from '../../../utils/amenities';
 
 interface Step3AmenitiesProps {
   data: OwnerListingStep3;
@@ -24,20 +25,31 @@ const ROOM_AMENITIES = [
 ];
 
 const PROPERTY_AMENITIES = [
-  { id: 'wifi', name: 'Wi-Fi', icon: '📶' },
-  { id: 'cctv', name: 'CCTV', icon: '📹' },
+  { id: 'high-speed-wifi', name: 'High-Speed Wi-Fi', icon: '📶' },
+  { id: 'air-conditioning', name: 'Air Conditioning', icon: '❄️' },
+  { id: 'homely-food', name: '3-Time Homely Food', icon: '🍱' },
+  { id: 'washing-machine-iron', name: 'Washing Machine & Iron', icon: '🧺' },
+  { id: 'attached-western-washroom', name: 'Attached Western Washroom', icon: '🚿' },
+  { id: 'generator-backup', name: '24×7 Generator Backup', icon: '🔋' },
+  { id: 'cctv-biometric-entry', name: 'CCTV & Biometric Entry', icon: '📹' },
+  { id: 'fitness-gym-yoga', name: 'Fitness Gym & Yoga Zone', icon: '💪' },
+  { id: 'mineral-ro-water', name: 'Mineral RO Water Dispenser', icon: '💧' },
+  { id: 'daily-housekeeping', name: 'Daily Room Housekeeping', icon: '🧹' },
+  { id: 'hot-water-geyser', name: 'Hot Water Geyser', icon: '🔥' },
+  { id: 'covered-parking', name: 'Covered Bike & Car Parking', icon: '🚗' },
+  { id: 'study-table-chair', name: 'Study Table & Chair', icon: '📚' },
+  { id: 'refrigerator', name: 'Refrigerator', icon: '🧊' },
+  { id: 'laundry-service', name: 'Laundry Service', icon: '👕' },
+  { id: 'lift-elevator', name: 'Lift / Elevator', icon: '🛗' },
+  { id: 'common-tv-lounge', name: 'Common TV Lounge', icon: '📺' },
+  { id: 'rooftop-terrace', name: 'Rooftop Terrace', icon: '☀️' },
   { id: 'security-guard', name: 'Security Guard', icon: '👮' },
-  { id: 'lift', name: 'Lift', icon: '🛗' },
-  { id: 'parking', name: 'Parking', icon: '🚗' },
-  { id: 'power-backup', name: 'Power Backup', icon: '🔋' },
-  { id: 'ro-water', name: 'RO Water', icon: '💧' },
-  { id: 'housekeeping', name: 'Housekeeping', icon: '🧹' },
-  { id: 'washing-machine', name: 'Washing Machine', icon: '🧺' },
-  { id: 'common-area', name: 'Common Area', icon: '🏠' },
-  { id: 'gym', name: 'Gym', icon: '💪' },
-  { id: 'gaming-zone', name: 'Gaming Zone', icon: '🎮' },
-  { id: 'terrace', name: 'Terrace', icon: '☀️' },
-  { id: 'garden', name: 'Garden', icon: '🌳' },
+  { id: 'fire-safety-system', name: 'Fire Safety System', icon: '🧯' },
+  { id: 'power-backup', name: 'Power Backup', icon: '⚡' },
+  { id: 'drinking-water', name: 'Drinking Water', icon: '🥤' },
+  { id: 'kitchen-access', name: 'Kitchen Access', icon: '🍳' },
+  { id: 'balcony', name: 'Balcony', icon: '🌅' },
+  { id: 'smart-tv', name: 'Smart TV', icon: '📺' },
 ];
 
 const FOOD_OPTIONS = [
@@ -47,13 +59,7 @@ const FOOD_OPTIONS = [
   { id: 'dinner', name: 'Dinner' },
 ];
 
-const OTHER_SERVICES = [
-  'Laundry',
-  'Cleaning',
-  'Room Service',
-  'Maintenance',
-  'Transportation',
-];
+const CANONICAL_PROPERTY_AMENITIES = AMENITIES.map((amenity) => ({ ...amenity, icon: '' }));
 
 const Step3Amenities: React.FC<Step3AmenitiesProps> = ({ data, onDataChange, onValidationChange }) => {
   const [customService, setCustomService] = useState('');
@@ -123,7 +129,7 @@ const Step3Amenities: React.FC<Step3AmenitiesProps> = ({ data, onDataChange, onV
     if (data.propertyAmenities.length === 0) {
       onDataChange({
         ...data,
-        propertyAmenities: PROPERTY_AMENITIES.map(a => ({ id: a.id, name: a.name, selected: false })),
+        propertyAmenities: CANONICAL_PROPERTY_AMENITIES.map(a => ({ id: a.id, name: a.name, selected: false })),
       });
     }
     if (data.foodOptions.length === 0) {
@@ -186,7 +192,7 @@ const Step3Amenities: React.FC<Step3AmenitiesProps> = ({ data, onDataChange, onV
                     : 'border-slate-200 bg-slate-50 text-slate-600 hover:border-slate-300'
                 }`}
               >
-                <div className="text-2xl mb-2">{PROPERTY_AMENITIES.find(a => a.id === amenity.id)?.icon}</div>
+                <div className="text-2xl mb-2">{CANONICAL_PROPERTY_AMENITIES.find(a => a.id === amenity.id)?.icon}</div>
                 <div className="text-sm font-medium">{amenity.name}</div>
                 {amenity.selected && (
                   <Check className="w-4 h-4 mt-2 text-blue-600" />
@@ -250,65 +256,6 @@ const Step3Amenities: React.FC<Step3AmenitiesProps> = ({ data, onDataChange, onV
           )}
         </div>
 
-        {/* Other Services */}
-        <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
-          <h3 className="text-xl font-semibold text-slate-900 mb-4 flex items-center gap-2">
-            <Shield className="w-5 h-5 text-blue-600" />
-            Other Services
-          </h3>
-          <div className="mb-4">
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={customService}
-                onChange={(e) => setCustomService(e.target.value)}
-                placeholder="Add custom service"
-                onKeyPress={(e) => e.key === 'Enter' && addCustomService()}
-                className="flex-1 px-4 py-2 rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-500 outline-none"
-              />
-              <button
-                onClick={addCustomService}
-                className="px-4 py-2 rounded-lg bg-blue-600 text-white font-medium hover:bg-blue-700 transition-colors"
-              >
-                Add
-              </button>
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            {OTHER_SERVICES.map((service) => (
-              <label key={service} className="flex items-center gap-3 p-3 rounded-lg hover:bg-slate-50 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={data.otherServices.includes(service)}
-                  onChange={(e) => {
-                    if (e.target.checked) {
-                      onDataChange({ ...data, otherServices: [...data.otherServices, service] });
-                    } else {
-                      onDataChange({ ...data, otherServices: data.otherServices.filter(s => s !== service) });
-                    }
-                  }}
-                  className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                />
-                <span className="text-sm text-slate-700">{service}</span>
-              </label>
-            ))}
-
-            {data.otherServices
-              .filter(service => !OTHER_SERVICES.includes(service))
-              .map((service) => (
-                <div key={service} className="flex items-center justify-between p-3 rounded-lg bg-blue-50 border border-blue-200">
-                  <span className="text-sm text-slate-700">{service}</span>
-                  <button
-                    onClick={() => removeCustomService(service)}
-                    className="text-red-600 hover:text-red-700 text-sm font-medium"
-                  >
-                    Remove
-                  </button>
-                </div>
-              ))}
-          </div>
-        </div>
       </div>
     </div>
   );

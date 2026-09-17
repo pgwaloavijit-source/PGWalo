@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { localIsoDate } from '../../utils/datetime';
-import { PaymentReceipt, BookingRequest } from '../../types';
+import { PaymentReceipt, BookingRequest, Agreement } from '../../types';
 import {
   Home,
   CreditCard,
@@ -33,6 +33,7 @@ import {
   LogOut,
 } from 'lucide-react';
 import { downloadInvoicePdf, downloadReceiptPdf } from '../../utils/pdfDocuments';
+import { DigitalAgreementModal } from '../features/DigitalAgreementModal';
 
 export const ResidentDashboard: React.FC = () => {
   const {
@@ -61,10 +62,12 @@ export const ResidentDashboard: React.FC = () => {
     recordPaymentForInvoice,
     initiateNoticePeriod,
     checkoutSettlements,
+    agreements,
   } = useApp();
 
   // Determine if this user has an approved, active room allocation
   const isAllocated = Boolean(currentResident && currentResident.roomNumber);
+  const [activeAgreement, setActiveAgreement] = useState<Agreement | null>(null);
 
   // Filter requests belonging to this user
   const today = localIsoDate();
@@ -282,6 +285,11 @@ export const ResidentDashboard: React.FC = () => {
 
             <div>
               <div className="flex items-center gap-2 flex-wrap">
+                {agreements.length > 0 && (
+                  <button onClick={() => setActiveAgreement(agreements[0])} className="px-3.5 py-2 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold transition flex items-center gap-1.5 border border-indigo-200">
+                    <FileText className="w-3.5 h-3.5" /> Agreement
+                  </button>
+                )}
                 <h1 className="text-xl font-black text-slate-900">
                   {currentResident?.name || currentUser?.name || 'Prospective Resident'}
                 </h1>
@@ -307,6 +315,9 @@ export const ResidentDashboard: React.FC = () => {
                   </span>
                 )}
               </div>
+              {activeAgreement && (
+                <DigitalAgreementModal agreement={activeAgreement} onClose={() => setActiveAgreement(null)} />
+              )}
 
               <p className="text-xs text-slate-500 mt-0.5 flex items-center gap-2">
                 {isAllocated ? (

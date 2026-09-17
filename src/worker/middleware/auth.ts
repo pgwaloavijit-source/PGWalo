@@ -45,6 +45,7 @@ export async function authMiddleware(request: Request, env: Env): Promise<AuthRe
 export function hasPermission(role: string, permission: string): boolean {
   const rolePermissions: Record<string, string[]> = {
     admin: ['*'],
+    superadmin: ['*'],
     owner: ['*'],
     manager: [
       'resident.view', 'resident.create', 'resident.edit', 'resident.move', 'resident.checkout',

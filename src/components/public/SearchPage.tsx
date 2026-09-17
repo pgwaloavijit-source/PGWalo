@@ -6,7 +6,7 @@ import { ListingImage } from '../common/ListingImage';
 import { citiesMatch, matchesPlaceQuery, mapPinPercents, mergeProperties, sortByDistance, nearbyLocalities, distanceKm, hasCoords } from '../../utils/locationMatch';
 import { osmEmbedUrl, osmBoundsUrl } from '../../services/geo';
 import { fetchPublicListings } from '../../services/listings';
-import { INITIAL_AMENITIES } from '../../mockData';
+import { AMENITIES, amenityLabel, normalizeAmenities } from '../../utils/amenities';
 import {
   Search,
   MapPin,
@@ -52,6 +52,8 @@ export const SearchPage: React.FC<{
   const [mobileFilterOpen, setMobileFilterOpen] = useState(false);
   const [activeHoverPG, setActiveHoverPG] = useState<Property | null>(null);
   const [selectedOwnerName, setSelectedOwnerName] = useState<string | null>(null);
+  const [expandedAmenities, setExpandedAmenities] = useState<string | null>(null);
+  const [cardAmenityLimit, setCardAmenityLimit] = useState(8);
   const [origin, setOrigin] = useState<{ lat: number; lng: number } | null>(
     initialCriteria.lat && initialCriteria.lng ? { lat: initialCriteria.lat, lng: initialCriteria.lng } : null
   );
@@ -79,6 +81,17 @@ export const SearchPage: React.FC<{
       { enableHighAccuracy: true, timeout: 6000 }
     );
   }, [origin]);
+
+  useEffect(() => {
+    const updateLimit = () => {
+      if (window.matchMedia('(min-width: 1024px)').matches) setCardAmenityLimit(10);
+      else if (window.matchMedia('(min-width: 640px)').matches) setCardAmenityLimit(9);
+      else setCardAmenityLimit(8);
+    };
+    updateLimit();
+    window.addEventListener('resize', updateLimit);
+    return () => window.removeEventListener('resize', updateLimit);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -160,7 +173,8 @@ export const SearchPage: React.FC<{
         }
         // Amenities
         if (selectedAmenities.length > 0) {
-          const hasAll = selectedAmenities.every((aId) => p.amenities.includes(aId));
+          const amenities = normalizeAmenities(p.amenities || []);
+          const hasAll = selectedAmenities.every((aId) => amenities.includes(aId));
           if (!hasAll) return false;
         }
         // Search text
@@ -447,7 +461,7 @@ export const SearchPage: React.FC<{
                   Amenities
                 </label>
                 <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
-                  {INITIAL_AMENITIES.slice(0, 8).map((amenity) => (
+                  {AMENITIES.slice(0, 8).map((amenity) => (
                     <label
                       key={amenity.id}
                       className="flex items-center gap-2.5 text-xs text-slate-700 hover:text-slate-900 cursor-pointer select-none"
@@ -591,6 +605,16 @@ export const SearchPage: React.FC<{
 
                         {/* Room options pills */}
                         <div className="mt-3 flex items-center gap-1.5 flex-wrap">
+                          {normalizeAmenities(pg.amenities || []).slice(0, expandedAmenities === pg.id ? undefined : cardAmenityLimit).map((amenity) => (
+                            <span key={amenity} className="px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 text-[10px] font-medium">
+                              {amenityLabel(amenity)}
+                            </span>
+                          ))}
+                          {normalizeAmenities(pg.amenities || []).length > cardAmenityLimit && (
+                            <button type="button" onClick={() => setExpandedAmenities(expandedAmenities === pg.id ? null : pg.id)} className="text-[10px] font-bold text-blue-700">
+                              {expandedAmenities === pg.id ? 'Show less' : `+${normalizeAmenities(pg.amenities || []).length - cardAmenityLimit} More`}
+                            </button>
+                          )}
                           {pg.rooms.map((room) => (
                             <span
                               key={room.id}

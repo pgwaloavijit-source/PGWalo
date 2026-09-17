@@ -9,6 +9,7 @@ import {
   MealPlanDay,
   ChatMessage,
   MaintenanceTicket,
+  SupportTicket,
   Amenity,
   UserAccount,
 } from './types';
@@ -136,18 +137,31 @@ export const DEMO_BOOKING_REQUESTS: BookingRequest[] = [
 ];
 
 export const INITIAL_AMENITIES: Amenity[] = [
-  { id: 'wifi', name: 'High-Speed 300 Mbps Wi-Fi', icon: 'Wifi', category: 'essential' },
-  { id: 'ac', name: 'Air Conditioning', icon: 'Wind', category: 'comfort' },
-  { id: 'food', name: '3-Time Homely Food', icon: 'Utensils', category: 'food' },
-  { id: 'laundry', name: 'Washing Machine & Iron', icon: 'Shirt', category: 'essential' },
-  { id: 'attached_bath', name: 'Attached Western Washroom', icon: 'Bath', category: 'comfort' },
-  { id: 'power_backup', name: '24x7 Generator Backup', icon: 'Zap', category: 'essential' },
-  { id: 'cctv', name: 'CCTV & Biometric Entry', icon: 'ShieldCheck', category: 'security' },
-  { id: 'gym', name: 'Fitness Gym & Yoga Zone', icon: 'Dumbbell', category: 'comfort' },
-  { id: 'ro_water', name: 'Mineral RO Water Dispenser', icon: 'Droplets', category: 'essential' },
-  { id: 'housekeeping', name: 'Daily Room Housekeeping', icon: 'Sparkles', category: 'essential' },
-  { id: 'geyser', name: 'Hot Water Geyser', icon: 'Flame', category: 'comfort' },
-  { id: 'parking', name: 'Covered Bike & Car Parking', icon: 'Car', category: 'comfort' },
+  { id: 'high_speed_wifi', name: 'High-Speed Wi-Fi', icon: 'Wifi', category: 'essential' },
+  { id: 'air_conditioning', name: 'Air Conditioning', icon: 'Wind', category: 'comfort' },
+  { id: 'homely_food', name: '3-Time Homely Food', icon: 'Utensils', category: 'food' },
+  { id: 'washing_machine_iron', name: 'Washing Machine & Iron', icon: 'Shirt', category: 'essential' },
+  { id: 'attached_western_washroom', name: 'Attached Western Washroom', icon: 'Bath', category: 'comfort' },
+  { id: 'generator_backup', name: '24×7 Generator Backup', icon: 'Zap', category: 'essential' },
+  { id: 'cctv_biometric_entry', name: 'CCTV & Biometric Entry', icon: 'ShieldCheck', category: 'security' },
+  { id: 'fitness_gym_yoga', name: 'Fitness Gym & Yoga Zone', icon: 'Dumbbell', category: 'comfort' },
+  { id: 'mineral_ro_water', name: 'Mineral RO Water Dispenser', icon: 'Droplets', category: 'essential' },
+  { id: 'daily_housekeeping', name: 'Daily Room Housekeeping', icon: 'Sparkles', category: 'essential' },
+  { id: 'hot_water_geyser', name: 'Hot Water Geyser', icon: 'Flame', category: 'comfort' },
+  { id: 'covered_parking', name: 'Covered Bike & Car Parking', icon: 'Car', category: 'comfort' },
+  { id: 'study_table_chair', name: 'Study Table & Chair', icon: 'BookOpen', category: 'comfort' },
+  { id: 'refrigerator', name: 'Refrigerator', icon: 'Refrigerator', category: 'comfort' },
+  { id: 'laundry_service', name: 'Laundry Service', icon: 'Shirt', category: 'essential' },
+  { id: 'lift_elevator', name: 'Lift / Elevator', icon: 'Building2', category: 'comfort' },
+  { id: 'common_tv_lounge', name: 'Common TV Lounge', icon: 'Tv', category: 'comfort' },
+  { id: 'rooftop_terrace', name: 'Rooftop Terrace', icon: 'Sun', category: 'comfort' },
+  { id: 'security_guard', name: 'Security Guard', icon: 'ShieldCheck', category: 'security' },
+  { id: 'fire_safety_system', name: 'Fire Safety System', icon: 'Flame', category: 'security' },
+  { id: 'power_backup', name: 'Power Backup', icon: 'Zap', category: 'essential' },
+  { id: 'drinking_water', name: 'Drinking Water', icon: 'Droplets', category: 'essential' },
+  { id: 'kitchen_access', name: 'Kitchen Access', icon: 'Utensils', category: 'comfort' },
+  { id: 'balcony', name: 'Balcony', icon: 'Home', category: 'comfort' },
+  { id: 'smart_tv', name: 'Smart TV', icon: 'Tv', category: 'comfort' },
 ];
 
 export const INITIAL_PROPERTIES: Property[] = [
@@ -845,6 +859,8 @@ export const INITIAL_TICKETS: MaintenanceTicket[] = [
   },
 ];
 
+export const INITIAL_SUPPORT_TICKETS: SupportTicket[] = [];
+
 export const INITIAL_USERS: UserAccount[] = [];
 
 export const DEFAULT_ROLE_PERMISSIONS = {
@@ -1452,5 +1468,3 @@ export const INITIAL_CHECKOUT_SETTLEMENTS = [
     notes: 'Smooth checkout; security deposit settled via UPI.',
   },
 ];
-
-

@@ -17,8 +17,9 @@ import { DigitalAgreementModal } from '../features/DigitalAgreementModal';
 import { MoveInInspectionModal } from '../features/MoveInInspectionModal';
 
 export const AgreementsTab: React.FC = () => {
-  const { signAgreement } = useApp();
+  const { agreements: allAgreements, signAgreement } = useApp();
   const { agreements, residents } = useOwnerScope();
+  const sampleAgreement = agreements[0] || allAgreements[0];
 
   const [activeAgreementModal, setActiveAgreementModal] = useState<Agreement | null>(null);
   const [activeInspectionModal, setActiveInspectionModal] = useState<{ room: string; tenant: string } | null>(null);
@@ -39,7 +40,7 @@ export const AgreementsTab: React.FC = () => {
         <div className="flex items-center gap-2">
           <button
             onClick={() => {
-              if (agreements[0]) setActiveAgreementModal(agreements[0]);
+              if (sampleAgreement) setActiveAgreementModal(sampleAgreement);
             }}
             className="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-md shadow-indigo-500/20 flex items-center gap-1.5"
           >

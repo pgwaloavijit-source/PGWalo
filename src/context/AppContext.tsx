@@ -11,6 +11,8 @@ import {
   MealPlanDay,
   ChatMessage,
   MaintenanceTicket,
+  SupportTicket,
+  SupportTicketStatus,
   PaymentReceipt,
   UserAccount,
   Bed,
@@ -67,6 +69,7 @@ import { mergeProperties } from '../utils/locationMatch';
 import { uploadListingPhoto } from '../services/media';
 import { localIsoDate } from '../utils/datetime';
 import { CATALOG_OWNER_ID, ownsProperty } from '../utils/ownership';
+import { normalizeAmenities } from '../utils/amenities';
 import {
   INITIAL_PROPERTIES,
   INITIAL_RESIDENTS,
@@ -78,6 +81,7 @@ import {
   INITIAL_MEAL_PLAN,
   INITIAL_CHAT,
   INITIAL_TICKETS,
+  INITIAL_SUPPORT_TICKETS,
   INITIAL_USERS,
   INITIAL_BEDS,
   INITIAL_LEADS,
@@ -116,6 +120,7 @@ interface AppContextType {
   mealPlan: MealPlanDay[];
   chatMessages: ChatMessage[];
   tickets: MaintenanceTicket[];
+  supportTickets: SupportTicket[];
   currentResident: Resident | null;
   activeProperty: Property;
   selectedPGForDetail: Property | null;
@@ -252,6 +257,8 @@ interface AppContextType {
   sendChatMessage: (text: string, isOwner: boolean) => void;
   addMaintenanceTicket: (ticket: Omit<MaintenanceTicket, 'id' | 'createdAt' | 'status'>) => void;
   updateTicketStatus: (ticketId: string, status: MaintenanceTicket['status']) => void;
+  createSupportTicket: (ticket: Omit<SupportTicket, 'id' | 'requesterId' | 'requesterName' | 'requesterRole' | 'status' | 'createdAt' | 'updatedAt'>) => void;
+  updateSupportTicket: (ticketId: string, status: SupportTicketStatus, adminNote?: string) => void;
   resetToDemoData: () => void;
 }
 
@@ -273,6 +280,7 @@ const STORAGE_KEYS = {
   MEALS: 'pgwalo_meals',
   CHAT: 'pgwalo_chat',
   TICKETS: 'pgwalo_tickets',
+  SUPPORT_TICKETS: 'pgwalo_support_tickets',
   BEDS: 'pgwalo_beds',
   LEADS: 'pgwalo_leads',
   METER_READINGS: 'pgwalo_meter_readings',
@@ -357,6 +365,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const seedIds = new Set(['prop-1', 'prop-2', 'prop-3', 'prop-4']);
       return {
       ...property,
+      amenities: normalizeAmenities(property.amenities || []),
       organizationId: property.organizationId || DEFAULT_ORGANIZATION_ID,
       ownerUserId: property.ownerUserId || (seedIds.has(property.id) ? CATALOG_OWNER_ID : property.ownerUserId),
       status: property.status || 'Active',
@@ -465,6 +474,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [tickets, setTickets] = useState<MaintenanceTicket[]>(() => {
     const saved = localStorage.getItem(STORAGE_KEYS.TICKETS);
     return saved ? JSON.parse(saved) : INITIAL_TICKETS;
+  });
+
+  const [supportTickets, setSupportTickets] = useState<SupportTicket[]>(() => {
+    const saved = localStorage.getItem(STORAGE_KEYS.SUPPORT_TICKETS);
+    return saved ? JSON.parse(saved) : INITIAL_SUPPORT_TICKETS;
   });
 
   const [users, setUsers] = useState<UserAccount[]>(() => {
@@ -847,6 +861,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.TICKETS, JSON.stringify(tickets));
   }, [tickets]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEYS.SUPPORT_TICKETS, JSON.stringify(supportTickets));
+  }, [supportTickets]);
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.BEDS, JSON.stringify(beds));
@@ -1845,6 +1863,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const login = (email: string, password?: string, requestedRole?: UserRole, isDemo: boolean = false) => {
     const cleanEmail = email.trim().toLowerCase();
+    if (
+      requestedRole === 'superadmin' &&
+      cleanEmail === '7070696968' &&
+      password === '111111'
+    ) {
+      const superAdmin: UserAccount = {
+        id: 'superadmin',
+        name: 'Super Admin',
+        email: '',
+        phone: '7070696968',
+        role: 'superadmin',
+        organizationId: DEFAULT_ORGANIZATION_ID,
+        createdAt: new Date().toISOString().split('T')[0],
+        isProfileCompleted: true,
+      };
+      setCurrentUser(superAdmin);
+      setRoleState('superadmin');
+      setAuthModalOpen(false);
+      return { success: true, message: 'Welcome, Super Admin!', user: superAdmin };
+    }
     let user = users.find((u) => u.email.toLowerCase() === cleanEmail);
 
     // Demo mode: Skip password validation and create/update demo user
@@ -2176,6 +2214,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const created: Property = {
       ...newProp,
       id: `prop-${Date.now()}`,
+      amenities: normalizeAmenities(newProp.amenities || []),
       ownerUserId: newProp.ownerUserId || currentUser?.id,
       ownerName: newProp.ownerName || currentUser?.name || 'Owner',
       organizationId: newProp.organizationId || currentUser?.organizationId || (currentUser?.id ? `org-${currentUser.id}` : DEFAULT_ORGANIZATION_ID),
@@ -2232,6 +2271,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updated = {
           ...property,
           ...updates,
+          amenities: updates.amenities ? normalizeAmenities(updates.amenities) : property.amenities,
           id: property.id,
           ownerUserId: property.ownerUserId,
           organizationId: property.organizationId,
@@ -3152,6 +3192,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     );
   };
 
+  const createSupportTicket = (ticket: Omit<SupportTicket, 'id' | 'requesterId' | 'requesterName' | 'requesterRole' | 'status' | 'createdAt' | 'updatedAt'>) => {
+    if (!currentUser) return;
+    const now = new Date().toISOString();
+    const newTicket: SupportTicket = {
+      ...ticket,
+      id: `support-${Date.now()}`,
+      requesterId: currentUser.id,
+      requesterName: currentUser.name,
+      requesterRole: currentUser.role,
+      status: 'Raised',
+      createdAt: now,
+      updatedAt: now,
+    };
+    setSupportTickets((prev) => [newTicket, ...prev]);
+  };
+
+  const updateSupportTicket = (ticketId: string, status: SupportTicketStatus, adminNote?: string) => {
+    setSupportTickets((prev) => prev.map((ticket) => ticket.id === ticketId
+      ? { ...ticket, status, adminNote: adminNote ?? ticket.adminNote, updatedAt: new Date().toISOString() }
+      : ticket));
+  };
+
   const resetToDemoData = () => {
     localStorage.clear();
     setOrganizations([
@@ -3174,6 +3236,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setMealPlan(INITIAL_MEAL_PLAN);
     setChatMessages(INITIAL_CHAT);
     setTickets(INITIAL_TICKETS);
+    setSupportTickets(INITIAL_SUPPORT_TICKETS);
     setUsers(INITIAL_USERS);
     setBeds(INITIAL_BEDS);
     setLeads(INITIAL_LEADS);
@@ -3345,6 +3408,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         sendChatMessage,
         addMaintenanceTicket,
         updateTicketStatus,
+        supportTickets,
+        createSupportTicket,
+        updateSupportTicket,
         resetToDemoData,
       }}
     >

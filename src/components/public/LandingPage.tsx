@@ -23,6 +23,7 @@ import { visitedPropertyIds, bookedPropertyIds } from '../../utils/userBookings'
 import { ListingImage } from '../common/ListingImage';
 import { GenderPreference, PublicSearchCriteria, Property } from '../../types';
 import { fetchPublicListings } from '../../services/listings';
+import { amenityLabel, normalizeAmenities } from '../../utils/amenities';
 import { searchPlaces } from '../../services/geo';
 import { mergeProperties, nearbyLocalities, sortByDistance, hasCoords } from '../../utils/locationMatch';
 
@@ -45,6 +46,8 @@ export const LandingPage: React.FC<{
   const [locationError, setLocationError] = useState('');
   const [userCoords, setUserCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [specificSearch, setSpecificSearch] = useState(false);
+  const [expandedAmenities, setExpandedAmenities] = useState<string | null>(null);
+  const [cardAmenityLimit, setCardAmenityLimit] = useState(8);
   const locationInputRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -57,6 +60,17 @@ export const LandingPage: React.FC<{
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  useEffect(() => {
+    const updateLimit = () => {
+      if (window.matchMedia('(min-width: 1024px)').matches) setCardAmenityLimit(10);
+      else if (window.matchMedia('(min-width: 640px)').matches) setCardAmenityLimit(9);
+      else setCardAmenityLimit(8);
+    };
+    updateLimit();
+    window.addEventListener('resize', updateLimit);
+    return () => window.removeEventListener('resize', updateLimit);
   }, []);
 
   // Close suggestions when clicking outside
@@ -504,15 +518,22 @@ export const LandingPage: React.FC<{
 
                     {/* Amenities pills */}
                     <div className="flex flex-wrap gap-1.5 mt-3">
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 text-[10px] font-semibold">
-                        <Utensils className="w-3 h-3" /> Food Inc.
-                      </span>
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 text-[10px] font-semibold">
-                        <Wifi className="w-3 h-3" /> 300 Mbps
-                      </span>
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 text-[10px] font-semibold">
-                        <Clock className="w-3 h-3" /> Gate: {pg.gateClosingTime}
-                      </span>
+                      {normalizeAmenities(pg.amenities || []).slice(0, expandedAmenities === pg.id ? undefined : cardAmenityLimit).map((amenity) => (
+                        <span key={amenity} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 text-[10px] font-semibold">
+                          {amenity === 'food' ? <Utensils className="w-3 h-3" /> : <Wifi className="w-3 h-3" />}
+                          {amenityLabel(amenity)}
+                        </span>
+                      ))}
+                      {normalizeAmenities(pg.amenities || []).length > cardAmenityLimit && (
+                        <button type="button" onClick={() => setExpandedAmenities(expandedAmenities === pg.id ? null : pg.id)} className="text-[10px] font-bold text-blue-700 hover:text-blue-900">
+                          {expandedAmenities === pg.id ? 'Show less' : `+${normalizeAmenities(pg.amenities || []).length - cardAmenityLimit} More`}
+                        </button>
+                      )}
+                      {pg.gateClosingTime && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 text-[10px] font-semibold">
+                          <Clock className="w-3 h-3" /> Gate: {pg.gateClosingTime}
+                        </span>
+                      )}
                     </div>
                   </div>
                 </div>

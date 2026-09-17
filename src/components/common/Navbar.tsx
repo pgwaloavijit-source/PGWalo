@@ -154,6 +154,14 @@ export const Navbar: React.FC<NavbarProps> = ({
             {/* Right Action Section */}
             <div className="flex items-center gap-2.5 sm:gap-3">
               <PWAInstallButton />
+              {currentUser && (
+                <button
+                  onClick={() => setCurrentTab('support')}
+                  className="hidden sm:inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-slate-600 hover:text-indigo-600 rounded-xl min-h-[40px]"
+                >
+                  Support
+                </button>
+              )}
               {!currentUser ? (
                 /* ================= PUBLIC (UNAUTHENTICATED) HEADER =================
                    Contains strictly:

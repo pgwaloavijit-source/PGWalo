@@ -4,6 +4,7 @@ export type UserRole =
   | 'resident'
   | 'staff'
   | 'admin'
+  | 'superadmin'
   | 'manager'
   | 'warden'
   | 'accountant';
@@ -135,6 +136,23 @@ export interface UserAccount {
   status?: 'Active' | 'Suspended' | 'Pending Verification';
   assignedProperties?: string[];
   permissions?: Partial<RolePermissions>;
+}
+
+export type SupportTicketStatus = 'Raised' | 'Open' | 'Resolved' | 'Closed';
+
+export interface SupportTicket {
+  id: string;
+  requesterId: string;
+  requesterName: string;
+  requesterRole: UserRole;
+  type: string;
+  title: string;
+  description: string;
+  imageUrl?: string;
+  status: SupportTicketStatus;
+  createdAt: string;
+  updatedAt: string;
+  adminNote?: string;
 }
 
 export type GenderPreference = 'Boys' | 'Girls' | 'Unisex';
@@ -1153,4 +1171,3 @@ export interface OwnerListingData {
   createdAt: string;
   updatedAt: string;
 }
-

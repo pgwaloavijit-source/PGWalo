@@ -45,6 +45,7 @@ import { UserAvatar } from '../common/UserAvatar';
 import { ListingImage } from '../common/ListingImage';
 import { OwnerListingWizard } from './OwnerListingWizard';
 import { useOwnerScope } from '../../utils/ownership';
+import { AMENITIES, amenityLabel, normalizeAmenities } from '../../utils/amenities';
 
 export const OwnerDashboard: React.FC = () => {
   const {
@@ -127,8 +128,8 @@ export const OwnerDashboard: React.FC = () => {
         deposit: firstBed?.securityDeposit || 8000,
         availableBeds: (room.beds || []).filter((b) => b.status === 'Available' || b.status === 'Vacant').length,
         totalBeds: (room.beds || []).length,
-        hasAttachedBath: (step3?.roomAmenities || []).some((a) => a.id === 'Attached Bathroom' && a.selected),
-        hasAC: (step3?.roomAmenities || []).some((a) => a.id === 'AC' && a.selected),
+        hasAttachedBath: (step3?.roomAmenities || []).some((a) => a.id === 'attached-bathroom' && a.selected),
+        hasAC: (step3?.roomAmenities || []).some((a) => a.id === 'ac' && a.selected),
         hasBalcony: (step3?.roomAmenities || []).some((a) => a.id === 'Balcony' && a.selected),
       };
     });
@@ -136,13 +137,12 @@ export const OwnerDashboard: React.FC = () => {
     // Calculate starting price from lowest room
     const startingPrice = rooms.length > 0 ? Math.min(...rooms.map(r => r.rentPerMonth)) : 8000;
 
-    // Convert amenities to amenity IDs (strings)
-    const amenityIds: string[] = [
+    const amenityIds = normalizeAmenities([
       ...(step3?.roomAmenities || []).filter((a) => a.selected).map((a) => a.id),
       ...(step3?.propertyAmenities || []).filter((a) => a.selected).map((a) => a.id),
-      ...(step3?.foodAvailable ? ['food'] : []),
+      ...(step3?.foodAvailable ? ['three_time_food'] : []),
       ...(step3?.otherServices || []),
-    ];
+    ]);
 
     // Convert rules to string array
     const rules = [
@@ -252,8 +252,12 @@ export const OwnerDashboard: React.FC = () => {
         { id: 'Attached Bathroom', name: 'Attached Bathroom', selected: property.rooms?.some((r) => r.hasAttachedBath) || false },
         { id: 'Balcony', name: 'Balcony', selected: property.rooms?.some((r) => r.hasBalcony) || false },
       ],
-      propertyAmenities: (property.amenities || []).filter((id) => id !== 'food').map((id) => ({ id, name: id, selected: true })),
-      foodAvailable: property.foodIncluded,
+      propertyAmenities: AMENITIES.map((amenity) => ({
+        id: amenity.id,
+        name: amenity.name,
+        selected: normalizeAmenities(property.amenities || []).includes(amenity.id),
+      })),
+      foodAvailable: normalizeAmenities(property.amenities || []).includes('three_time_food') || property.foodIncluded,
       foodIncludedInRate: Boolean(property.foodIncludedInRate ?? property.foodIncluded),
       foodOptions: [
         { id: 'breakfast', name: 'Breakfast', selected: property.foodIncluded },

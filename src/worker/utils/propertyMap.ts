@@ -1,3 +1,5 @@
+import { normalizeAmenities } from '../../utils/amenities';
+
 type ListingRecord = Record<string, unknown>;
 
 export function compactMediaUrl(url?: string, fallback = '') {
@@ -48,7 +50,7 @@ export function rowToProperty(row: ListingRecord): ListingRecord {
     rating: Number(row.rating) || 0,
     reviewCount: Number(row.review_count ?? row.reviewCount) || 0,
     rooms: Array.isArray(rooms) ? rooms : [],
-    amenities: Array.isArray(amenities) ? amenities : [],
+    amenities: normalizeAmenities(Array.isArray(amenities) ? amenities as string[] : []),
     rules: Array.isArray(rules) ? rules : [],
     noticePeriodDays: Number(row.notice_period_days ?? row.noticePeriodDays) || 30,
     gateClosingTime: String((row.gate_closing_time ?? row.gateClosingTime) || ''),
@@ -89,7 +91,7 @@ export function propertyToRow(property: ListingRecord) {
     rating: property.rating || 0,
     review_count: property.reviewCount || 0,
     rooms: JSON.stringify(property.rooms || []),
-    amenities: JSON.stringify(property.amenities || []),
+    amenities: JSON.stringify(normalizeAmenities(Array.isArray(property.amenities) ? property.amenities as string[] : [])),
     rules: JSON.stringify(property.rules || []),
     notice_period_days: property.noticePeriodDays || 30,
     gate_closing_time: property.gateClosingTime || '',

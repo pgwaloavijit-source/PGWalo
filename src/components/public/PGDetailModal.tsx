@@ -5,7 +5,7 @@ import { defaultVisitDate, defaultVisitSlot, availableVisitSlots, localIsoDate, 
 import { visitedPropertyIds, activeBookingForProperty } from '../../utils/userBookings';
 import { ListingImage } from '../common/ListingImage';
 import { osmEmbedUrl } from '../../services/geo';
-import { INITIAL_AMENITIES } from '../../mockData';
+import { amenityLabel, normalizeAmenities } from '../../utils/amenities';
 import {
   X,
   MapPin,
@@ -105,6 +105,7 @@ export const PGDetailModal: React.FC<{
   const existingBooking = activeBookingForProperty(bookingRequests, currentUser, property.id);
   const ownerCannotBook = currentUser?.role === 'owner';
   const hideVisitCta = intent === 'book' || alreadyVisited;
+  const savedAmenities = normalizeAmenities(property.amenities || []);
 
   useEffect(() => {
     if (existingBooking) {
@@ -398,7 +399,7 @@ export const PGDetailModal: React.FC<{
                 activeTab === 'amenities' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-800'
               }`}
             >
-              Amenities ({property.amenities.length})
+              Amenities ({savedAmenities.length})
             </button>
             <button
               onClick={() => setActiveTab('menu')}
@@ -472,22 +473,15 @@ export const PGDetailModal: React.FC<{
           {/* Tab 2: Amenities */}
           {activeTab === 'amenities' && (
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              {INITIAL_AMENITIES.map((amenity) => {
-                const included = property.amenities.includes(amenity.id);
-                return (
-                  <div
-                    key={amenity.id}
-                    className={`p-3 rounded-xl border flex items-center gap-2.5 text-xs font-medium transition ${
-                      included ? 'bg-white border-slate-200 text-slate-800' : 'opacity-40 border-dashed border-slate-200 text-slate-400'
-                    }`}
-                  >
-                    <CheckCircle2
-                      className={`w-4 h-4 shrink-0 ${included ? 'text-blue-600' : 'text-slate-300'}`}
-                    />
-                    <span>{amenity.name}</span>
-                  </div>
-                );
-              })}
+              {savedAmenities.map((amenity) => (
+                <div
+                  key={amenity}
+                  className="p-3 rounded-xl border border-slate-200 bg-white flex items-center gap-2.5 text-xs font-medium text-slate-800"
+                >
+                  <CheckCircle2 className="w-4 h-4 shrink-0 text-blue-600" />
+                  <span>{amenityLabel(amenity)}</span>
+                </div>
+              ))}
             </div>
           )}
 

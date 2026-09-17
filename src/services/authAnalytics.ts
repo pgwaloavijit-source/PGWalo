@@ -1,6 +1,6 @@
 import { isProductionApiEnabled } from './productionApi';
 
-export type AuthPath = 'explorer' | 'resident' | 'owner' | 'staff';
+export type AuthPath = 'explorer' | 'resident' | 'owner' | 'staff' | 'superadmin';
 export type AuthIntent =
   | 'browse'
   | 'book_pg'

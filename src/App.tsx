@@ -18,6 +18,7 @@ import { StaffDashboard } from './components/staff/StaffDashboard';
 import { AdminDashboard } from './components/admin/AdminDashboard';
 import { WardenDashboard } from './components/warden/WardenDashboard';
 import { AccountantDashboard } from './components/accountant/AccountantDashboard';
+import { SupportCenter } from './components/common/SupportCenter';
 import { PublicSearchCriteria } from './types';
 import { useStandalonePWA } from './hooks/useStandalonePWA';
 
@@ -60,6 +61,7 @@ const MainAppContent: React.FC = () => {
     else if (currentUser.role === 'resident') setCurrentTab('resident');
     else if (currentUser.role === 'staff') setCurrentTab('staff');
     else if (currentUser.role === 'admin') setCurrentTab('admin');
+    else if (currentUser.role === 'superadmin') setCurrentTab('admin');
     else if (currentUser.role === 'warden') setCurrentTab('warden');
     else if (currentUser.role === 'accountant') setCurrentTab('accountant');
   }, [currentUser?.id, currentUser?.role, profileModalOpen]);
@@ -88,6 +90,8 @@ const MainAppContent: React.FC = () => {
 
   const isDashboardView =
     currentTab === 'profile' ||
+    currentTab === 'support' ||
+    role === 'superadmin' ||
     (role === 'admin' || currentTab === 'admin') ||
     (role === 'warden' || currentTab === 'warden') ||
     (role === 'accountant' || currentTab === 'accountant') ||
@@ -107,7 +111,9 @@ const MainAppContent: React.FC = () => {
           <SearchPage onSelectPG={handleSelectPG} initialCriteria={searchParams} />
         ) : currentTab === 'landing' ? (
           <LandingPage onExploreClick={handleExploreWithParams} onSelectPG={handleSelectPG} />
-        ) : role === 'admin' || currentTab === 'admin' ? (
+        ) : currentTab === 'support' ? (
+          <SupportCenter />
+        ) : role === 'admin' || role === 'superadmin' || currentTab === 'admin' ? (
           <AdminDashboard />
         ) : role === 'warden' || currentTab === 'warden' ? (
           <WardenDashboard />

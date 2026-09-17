@@ -234,6 +234,26 @@ export async function authHandler(request: Request, env: Env): Promise<Response>
         deviceType?: string;
       };
 
+      if (
+        env.SUPERADMIN_USERNAME &&
+        env.SUPERADMIN_PASSWORD &&
+        (body.email === env.SUPERADMIN_USERNAME || body.phone === env.SUPERADMIN_USERNAME) &&
+        body.password === env.SUPERADMIN_PASSWORD
+      ) {
+        const role = 'superadmin';
+        const token = await generateJWT({
+          userId: 'superadmin',
+          role,
+          organizationId: env.DEFAULT_ORGANIZATION_ID,
+          name: 'Super Admin',
+        }, env.JWT_SECRET || 'default-secret');
+        return json({
+          success: true,
+          token,
+          user: { id: 'superadmin', role, name: 'Super Admin', organizationId: env.DEFAULT_ORGANIZATION_ID },
+        });
+      }
+
       const user = body.email
         ? await findUserByEmail(env, body.email)
         : body.phone

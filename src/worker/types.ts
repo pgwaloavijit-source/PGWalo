@@ -19,6 +19,8 @@ export interface Env {
   ENVIRONMENT: string;
   DEFAULT_ORGANIZATION_ID: string;
   JWT_SECRET?: string;
+  SUPERADMIN_USERNAME?: string;
+  SUPERADMIN_PASSWORD?: string;
 }
 
 export interface User {

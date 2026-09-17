@@ -19,6 +19,7 @@ import { uploadListingPhoto } from '../../services/media';
 import { searchPlaces } from '../../services/geo';
 import { useApp } from '../../context/AppContext';
 import { cachedPinLocations, lookupIndianPincode } from '../../utils/indiaLocations';
+import { AMENITIES } from '../../utils/amenities';
 import {
   OwnerListingData,
   OwnerListingStep1,
@@ -41,21 +42,6 @@ const DEFAULT_CITIES = ['Bengaluru', 'Mumbai', 'Delhi', 'Pune', 'Hyderabad', 'Ch
 const DEFAULT_STATES = ['Karnataka', 'Maharashtra', 'Delhi', 'Uttar Pradesh', 'Telangana', 'Tamil Nadu', 'West Bengal', 'Gujarat'];
 const COUNTRIES = ['India'];
 const GENDERS: OwnerListingStep1['genderOccupancy'][] = ['Boys', 'Girls', 'Unisex / Co-ed'];
-
-const QUICK_AMENITIES = [
-  { id: 'wifi', name: 'Wi-Fi', group: 'property' as const },
-  { id: 'cctv', name: 'CCTV', group: 'property' as const },
-  { id: 'power-backup', name: 'Power backup', group: 'property' as const },
-  { id: 'food', name: 'Food', group: 'food' as const },
-  { id: 'AC', name: 'AC', group: 'room' as const },
-  { id: 'Attached Bathroom', name: 'Attached bath', group: 'room' as const },
-  { id: 'wardrobe', name: 'Wardrobe', group: 'room' as const },
-  { id: 'parking', name: 'Parking', group: 'property' as const },
-  { id: 'laundry', name: 'Laundry', group: 'property' as const },
-  { id: 'housekeeping', name: 'Housekeeping', group: 'property' as const },
-  { id: 'lift', name: 'Lift', group: 'property' as const },
-  { id: 'study-zone', name: 'Study zone', group: 'property' as const },
-];
 
 const ROOM_TEMPLATES: { sharing: SharingCapacity; beds: number; rent: number; label: string }[] = [
   { sharing: 'Single', beds: 1, rent: 14000, label: 'Single' },
@@ -228,26 +214,17 @@ const OwnerListingWizard: React.FC<OwnerListingWizardProps> = ({ onComplete, onC
     });
   };
 
-  const toggleAmenity = (id: string, group: 'room' | 'property' | 'food') => {
-    if (group === 'food') {
-      const nextFoodAvailable = !step3.foodAvailable;
-      setStep3({ ...step3, foodAvailable: nextFoodAvailable, foodIncludedInRate: nextFoodAvailable ? step3.foodIncludedInRate : false });
-      return;
-    }
-    const key = group === 'room' ? 'roomAmenities' : 'propertyAmenities';
-    const list = step3[key];
+  const toggleAmenity = (id: string) => {
+    const list = step3.propertyAmenities;
     const exists = list.find((a) => a.id === id);
     const next = exists
       ? list.map((a) => (a.id === id ? { ...a, selected: !a.selected } : a))
-      : [...list, { id, name: id, selected: true }];
-    setStep3({ ...step3, [key]: next });
+      : [...list, { id, name: AMENITIES.find((amenity) => amenity.id === id)?.name || id, selected: true }];
+    const foodAvailable = id === 'three_time_food' ? Boolean(next.find((a) => a.id === id)?.selected) : step3.foodAvailable;
+    setStep3({ ...step3, propertyAmenities: next, foodAvailable });
   };
 
-  const isAmenityOn = (id: string, group: 'room' | 'property' | 'food') => {
-    if (group === 'food') return step3.foodAvailable;
-    const list = group === 'room' ? step3.roomAmenities : step3.propertyAmenities;
-    return Boolean(list.find((a) => a.id === id)?.selected);
-  };
+  const isAmenityOn = (id: string) => Boolean(step3.propertyAmenities.find((a) => a.id === id)?.selected);
 
   const addOptionalCharge = () => {
     setStep3({
@@ -489,6 +466,15 @@ const OwnerListingWizard: React.FC<OwnerListingWizardProps> = ({ onComplete, onC
                       className={`${inputClass} resize-none`}
                     />
                   </Field>
+                  <Field label="Description">
+                    <textarea
+                      rows={3}
+                      value={step1.propertyDescription}
+                      onChange={(e) => setStep1({ ...step1, propertyDescription: e.target.value })}
+                      placeholder="Describe the rooms, food, rules, nearby landmarks, or anything tenants should know."
+                      className={`${inputClass} resize-none`}
+                    />
+                  </Field>
                   <LocationPicker
                     city={step1.city}
                     locality={step1.pincode}
@@ -568,15 +554,15 @@ const OwnerListingWizard: React.FC<OwnerListingWizardProps> = ({ onComplete, onC
               {step === 3 && (
                 <>
                   <p className="text-xs text-slate-500">Optional — skip anytime. Common amenities are pre-ticked.</p>
-                  <div className="flex flex-wrap gap-2">
-                    {QUICK_AMENITIES.map((a) => {
-                      const on = isAmenityOn(a.id, a.group);
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    {AMENITIES.map((a) => {
+                      const on = isAmenityOn(a.id);
                       return (
                         <button
                           key={a.id}
                           type="button"
-                          onClick={() => toggleAmenity(a.id, a.group)}
-                          className={`px-3 py-2 rounded-full text-xs font-bold border transition ${
+                          onClick={() => toggleAmenity(a.id)}
+                          className={`px-3 py-2 rounded-xl text-left text-xs font-bold border transition ${
                             on ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-200'
                           }`}
                         >
@@ -827,18 +813,12 @@ function getEmptyStep1(): OwnerListingStep1 {
 function getEmptyStep3(): OwnerListingStep3 {
   return {
     roomAmenities: [
-      { id: 'AC', name: 'AC', selected: false },
-      { id: 'Attached Bathroom', name: 'Attached Bathroom', selected: true },
+      { id: 'ac', name: 'AC', selected: false },
+      { id: 'attached-bathroom', name: 'Attached Bathroom', selected: true },
     ],
-    propertyAmenities: [
-      { id: 'wifi', name: 'Wi-Fi', selected: true },
-      { id: 'cctv', name: 'CCTV', selected: true },
-      { id: 'power-backup', name: 'Power backup', selected: true },
-      { id: 'parking', name: 'Parking', selected: false },
-      { id: 'wardrobe', name: 'Wardrobe', selected: false },
-    ],
-    foodAvailable: true,
-    foodIncludedInRate: true,
+    propertyAmenities: AMENITIES.map((amenity) => ({ ...amenity, selected: false })),
+    foodAvailable: false,
+    foodIncludedInRate: false,
     foodOptions: [
       { id: 'breakfast', name: 'Breakfast', selected: true },
       { id: 'lunch', name: 'Lunch', selected: true },

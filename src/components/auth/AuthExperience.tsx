@@ -57,6 +57,14 @@ const PATH_CONFIG: Record<AuthPath, {
     gradient: 'from-amber-500 to-orange-600',
     signupFields: ['name', 'phone', 'email'],
   },
+  superadmin: {
+    label: 'Super Admin',
+    sub: 'Company control center',
+    icon: ShieldCheck,
+    role: 'superadmin',
+    gradient: 'from-slate-700 to-slate-950',
+    signupFields: [],
+  },
 };
 
 const INTENT_MSG: Record<string, string> = {
@@ -74,6 +82,7 @@ function roleToPath(role?: UserRole): AuthPath {
   if (role === 'owner') return 'owner';
   if (role === 'staff' || role === 'warden') return 'staff';
   if (role === 'resident') return 'resident';
+  if (role === 'superadmin') return 'superadmin';
   return 'explorer';
 }
 
@@ -133,6 +142,7 @@ export const AuthExperience: React.FC = () => {
   const [verificationId, setVerificationId] = useState('');
   const [otpHint, setOtpHint] = useState('');
   const [pin, setPin] = useState('');
+  const [passwordText, setPasswordText] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
@@ -149,6 +159,7 @@ export const AuthExperience: React.FC = () => {
   const reset = useCallback(() => {
     setStep('path');
     setPin('');
+    setPasswordText('');
     setError(null);
     setSuccess(false);
   }, []);
@@ -215,17 +226,19 @@ export const AuthExperience: React.FC = () => {
   };
 
   const submitLogin = async () => {
-    if (pin.length < 6) { setError('Enter your 6-digit PIN'); return; }
+    const credential = path === 'superadmin' ? passwordText : pin;
+    if (path !== 'superadmin' && pin.length < 6) { setError('Enter your 6-digit PIN'); return; }
+    if (path === 'superadmin' && !passwordText) { setError('Enter your Super Admin password'); return; }
     setLoading(true);
     setError(null);
     try {
       if (useCloud) {
-        const id = phone.length >= 10 ? { phone } : { email };
-        const res = await loginWithWorkers(id, pin, meta);
+        const id = path === 'superadmin' ? { email: email || phone } : phone.length >= 10 ? { phone } : { email };
+        const res = await loginWithWorkers(id, credential, meta);
         if (!res.success || !res.user) { setError(res.error || 'Sign in failed'); return; }
         finishAuth(res.user);
       } else {
-        const res = login(email || phone, pin, PATH_CONFIG[path].role);
+        const res = login(email || phone, credential, PATH_CONFIG[path].role);
         if (!res.success) { setError(res.message || 'Sign in failed'); return; }
         setAuthModalOpen(false);
         runPendingAuthAction();
@@ -365,17 +378,30 @@ export const AuthExperience: React.FC = () => {
                   Welcome back, {getLastAuthUser()?.name} 👋
                 </button>
               )}
-              <div>
-                <label className="text-xs font-bold text-slate-600">Mobile number</label>
-                <input
-                  type="tel"
-                  inputMode="numeric"
-                  placeholder="10-digit mobile"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
-                  className="mt-1 w-full px-4 py-3.5 rounded-2xl border border-slate-200 text-lg tracking-wide focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
+              {path === 'superadmin' ? (
+                <div>
+                  <label className="text-xs font-bold text-slate-600">Super Admin username</label>
+                  <input
+                    type="text"
+                    placeholder="Username or phone"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="mt-1 w-full px-4 py-3.5 rounded-2xl border border-slate-200 text-base tracking-wide focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              ) : (
+                <div>
+                  <label className="text-xs font-bold text-slate-600">Mobile number</label>
+                  <input
+                    type="tel"
+                    inputMode="numeric"
+                    placeholder="10-digit mobile"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                    className="mt-1 w-full px-4 py-3.5 rounded-2xl border border-slate-200 text-lg tracking-wide focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              )}
               {path === 'owner' && (
                 <div>
                   <label className="text-xs font-bold text-slate-600">Or email</label>
@@ -388,13 +414,25 @@ export const AuthExperience: React.FC = () => {
                   />
                 </div>
               )}
-              <div>
-                <label className="text-xs font-bold text-slate-600 mb-2 block">6-digit PIN</label>
-                <PinPad value={pin} onChange={setPin} />
-              </div>
+              {path === 'superadmin' ? (
+                <div>
+                  <label className="text-xs font-bold text-slate-600">Password</label>
+                  <input
+                    type="password"
+                    value={passwordText}
+                    onChange={(e) => setPasswordText(e.target.value)}
+                    className="mt-1 w-full px-4 py-3.5 rounded-2xl border border-slate-200 text-base focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              ) : (
+                <div>
+                  <label className="text-xs font-bold text-slate-600 mb-2 block">6-digit PIN</label>
+                  <PinPad value={pin} onChange={setPin} />
+                </div>
+              )}
               <button
                 type="button"
-                disabled={loading || pin.length < 6}
+                disabled={loading || (path === 'superadmin' ? !passwordText : pin.length < 6)}
                 onClick={submitLogin}
                 className="w-full py-4 rounded-2xl bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold flex items-center justify-center gap-2"
               >
