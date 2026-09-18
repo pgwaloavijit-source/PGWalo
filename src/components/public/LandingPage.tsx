@@ -42,6 +42,7 @@ export const LandingPage: React.FC<{
   const [moveInDate, setMoveInDate] = useState('');
   const [selectedType, setSelectedType] = useState<GenderPreference | 'All'>('All');
   const [showLocationSuggestions, setShowLocationSuggestions] = useState(false);
+  const [searching, setSearching] = useState(false);
   const [locating, setLocating] = useState(false);
   const [locationError, setLocationError] = useState('');
   const [userCoords, setUserCoords] = useState<{ lat: number; lng: number } | null>(null);
@@ -148,29 +149,53 @@ export const LandingPage: React.FC<{
 
   const handleSearchSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (searching) return;
+
     const query = locationQuery.trim();
-    if (query) {
-      setSpecificSearch(true);
-      const places = await searchPlaces(query);
-      const place = places[0];
+    // Dismiss the suggestion panel first: on narrow screens it sits in the flow
+    // below the input, and on wide screens it must never sit over the submit area.
+    setShowLocationSuggestions(false);
+    setLocationError('');
+
+    if (!query) {
       onExploreClick({
-        location: query,
-        city: place?.city || selectedCity,
+        city: selectedCity,
         moveInDate,
         type: selectedType,
-        lat: place?.lat,
-        lng: place?.lng,
-        nearby: false,
+        lat: userCoords?.lat,
+        lng: userCoords?.lng,
+        nearby: true,
       });
       return;
     }
+
+    setSpecificSearch(true);
+    setSearching(true);
+    // Resolving the typed area to real coordinates is a nice-to-have: it speeds up
+    // the geolocation API, but a slow or failed lookup must never swallow the search.
+    let place: { city?: string; lat?: number; lng?: number } | undefined;
+    try {
+      // Bounded: a slow or hanging lookup must never leave the search stuck, so
+      // whichever resolves first wins and we navigate on the typed query.
+      const places = await Promise.race([
+        searchPlaces(query),
+        new Promise<never[]>((resolve) => setTimeout(() => resolve([]), 2500)),
+      ]);
+      place = places[0];
+    } catch {
+      // Fall back to searching the typed query as-is.
+      place = undefined;
+    }
+    setSearching(false);
+
     onExploreClick({
-      city: selectedCity,
+      location: query,
+      city: place?.city || selectedCity,
       moveInDate,
       type: selectedType,
-      lat: userCoords?.lat,
-      lng: userCoords?.lng,
-      nearby: true,
+      lat: place?.lat,
+      lng: place?.lng,
+      nearby: false,
     });
   };
 
@@ -297,7 +322,11 @@ export const LandingPage: React.FC<{
                     <Crosshair className={`w-4 h-4 ${locating ? 'animate-spin' : ''}`} />
                   </button>
                   {showLocationSuggestions && (
-                    <div className="absolute left-0 right-0 top-full mt-2 bg-white rounded-xl border border-slate-200 shadow-xl overflow-hidden z-30">
+                    /* Below `sm` the form stacks into one column, so an absolutely
+                       positioned panel would land on top of the Move-In Date, Type
+                       and Search PGs controls and swallow their taps. Keep it in the
+                       flow there; only float it once the fields sit side by side. */
+                    <div className="mt-2 bg-white rounded-xl border border-slate-200 shadow-xl overflow-hidden sm:absolute sm:left-0 sm:right-0 sm:top-full sm:z-30 sm:max-h-[340px] sm:overflow-y-auto">
                       <button
                         type="button"
                         onMouseDown={(event) => {
@@ -367,15 +396,19 @@ export const LandingPage: React.FC<{
                 </select>
               </div>
 
-              {/* Search Submit Button */}
-              <div className="sm:col-span-2 flex items-end">
+              {/* Search Submit Button — lifted above the location suggestions (z-30)
+                  and the fixed mobile bottom nav so a stray overlay can never
+                  intercept the tap that submits the search. */}
+              <div className="sm:col-span-2 flex items-end relative z-40">
                 <button
                   id="hero-search-submit-btn"
                   type="submit"
-                  className="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-700 active:scale-98 text-white rounded-xl text-xs font-bold transition-all shadow-md flex items-center justify-center gap-1.5 min-h-[42px]"
+                  disabled={searching}
+                  aria-busy={searching}
+                  className="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-700 active:scale-98 disabled:opacity-70 disabled:cursor-wait text-white rounded-xl text-xs font-bold transition-all shadow-md flex items-center justify-center gap-1.5 min-h-[42px]"
                 >
-                  <Search className="w-3.5 h-3.5" />
-                  <span>Search PGs</span>
+                  <Search className={`w-3.5 h-3.5 ${searching ? 'animate-pulse' : ''}`} />
+                  <span>{searching ? 'Searching…' : 'Search PGs'}</span>
                 </button>
               </div>
             </form>

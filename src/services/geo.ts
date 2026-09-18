@@ -16,17 +16,27 @@ export async function searchPlaces(query: string): Promise<GeoPlace[]> {
   const q = query.trim();
   if (q.length < 3) return [];
   if (!isProductionApiEnabled() && !import.meta.env.PROD) return [];
-  const response = await fetch(apiUrl(`/api/geo/search?q=${encodeURIComponent(q)}`));
-  if (!response.ok) return [];
-  const data = await response.json();
-  return Array.isArray(data.places) ? data.places : [];
+  try {
+    const response = await fetch(apiUrl(`/api/geo/search?q=${encodeURIComponent(q)}`));
+    if (!response.ok) return [];
+    const data = await response.json();
+    return Array.isArray(data.places) ? data.places : [];
+  } catch {
+    // A lookup failing must never block the caller (the hero search navigates on
+    // the typed query regardless), so surface it as "no match".
+    return [];
+  }
 }
 
 export async function reverseGeocode(lat: number, lng: number): Promise<GeoPlace | null> {
-  const response = await fetch(apiUrl(`/api/geo/reverse?lat=${lat}&lng=${lng}`));
-  if (!response.ok) return null;
-  const data = await response.json();
-  return data.place || null;
+  try {
+    const response = await fetch(apiUrl(`/api/geo/reverse?lat=${lat}&lng=${lng}`));
+    if (!response.ok) return null;
+    const data = await response.json();
+    return data.place || null;
+  } catch {
+    return null;
+  }
 }
 
 export function osmEmbedUrl(lat: number, lng: number) {
