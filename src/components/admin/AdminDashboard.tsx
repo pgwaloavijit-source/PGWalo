@@ -732,7 +732,11 @@ const AdminBody: React.FC<{
             <button key={t.id} type="button" onClick={() => props.setTicketId(t.id)} className={`w-full text-left p-4 border-b border-slate-100 ${props.ticketId === t.id ? 'bg-blue-50' : ''}`}>
               <div className="flex justify-between gap-2">
                 <p className="font-bold text-sm">{t.title}</p>
-                <Pill>{t.status}</Pill>
+                {t.type === 'Reactivation' && t.status !== 'Resolved' && t.status !== 'Closed' ? (
+                  <Pill tone="bg-amber-100 text-amber-800">Reactivation</Pill>
+                ) : (
+                  <Pill>{t.status}</Pill>
+                )}
               </div>
               <p className="text-xs text-slate-500 mt-1">{t.type} · {t.requesterName} · {new Date(t.createdAt).toLocaleString()}</p>
             </button>

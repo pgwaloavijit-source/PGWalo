@@ -43,11 +43,12 @@ interface DbUser {
   emergency_contact_phone?: string | null;
   emergency_contact_relation?: string | null;
   profile_extras?: string | null;
+  status?: string | null;
 }
 
 const USER_COLS = `id, organization_id, name, email, phone, role, password_hash, is_profile_completed, staff_role, email_verified, phone_verified,
   age, gender, occupation, organization, city, avatar, aadhaar_last4, permanent_address, alternate_phone,
-  emergency_contact_name, emergency_contact_phone, emergency_contact_relation, profile_extras`;
+  emergency_contact_name, emergency_contact_phone, emergency_contact_relation, profile_extras, status`;
 
 async function findUserByEmail(env: Env, email: string): Promise<DbUser | null> {
   return env.DB.prepare(`SELECT ${USER_COLS} FROM users WHERE LOWER(email) = LOWER(?) LIMIT 1`)
@@ -80,8 +81,16 @@ function publicUser(user: DbUser, organizationFallback: string) {
     isProfileCompleted: Boolean(user.is_profile_completed),
     propertyId: user.property_id || undefined,
     staffRole: user.staff_role || undefined,
+    roles: (() => {
+      try {
+        const parsed = extras.roles;
+        if (Array.isArray(parsed) && parsed.length) return parsed;
+      } catch { /* ignore */ }
+      return user.staff_role ? [user.staff_role] : undefined;
+    })(),
     emailVerified: Boolean(user.email_verified),
     phoneVerified: Boolean(user.phone_verified),
+    status: (user.status || 'Active') as 'Active' | 'Suspended' | 'Pending Verification' | 'Disabled',
     age: user.age ?? undefined,
     gender: user.gender || undefined,
     occupation: user.occupation || undefined,
@@ -320,6 +329,17 @@ export async function authHandler(request: Request, env: Env): Promise<Response>
             ? 'Incorrect PIN. Use the PIN you set when you joined.'
             : 'This account has no PIN yet. Re-register with Join us or ask support to reset it.',
         }, 401);
+      }
+
+      // A disabled/suspended account cannot sign in at all. The error text
+      // points at the reactivation flow instead of looking like a wrong PIN.
+      if (user.status === 'Disabled' || user.status === 'Suspended') {
+        await track({ ...trackBase, eventType: 'login_failed', role: body.role }, env);
+        return json({
+          success: false,
+          error: `This account has been ${user.status === 'Suspended' ? 'suspended' : 'disabled'} by the Super Admin. Raise a reactivation request from the sign-in screen to restore access.`,
+          accountBlocked: user.status,
+        }, 403);
       }
 
       // "public" viewer accounts are retired and have no dashboard, so signing in
@@ -689,6 +709,14 @@ export async function authHandler(request: Request, env: Env): Promise<Response>
       }
       const allowed = ['Housekeeping', 'Mess Cook', 'Security Guard', 'Manager', 'Electrician'];
       const staffRole = allowed.includes(body.staffRole) ? body.staffRole : 'Housekeeping';
+      // Multi-role: one staff member can hold several operational roles. The
+      // primary goes in staff_role; every role is stored comma-joined in
+      // profile_extras so the checklist engine can seed one run per role.
+      const extraRoles = Array.isArray((body as { roles?: string[] }).roles)
+        ? (body as { roles?: string[] }).roles!.filter((r) => typeof r === 'string' && r.trim())
+        : [];
+      const allRoles = Array.from(new Set([staffRole, ...extraRoles]));
+      const rolesJson = JSON.stringify(allRoles);
       const userId = `user-${Date.now()}`;
       const staffId = `staff-${Date.now()}`;
       const passwordHash = await hashPassword(body.pin);
@@ -700,9 +728,9 @@ export async function authHandler(request: Request, env: Env): Promise<Response>
       }
 
       await env.DB.prepare(`
-        INSERT INTO users (id, organization_id, name, email, phone, role, staff_role, property_id, is_profile_completed, status, password_hash, phone_verified)
-        VALUES (?, ?, ?, ?, ?, 'staff', ?, ?, 1, 'Active', ?, 1)
-      `).bind(userId, orgId, body.name.trim(), email, phone, staffRole, body.propertyId, passwordHash).run();
+        INSERT INTO users (id, organization_id, name, email, phone, role, staff_role, property_id, is_profile_completed, status, password_hash, phone_verified, profile_extras)
+        VALUES (?, ?, ?, ?, ?, 'staff', ?, ?, 1, 'Active', ?, 1, ?)
+      `).bind(userId, orgId, body.name.trim(), email, phone, staffRole, body.propertyId, passwordHash, rolesJson).run();
 
       try {
         await env.DB.prepare(`

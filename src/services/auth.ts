@@ -153,6 +153,7 @@ export async function createStaffWithWorkers(payload: {
   phone: string;
   email?: string;
   staffRole: string;
+  roles?: string[];
   pin: string;
   propertyId?: string;
   shift?: string;

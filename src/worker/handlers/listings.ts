@@ -136,7 +136,14 @@ export async function listingsHandler(request: Request, env: Env): Promise<Respo
       if (row.plan_tier) row.status = 'Active';
     }
     if (existing) {
+      // A listing the Super Admin disabled/rejected is frozen: only the Super
+      // Admin's own PATCH (admin handler) can restore it. An owner edit — or a
+      // publishing payment — cannot resurrect an archived/restricted listing.
       if (existing.status === 'Active') row.status = 'Active';
+      if (existing.status === 'Archived' || existing.status === 'Restricted') {
+        row.status = existing.status;
+        row.verified = 0;
+      }
       if (existing.verified) row.verified = 1;
     } else if (!isPlatformAdmin(auth.user!.role)) {
       // A brand-new listing can only go live by paying for a publishing plan —

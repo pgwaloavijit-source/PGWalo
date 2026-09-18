@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import {
   UserRole,
   Property,
@@ -126,6 +126,8 @@ interface AppContextType {
   setRole: (role: UserRole) => void;
   setRoleState: (role: UserRole) => void;
   currentUser: UserAccount | null;
+  /** Non-null when the Super Admin disabled/suspended this account. */
+  accountBlocked: null | { reason: string };
   organizations: Organization[];
   users: UserAccount[];
   properties: Property[];
@@ -750,6 +752,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
   const [productionHydrated, setProductionHydrated] = useState(!isProductionApiEnabled());
 
+  /**
+   * Set the moment an authenticated call is rejected because the Super Admin
+   * disabled (or suspended) this account. Every dashboard renders a hard
+   * read-only screen while this is set; only logging out or a successful
+   * reactivation clears it.
+   */
+  const [accountBlocked, setAccountBlocked] = useState<null | { reason: string }>(null);
+
+  // Latest refresh functions, shared with the single multiplexed SSE stream.
+  // Each collection effect registers its own pull here so one push connection
+  // can fan out to all of them (refs, not state — updating must not re-render).
+  const pullTicketsRef = useRef<(() => void) | null>(null);
+  const pullInquiriesRef = useRef<(() => void) | null>(null);
+  const refreshCoreRef = useRef<(() => void) | null>(null);
+  const pullTicketsShared = useCallback(() => { pullTicketsRef.current?.(); }, []);
+  const pullInquiriesShared = useCallback(() => { pullInquiriesRef.current?.(); }, []);
+  const refreshCoreShared = useCallback(() => { refreshCoreRef.current?.(); }, []);
+
   // Active entities
   const activeProperty = properties[0] || INITIAL_PROPERTIES[0];
   const currentResident: Resident | null = currentUser?.role === 'resident'
@@ -904,9 +924,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
     pull();
     const timer = window.setInterval(pull, 20000);
+    pullInquiriesRef.current = pull;
+
     return () => {
       cancelled = true;
       window.clearInterval(timer);
+      pullInquiriesRef.current = null;
     };
   }, [currentUser?.id, currentUser?.role]);
 
@@ -940,27 +963,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         .catch(() => undefined);
     };
     pull();
-    let fallbackTimer: number | null = window.setInterval(pull, 30000);
-
-    const stopStream = connectEventStream(['tickets'], {
-      onTicketsChanged: pull,
-      onStatus: (status) => {
-        if (status === 'open') {
-          // Push is live — the fallback poll can idle.
-          if (fallbackTimer) {
-            window.clearInterval(fallbackTimer);
-            fallbackTimer = null;
-          }
-        } else if (status === 'offline' && !fallbackTimer) {
-          fallbackTimer = window.setInterval(pull, 30000);
-        }
-      },
-    });
+    // Push arrives via the multiplexed notifications stream below; this slow
+    // interval is only the offline fallback.
+    const fallbackTimer = window.setInterval(pull, 30000);
+    pullTicketsRef.current = pull;
 
     return () => {
       cancelled = true;
-      stopStream();
-      if (fallbackTimer) window.clearInterval(fallbackTimer);
+      window.clearInterval(fallbackTimer);
+      pullTicketsRef.current = null;
     };
   }, [currentUser?.id, currentUser?.role]);
 
@@ -989,10 +1000,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
     pullNotifications();
 
-    const stopStream = connectEventStream(['notifications'], {
-      onNotificationsChanged: pullNotifications,
-    });
     const fallbackTimer = window.setInterval(pullNotifications, 45000);
+
+    // ONE multiplexed push channel for this session: notifications, tickets,
+    // booking/visit inquiries and the operational 'data' watermark all ride a
+    // single SSE connection (the Worker supports kind=all). Four separate
+    // streams would quadruple the D1 watermark polling for no benefit.
+    const stopStream = connectEventStream(['notifications', 'tickets', 'inquiries', 'data'], {
+      onNotificationsChanged: pullNotifications,
+      onTicketsChanged: pullTicketsShared,
+      onInquiriesChanged: pullInquiriesShared,
+      onDataChanged: refreshCoreShared,
+    });
 
     return () => {
       cancelled = true;
@@ -1000,6 +1019,64 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       window.clearInterval(fallbackTimer);
     };
   }, [currentUser?.id, currentUser?.role]);
+
+  // Instant operational sync: any approval, allocation, listing change or
+  // disable/enable anywhere in the app pushes a 'data' change over SSE, and
+  // every dashboard refreshes its core collections within ~2 s. The public
+  // listings poll above stays as the wide-net backstop.
+  useEffect(() => {
+    if (!isProductionApiEnabled() || !currentUser) return;
+    let cancelled = false;
+    const refreshCore = () => {
+      fetchPublicListings()
+        .then((remote) => {
+          if (cancelled || !remote.length) return;
+          setProperties((prev) => mergeProperties(prev, remote));
+        })
+        .catch(() => undefined);
+      if (currentUser.role === 'owner' || isPlatformAdmin(currentUser.role)) {
+        const filters = isPlatformAdmin(currentUser.role)
+          ? {}
+          : { ownerUserId: currentUser.id };
+        fetchInquiries(filters)
+          .then((remote) => {
+            if (cancelled || !remote.length) return;
+            setBookingRequests((prev) => mergeBookings(prev, remote as typeof prev));
+          })
+          .catch(() => undefined);
+      }
+    };
+    refreshCoreRef.current = refreshCore;
+    return () => {
+      cancelled = true;
+      refreshCoreRef.current = null;
+    };
+  }, [currentUser?.id, currentUser?.role]);
+
+  // Enforcement mirror: the Worker now rejects every call from a disabled or
+  // suspended account, and this client-side check flips the UI to the
+  // read-only blocked screen the moment the server first says so (any 401
+  // naming the account state, confirmed against /api/auth/me).
+  useEffect(() => {
+    if (!isProductionApiEnabled() || !currentUser || isPlatformAdmin(currentUser.role)) return;
+    let cancelled = false;
+    const check = () => {
+      fetchMeWithWorkers()
+        .then((data: { error?: string; user?: { status?: string } }) => {
+          if (cancelled) return;
+          if (data?.user?.status === 'Disabled' || data?.user?.status === 'Suspended') {
+            setAccountBlocked({ reason: data.user.status === 'Suspended' ? 'Account suspended' : 'Account disabled' });
+          }
+        })
+        .catch(() => undefined);
+    };
+    check();
+    const timer = window.setInterval(check, 60000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [currentUser?.id]);
 
   useEffect(() => {
     if (!currentUser || currentUser.role !== 'owner' || currentUser.isDemo) return;
@@ -2694,7 +2771,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
   };
 
-  const approveBookingRequest = (requestId: string, roomNumber?: string, bedNumber?: string) => {
+  const approveBookingRequest = async (requestId: string, roomNumber?: string, bedNumber?: string) => {
     // Explicit room/bed args win (admin tooling), otherwise allocate the first
     // genuinely vacant bed matching the requested sharing type. The old
     // hardcoded '204'/'Bed A' fallback allocated beds that do not exist in the
@@ -2705,12 +2782,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     let targetReq = bookingRequests.find((r) => r.id === requestId || r.referenceId === requestId);
     if (targetReq?.type === 'visit') {
+      // Persist FIRST, then paint. The old order painted 'Approved' locally and
+      // fired a void PATCH — if the write failed (403, expired token, network)
+      // the next poll silently reverted the chip and the owner saw the request
+      // come back as Pending. Now the owner sees exactly what the database holds.
+      const persisted = await patchInquiry(targetReq.referenceId || targetReq.id, { status: 'Approved' });
+      if (!persisted) {
+        logAuditEvent('Visit Confirmation Failed', targetReq.propertyName, 'The server rejected the update — check your session and try again');
+        alert(`Could not confirm the visit for ${targetReq.applicantName}. The server did not accept the update — please refresh and try again. If this keeps happening, your session may have expired.`);
+        return;
+      }
       setBookingRequests((prev) =>
         prev.map((req) =>
           req.id === targetReq!.id || req.referenceId === requestId ? { ...req, status: 'Approved' } : req
         )
       );
-      void patchInquiry(targetReq.referenceId || targetReq.id, { status: 'Approved' });
+      // The applicant gets the decision from the server (personal notification
+      // + email in the PATCH handler). The owner keeps a self-confirmation for
+      // their records.
       fireEmailEvent('visit.scheduled', {
         to: 'self',
         data: {
@@ -2817,6 +2906,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         status: 'Approved',
         allocatedRoomNumber: allocationBed.roomNumber,
         allocatedBedNumber: allocationBed.bedNumber,
+      }).then((ok) => {
+        if (!ok) {
+          logAuditEvent('Approval Not Persisted', targetReq?.propertyName || '', 'The server rejected the approval write — the request may revert to Pending');
+        }
       });
       const existingRes = residents.find(
         (r) =>
@@ -4039,6 +4132,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setListingDecision,
         resetToDemoData,
         productionHydrated,
+        accountBlocked,
       }}
     >
       {children}

@@ -9,11 +9,12 @@ import { authHandler } from './handlers/auth';
 import { notifyHandler } from './handlers/notify';
 import { aiListingCopyHandler } from './handlers/aiCopy';
 import { agreementsHandler } from './handlers/agreements';
+import { staffOpsHandler } from './handlers/staffOps';
 import { geoHandler } from './handlers/geo';
 import { listingsHandler } from './handlers/listings';
 import { inquiriesHandler } from './handlers/inquiries';
 import { adminHandler } from './handlers/admin';
-import { supportTicketsHandler } from './handlers/supportTickets';
+import { supportTicketsHandler, reactivationHandler } from './handlers/supportTickets';
 import { paymentsHandler } from './handlers/payments';
 import { statsHandler } from './handlers/stats';
 import { maintenanceTicketsHandler } from './handlers/maintenanceTickets';
@@ -88,6 +89,11 @@ export default {
         return agreementsHandler(request, env);
       }
 
+      // Staff operational checklists — role-seeded runs, owner monitoring.
+      if (path.startsWith('/api/staff-ops')) {
+        return staffOpsHandler(request, env);
+      }
+
       if (path.startsWith('/api/media')) {
         return mediaHandler(request, env);
       }
@@ -96,8 +102,8 @@ export default {
         return listingsHandler(request, env);
       }
 
-      if (path.startsWith('/api/inquiries')) {
-        return inquiriesHandler(request, env);
+      if (path === '/api/inquiries') {
+        return inquiriesHandler(request, env, ctx);
       }
 
       if (path.startsWith('/api/notify')) {
@@ -106,6 +112,12 @@ export default {
 
       if (path === '/api/support-tickets') {
         return supportTicketsHandler(request, env);
+      }
+
+      // Public lifeline for disabled/suspended accounts (no JWT — their every
+      // authenticated call is rejected). Only creates a ticket; cannot un-disable.
+      if (path === '/api/reactivation' && request.method === 'POST') {
+        return reactivationHandler(request, env);
       }
 
       if (path === '/api/maintenance-tickets') {
@@ -123,7 +135,7 @@ export default {
       }
 
       if (path.startsWith('/api/admin')) {
-        return adminHandler(request, env);
+        return adminHandler(request, env, ctx);
       }
 
       // Owner publishing plans: order, verify, resume and the gateway webhook.

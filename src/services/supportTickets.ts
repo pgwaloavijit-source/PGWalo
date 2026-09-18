@@ -74,3 +74,24 @@ export async function postSupportTicket(
     return { ok: false };
   }
 }
+
+/**
+ * Reactivation request for a disabled/suspended account. Deliberately token-less:
+ * the Super Admin's disable action rejects every authenticated call for that
+ * account, so this one endpoint accepts no JWT. The server only ever CREATES a
+ * ticket from it — it cannot un-disable anything.
+ */
+export async function requestReactivation(input: { email?: string; phone?: string; message?: string }): Promise<{ success: boolean; error?: string; duplicate?: boolean }> {
+  try {
+    const response = await fetch(apiUrl('/api/reactivation'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) return { success: false, error: String(data.error || 'Could not raise the request') };
+    return { success: true, duplicate: Boolean(data.duplicate) };
+  } catch {
+    return { success: false, error: 'Network error — please try again' };
+  }
+}

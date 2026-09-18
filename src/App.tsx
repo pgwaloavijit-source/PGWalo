@@ -28,6 +28,8 @@ import { useStandalonePWA } from './hooks/useStandalonePWA';
 import { isPlatformAdmin } from './utils/platformAdmin';
 import { dashboardTabForRole, restoredSessionRole } from './utils/roles';
 import { getAuthToken, isProductionApiEnabled } from './services/productionApi';
+import { requestReactivation } from './services/supportTickets';
+import { Lock, Send } from 'lucide-react';
 
 const MainAppContent: React.FC = () => {
   const {
@@ -43,6 +45,8 @@ const MainAppContent: React.FC = () => {
     clearShellIntent,
     broadcasts,
     productionHydrated,
+    accountBlocked,
+    logout,
   } = useApp();
   const isStandalone = useStandalonePWA();
 
@@ -121,6 +125,18 @@ const MainAppContent: React.FC = () => {
   const isPlatformAdminSession = isPlatformAdmin(currentUser?.role);
   const wantsAdminRoute = currentTab === 'admin' || (typeof window !== 'undefined' && window.location.hash === '#admin');
 
+  // Disabled/suspended account: hard read-only screen over everything. The
+  // server already rejects every write; this makes the state unmistakable and
+  // hands the user the reactivation path. The Super Admin console is exempt
+  // (they are the ones doing the disabling).
+  const blocked = !isPlatformAdminSession && (
+    accountBlocked !== null ||
+    (currentUser && currentUser.status === 'Disabled') ||
+    (currentUser && currentUser.status === 'Suspended')
+  );
+  const [reactivationState, setReactivationState] = useState<'idle' | 'sending' | 'sent'>('idle');
+  const [reactivationError, setReactivationError] = useState<string | null>(null);
+
   useEffect(() => {
     if (isPlatformAdminSession && window.location.hash !== '#admin') {
       window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}#admin`);
@@ -169,6 +185,75 @@ const MainAppContent: React.FC = () => {
         )}
     </Suspense>
   );
+
+  if (blocked) {
+    const suspended = currentUser?.status === 'Suspended' || accountBlocked?.reason === 'Account suspended';
+    return (
+      <div className="native-app min-h-[100dvh] bg-slate-950 text-slate-100 flex items-center justify-center p-6 font-sans">
+        <div className="max-w-md w-full rounded-3xl bg-slate-900 border border-slate-800 p-8 text-center space-y-5">
+          <div className="w-16 h-16 rounded-3xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-center mx-auto">
+            <Lock className="w-8 h-8 text-rose-400" />
+          </div>
+          <div className="space-y-2">
+            <h1 className="text-xl font-black">
+              {suspended ? 'Account suspended' : 'Account disabled'}
+            </h1>
+            <p className="text-sm text-slate-400 leading-relaxed">
+              The Super Admin has {suspended ? 'suspended' : 'disabled'} this account. Your data is safe,
+              but everything is read-only until the account is reactivated.
+            </p>
+          </div>
+          <div className="rounded-2xl bg-slate-800/60 border border-slate-700 p-4 text-left space-y-2">
+            <p className="text-[11px] font-black uppercase tracking-wider text-slate-400">To restore access</p>
+            <p className="text-xs text-slate-300 leading-relaxed">
+              Raise a <span className="font-bold text-white">Reactivation request</span> from the support screen —
+              the Super Admin reviews every request and reactivates genuine accounts, usually within a day.
+            </p>
+          </div>
+          <div className="flex flex-col gap-2">
+            {reactivationState === 'sent' ? (
+              <div className="rounded-xl bg-emerald-500/10 border border-emerald-500/30 p-3 text-xs text-emerald-300 font-bold">
+                Request sent. The Super Admin has been notified — you will be able to sign in once they reactivate the account.
+              </div>
+            ) : (
+              <button
+                type="button"
+                disabled={reactivationState === 'sending'}
+                onClick={async () => {
+                  setReactivationState('sending');
+                  setReactivationError(null);
+                  const result = await requestReactivation({
+                    email: currentUser?.email || undefined,
+                    phone: currentUser?.phone || undefined,
+                    message: `Reactivation request from ${currentUser?.name || 'a user'} (${currentUser?.email || currentUser?.phone || 'unknown account'}).`,
+                  });
+                  if (result.success) setReactivationState('sent');
+                  else {
+                    setReactivationState('idle');
+                    setReactivationError(result.error || 'Could not raise the request');
+                  }
+                }}
+                className="w-full rounded-xl bg-blue-600 hover:bg-blue-700 text-white py-2.5 text-sm font-bold transition flex items-center justify-center gap-2 disabled:opacity-60"
+              >
+                <Send className="w-4 h-4" />
+                {reactivationState === 'sending' ? 'Sending…' : 'Raise reactivation request'}
+              </button>
+            )}
+            {reactivationError && (
+              <p className="text-xs text-rose-400 font-semibold">{reactivationError}</p>
+            )}
+            <button
+              type="button"
+              onClick={() => logout()}
+              className="w-full rounded-xl border border-slate-700 hover:bg-slate-800 text-slate-300 py-2.5 text-sm font-bold transition"
+            >
+              Sign out
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div

@@ -3,6 +3,7 @@ import { addCorsHeaders } from '../utils/cors';
 import { authMiddleware } from '../middleware/auth';
 import { isPlatformAdmin } from '../utils/platformAdmin';
 import { rowToBookingRequest, rowToPayment, rowToSupportTicket, rowToUserAccount } from '../utils/rowMap';
+import type { WaitUntilContext } from '../email';
 
 function json(data: unknown, status = 200) {
   return addCorsHeaders(new Response(JSON.stringify(data), {
@@ -116,7 +117,7 @@ function ensureSupportTicketsTable(env: Env) {
   `).run();
 }
 
-export async function adminHandler(request: Request, env: Env): Promise<Response> {
+export async function adminHandler(request: Request, env: Env, ctx?: WaitUntilContext): Promise<Response> {
   const gated = await requireAdmin(request, env);
   if (gated instanceof Response) return gated;
   const user = gated.user;
@@ -201,6 +202,9 @@ export async function adminHandler(request: Request, env: Env): Promise<Response
     const body = await request.json() as { status?: string };
     const allowed = ['Active', 'Disabled', 'Suspended', 'Pending Verification'];
     if (!body.status || !allowed.includes(body.status)) return json({ error: 'Invalid status' }, 400);
+    if (parts[3] === user.id || parts[3] === 'superadmin') {
+      return json({ error: 'The Super Admin account cannot disable itself' }, 400);
+    }
     try {
       const result = await env.DB.prepare('UPDATE users SET status = ? WHERE id = ?').bind(body.status, parts[3]).run();
       if (!result.meta || result.meta.changes === 0) return json({ error: 'User not found' }, 404);
@@ -208,6 +212,70 @@ export async function adminHandler(request: Request, env: Env): Promise<Response
       return json({ error: 'Could not update user' }, 500);
     }
     await writeAudit(env, user, 'Account status changed', 'User', parts[3], body.status);
+
+    // The affected account must learn what happened and what to do about it.
+    // Their live sessions die on the next request (auth middleware checks
+    // status), so this notice is how they discover the reactivation path.
+    if (body.status === 'Disabled' || body.status === 'Suspended' || body.status === 'Active') {
+      try {
+        const target = await env.DB.prepare('SELECT email, name FROM users WHERE id = ? LIMIT 1')
+          .bind(parts[3]).first<{ email: string | null; name: string | null }>();
+        if (body.status === 'Active') {
+          await env.DB.prepare(`
+            INSERT INTO broadcast_notifications
+              (id, title, message, category, target, timestamp, sender, read, created_at, recipient_id)
+            VALUES (?, ?, ?, 'Event', 'All Residents', ?, 'PGWalo Support', 0, ?, ?)
+          `).bind(
+            `bc-adm-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+            'Your account has been reactivated',
+            'The Super Admin has restored your account access. You can sign in and use PGWalo as normal again.',
+            new Date().toISOString(),
+            new Date().toISOString(),
+            parts[3]
+          ).run();
+          if (target?.email?.includes('@')) {
+            const { notifyEvent } = await import('../email');
+            await notifyEvent(env, 'account.reactivated', {
+              to: target.email,
+              toName: target.name || 'there',
+              userId: parts[3],
+              data: {},
+              dedupeKey: `acct-${body.status.toLowerCase()}-${parts[3]}`,
+              ctx,
+            });
+          }
+        } else {
+          const isSuspended = body.status === 'Suspended';
+          await env.DB.prepare(`
+            INSERT INTO broadcast_notifications
+              (id, title, message, category, target, timestamp, sender, read, created_at, recipient_id)
+            VALUES (?, ?, ?, 'Event', 'All Residents', ?, 'PGWalo Support', 0, ?, ?)
+          `).bind(
+            `bc-adm-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+            isSuspended ? 'Your account has been suspended' : 'Your account has been disabled',
+            isSuspended
+              ? 'The Super Admin has suspended your account. Your data is preserved but access is paused. Raise a reactivation request from the sign-in screen to restore access.'
+              : 'The Super Admin has disabled your account. Your data is preserved but everything is read-only. Raise a reactivation request from the sign-in screen to restore access.',
+            new Date().toISOString(),
+            new Date().toISOString(),
+            parts[3]
+          ).run();
+          if (target?.email?.includes('@')) {
+            const { notifyEvent } = await import('../email');
+            await notifyEvent(env, 'account.disabled', {
+              to: target.email,
+              toName: target.name || 'there',
+              userId: parts[3],
+              data: { status: body.status },
+              dedupeKey: `acct-${body.status.toLowerCase()}-${parts[3]}`,
+              ctx,
+            });
+          }
+        }
+      } catch (error) {
+        console.error('admin user notify', error);
+      }
+    }
     return json({ ok: true });
   }
 
@@ -477,6 +545,63 @@ export async function adminHandler(request: Request, env: Env): Promise<Response
       return json({ error: 'Could not update property' }, 500);
     }
     await writeAudit(env, user, `Listing ${body.action}`, 'Property', parts[3], next.status);
+
+    // The owner must learn their listing was taken down (or restored) — and
+    // that the archive is read-only until they appeal via a reactivation ticket.
+    if (body.action === 'disable' || body.action === 'reject' || body.action === 'approve') {
+      try {
+        const { resolveOwnerEmail } = await import('./email');
+        const owner = await resolveOwnerEmail(env, parts[3]);
+        const propName = await env.DB.prepare('SELECT name FROM properties WHERE id = ?')
+          .bind(parts[3]).first<{ name: string | null }>();
+        const name = propName?.name || 'Your listing';
+        if (owner?.email?.includes('@')) {
+          const { notifyEvent } = await import('../email');
+          const event = body.action === 'approve' ? 'listing.approved' : 'listing.rejected';
+          await notifyEvent(env, event, {
+            to: owner.email,
+            toName: owner.name,
+            propertyId: parts[3],
+            userId: undefined,
+            data: {
+              propertyName: name,
+              reason: body.action === 'disable'
+                ? 'Disabled by the Super Admin. The listing is read-only; raise a reactivation request to restore it.'
+                : body.action === 'reject' ? 'Rejected by the Super Admin after review.' : 'Approved by the Super Admin.',
+            },
+            dedupeKey: `listing-${body.action}-${parts[3]}`,
+            ctx,
+          });
+        }
+        if (body.action === 'disable') {
+          // In-app notice too: the owner's dashboard banner links here.
+          const prop = await env.DB.prepare('SELECT owner_user_id, organization_id FROM properties WHERE id = ?')
+            .bind(parts[3]).first<{ owner_user_id: string | null; organization_id: string | null }>();
+          let ownerId = prop?.owner_user_id || null;
+          if (!ownerId && prop?.organization_id) {
+            const org = await env.DB.prepare('SELECT owner_user_id FROM organizations WHERE id = ?')
+              .bind(prop.organization_id).first<{ owner_user_id: string | null }>();
+            ownerId = org?.owner_user_id || null;
+          }
+          if (ownerId) {
+            await env.DB.prepare(`
+              INSERT INTO broadcast_notifications
+                (id, title, message, category, target, timestamp, sender, read, created_at, recipient_id)
+              VALUES (?, ?, ?, 'Event', 'All Residents', ?, 'PGWalo Support', 0, ?, ?)
+            `).bind(
+              `bc-adm-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+              'Your listing was disabled',
+              `${name} has been disabled by the Super Admin. The listing is read-only; raise a reactivation request to restore it.`,
+              new Date().toISOString(),
+              new Date().toISOString(),
+              ownerId
+            ).run();
+          }
+        }
+      } catch (error) {
+        console.error('admin property notify', error);
+      }
+    }
     return json({ ok: true });
   }
 

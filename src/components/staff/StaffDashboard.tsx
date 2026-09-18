@@ -3,6 +3,8 @@ import { useApp } from '../../context/AppContext';
 import { UserAvatar } from '../common/UserAvatar';
 import { ModalFocusScope } from '../common/ModalFocusScope';
 import { MaintenanceTicket } from '../../types';
+import { TodayWorkPanel } from './TodayWorkPanel';
+import { rolesOf } from '../../domain/staffOps';
 import {
   ShieldCheck,
   Clock,
@@ -41,9 +43,11 @@ export const StaffDashboard: React.FC = () => {
 
   const workplace = properties.find((p) => p.id === currentStaff?.propertyId);
   const team = staff.filter((s) => currentStaff && s.propertyId === currentStaff.propertyId);
+  // Every operational role this staff member holds (multi-role aware).
+  const staffRolesList = currentStaff ? rolesOf({ role: currentStaff.role, roles: (currentStaff as { roles?: string[] }).roles }) : [];
   const siteResidents = residents.filter((r) => currentStaff && r.propertyId === currentStaff.propertyId);
 
-  const [activeTab, setActiveTab] = useState<'tasks' | 'attendance' | 'checklist' | 'visitors' | 'team'>('tasks');
+  const [activeTab, setActiveTab] = useState<'today' | 'tasks' | 'attendance' | 'visitors' | 'team'>('today');
   const [isCheckedIn, setIsCheckedIn] = useState(currentStaff?.todayStatus === 'Checked-In');
 
   // Manual Gate Log Entry state
@@ -70,21 +74,6 @@ export const StaffDashboard: React.FC = () => {
   const [newVisitorPurpose, setNewVisitorPurpose] = useState('');
 
   // Daily Tasks Checklist
-  const [checklist, setChecklist] = useState([
-    { id: 1, task: 'Morning Breakfast mess served (Poha & boiled eggs)', done: true },
-    { id: 2, task: 'RO drinking water TDS and chlorine inspection', done: true },
-    { id: 3, task: 'Floor 1 & Floor 2 corridor mop and dusting', done: true },
-    { id: 4, task: 'Solar heater temperature check', done: false },
-    { id: 5, task: 'Washing machine lint trap sanitization', done: false },
-    { id: 6, task: 'Evening gate register inspection & biometric sync', done: false },
-  ]);
-
-  const toggleChecklistItem = (id: number) => {
-    setChecklist((prev) =>
-      prev.map((item) => (item.id === id ? { ...item, done: !item.done } : item))
-    );
-  };
-
   const handleManualGateLog = (e: React.FormEvent) => {
     e.preventDefault();
     const res = siteResidents.find((r) => r.name === logResidentName);
@@ -251,9 +240,9 @@ export const StaffDashboard: React.FC = () => {
           className="bg-white rounded-2xl p-1.5 border border-slate-200 shadow-2xs grid grid-cols-2 sm:grid-cols-5 gap-1 mb-6 text-xs font-bold"
         >
           {[
+            { key: 'today', label: "Today's Work", icon: CheckCircle2 },
             { key: 'tasks', label: `Maintenance Tasks (${tickets.length})`, icon: Wrench },
             { key: 'attendance', label: 'Gate Movements & Attendance', icon: Clock },
-            { key: 'checklist', label: 'Daily Cleaning & Ops Checklist', icon: CheckCircle2 },
             { key: 'visitors', label: 'Visitor Pass Register', icon: UserCheck },
             { key: 'team', label: `Staff Team & Roster (${team.length})`, icon: Users },
           ].map((tab) => {
@@ -490,57 +479,15 @@ export const StaffDashboard: React.FC = () => {
           </div>
         )}
 
-        {/* TAB 3: DAILY CHECKLIST */}
-        {activeTab === 'checklist' && (
-          <div className="max-w-2xl mx-auto space-y-4">
-            <div className="bg-white rounded-3xl border border-slate-200 p-6 shadow-2xs space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-base font-extrabold text-slate-900">Daily Operations Checklist</h3>
-                  <p className="text-xs text-slate-500">
-                    Required health, safety, and food service duties
-                  </p>
-                </div>
-                <span className="text-xs font-bold text-blue-600 bg-blue-50 px-3 py-1 rounded-xl">
-                  {checklist.filter((c) => c.done).length} of {checklist.length} Completed
-                </span>
-              </div>
-
-              <div className="space-y-2">
-                {checklist.map((item) => (
-                  <div
-                    key={item.id}
-                    role="checkbox"
-                    aria-checked={item.done}
-                    tabIndex={0}
-                    onClick={() => toggleChecklistItem(item.id)}
-                    onKeyDown={(e) => {
-                      if (e.key === ' ' || e.key === 'Enter') {
-                        e.preventDefault();
-                        toggleChecklistItem(item.id);
-                      }
-                    }}
-                    className={`p-3.5 rounded-2xl border transition flex items-center gap-3 cursor-pointer select-none ${
-                      item.done
-                        ? 'bg-blue-50/40 border-blue-200 text-slate-900'
-                        : 'bg-white border-slate-200 text-slate-600 hover:border-blue-200'
-                    }`}
-                  >
-                    <div
-                      aria-hidden={true}
-                      className={`w-5 h-5 rounded-lg flex items-center justify-center border transition ${
-                        item.done ? 'bg-blue-600 border-blue-600 text-white' : 'border-slate-300'
-                      }`}
-                    >
-                      {item.done && <Check className="w-3.5 h-3.5 stroke-[3]" />}
-                    </div>
-                    <span className={`text-xs font-semibold ${item.done ? 'line-through text-slate-400' : ''}`}>
-                      {item.task}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
+        {/* TAB 1: TODAY'S WORK — role checklists, live from the server */}
+        {activeTab === 'today' && (
+          <div className="max-w-3xl mx-auto space-y-4">
+            {staffRolesList.length > 1 && (
+              <p className="text-[11px] font-bold text-slate-500 bg-white border border-slate-200 rounded-2xl px-4 py-2.5">
+                You hold {staffRolesList.length} roles: {staffRolesList.join(' + ')} — your checklists are combined below.
+              </p>
+            )}
+            <TodayWorkPanel />
           </div>
         )}
 

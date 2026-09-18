@@ -1,5 +1,6 @@
 import { Env, User } from '../types';
 import { authMiddleware } from '../middleware/auth';
+import { isPlatformAdmin } from '../utils/platformAdmin';
 import { resolveCorsOrigin } from '../utils/security';
 
 /**
@@ -21,7 +22,7 @@ const TICK_INTERVAL_MS = 2000; // D1 poll cadence while the stream is open
 const MAX_DURATION_MS = 25_000; // close just before the ~30 s edge limit
 const KEEPALIVE_COMMENT = ': ping\n\n';
 
-type StreamKind = 'tickets' | 'notifications';
+type StreamKind = 'tickets' | 'notifications' | 'inquiries' | 'data';
 
 function sseHeaders(request: Request): Headers {
   const headers = new Headers({
@@ -49,12 +50,58 @@ async function watermark(env: Env, user: User, kind: StreamKind): Promise<string
 
   // Notifications: count + latest id is enough; content is fetched separately
   // via GET /api/notifications so no message payload flows while idle.
+  if (kind === 'notifications') {
+    const row = await env.DB.prepare(
+      `SELECT COUNT(*) AS n, COALESCE(MAX(id), '') AS last_id
+         FROM broadcast_notifications
+        WHERE recipient_id IS NULL OR recipient_id = ?`
+    ).bind(user.id).first<{ n: number; last_id: string }>();
+    return `${row?.n || 0}|${row?.last_id || ''}`;
+  }
+
+  if (kind === 'inquiries') {
+    // Booking/visit requests relevant to this viewer. Platform admins see the
+    // whole queue; owners see requests against their own properties; tenants
+    // only their own (so one applicant's approval never pings another).
+    if (isPlatformAdmin(user.role)) {
+      const row = await env.DB.prepare(
+        `SELECT COUNT(*) AS n, COALESCE(MAX(created_at), '') AS touched FROM booking_requests`
+      ).first<{ n: number; touched: string }>();
+      return `${row?.n || 0}|${row?.touched || ''}`;
+    }
+    if (user.role === 'owner') {
+      const row = await env.DB.prepare(
+        `SELECT COUNT(*) AS n, COALESCE(MAX(created_at), '') AS touched
+           FROM booking_requests
+          WHERE property_id IN (SELECT id FROM properties WHERE owner_user_id = ?)`
+      ).bind(user.id).first<{ n: number; touched: string }>();
+      return `${row?.n || 0}|${row?.touched || ''}`;
+    }
+    const email = (user.email || '').toLowerCase();
+    if (email) {
+      const row = await env.DB.prepare(
+        `SELECT COUNT(*) AS n, COALESCE(MAX(created_at), '') AS touched
+           FROM booking_requests WHERE LOWER(email) = ?`
+      ).bind(email).first<{ n: number; touched: string }>();
+      return `${row?.n || 0}|${row?.touched || ''}`;
+    }
+    return '0|';
+  }
+
+  // 'data': generic collection watermark over the operational tables the
+  // dashboards render. A disable/enable by the Super Admin, an approval, an
+  // allocation — any INSERT/UPDATE here lands on every dashboard within ~2 s.
   const row = await env.DB.prepare(
-    `SELECT COUNT(*) AS n, COALESCE(MAX(id), '') AS last_id
-       FROM broadcast_notifications
-      WHERE recipient_id IS NULL OR recipient_id = ?`
-  ).bind(user.id).first<{ n: number; last_id: string }>();
-  return `${row?.n || 0}|${row?.last_id || ''}`;
+    `SELECT
+       (SELECT COUNT(*) FROM properties) AS p,
+       (SELECT COALESCE(MAX(updated_at), '') FROM properties) AS pt,
+       (SELECT COUNT(*) FROM beds) AS b,
+       (SELECT COUNT(*) FROM residents) AS r,
+       (SELECT COUNT(*) FROM rent_agreements) AS a,
+       (SELECT COUNT(*) FROM stays) AS s,
+       (SELECT COUNT(*) FROM staff_members) AS st`
+  ).first<{ p: number; pt: string; b: number; r: number; a: number; s: number; st: number }>();
+  return [row?.p, row?.pt, row?.b, row?.r, row?.a, row?.s, row?.st].join('|');
 }
 
 export async function eventsHandler(request: Request, env: Env): Promise<Response> {
@@ -70,10 +117,11 @@ export async function eventsHandler(request: Request, env: Env): Promise<Respons
   const user = auth.user;
 
   const kindParam = url.searchParams.get('kind') || 'tickets';
+  const ALL_KINDS: StreamKind[] = ['tickets', 'notifications', 'inquiries', 'data'];
   const kinds: StreamKind[] =
-    kindParam === 'notifications' ? ['notifications'] :
-    kindParam === 'all' ? ['tickets', 'notifications'] :
-    ['tickets'];
+    kindParam === 'all' ? ALL_KINDS :
+    kindParam.split(',').filter((k): k is StreamKind => (ALL_KINDS as string[]).includes(k));
+  if (!kinds.length) kinds.push('tickets');
 
   const encoder = new TextEncoder();
   let closed = false;

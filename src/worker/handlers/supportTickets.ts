@@ -40,6 +40,87 @@ function ensureTable(env: Env) {
   `).run();
 }
 
+/**
+ * Reactivation request — the single lifeline for a disabled/suspended account.
+ *
+ * This endpoint is deliberately PUBLIC (no JWT): the Super Admin's disable
+ * action rejects every authenticated call for that account, so the reactivation
+ * request cannot require one. The caller must still name the account that is
+ * actually blocked — nothing here can un-disable or flag an active account.
+ */
+export async function reactivationHandler(request: Request, env: Env): Promise<Response> {
+  if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
+  const body = await request.json().catch(() => ({})) as { email?: string; phone?: string; message?: string };
+  const email = String(body.email || '').trim().toLowerCase();
+  const phone = String(body.phone || '').replace(/\D/g, '').slice(-10);
+  if (!email && !phone) return json({ error: 'Enter the email or mobile on the disabled account' }, 400);
+
+  try {
+    const user = email
+      ? await env.DB.prepare('SELECT id, name, email, role, status FROM users WHERE LOWER(email) = LOWER(?) LIMIT 1').bind(email).first<{ id: string; name: string; email: string; role: string; status: string | null }>()
+      : await env.DB.prepare(`SELECT id, name, email, role, status FROM users WHERE substr(phone, -10) = ? LIMIT 1`).bind(phone).first<{ id: string; name: string; email: string; role: string; status: string | null }>();
+    if (!user) return json({ error: 'No account matches those details' }, 404);
+    if (user.status !== 'Disabled' && user.status !== 'Suspended') {
+      return json({ error: 'This account is not blocked — try signing in normally' }, 400);
+    }
+
+    // Idempotent: one open reactivation ticket per account, however many
+    // times the button is clicked.
+    const existing = await env.DB.prepare(
+      `SELECT id FROM support_tickets WHERE requester_id = ? AND type = 'Reactivation' AND status NOT IN ('Resolved', 'Closed') LIMIT 1`
+    ).bind(user.id).first<{ id: string }>();
+    if (existing) {
+      return json({ success: true, id: existing.id, duplicate: true });
+    }
+
+    const id = `support-react-${Date.now()}`;
+    const now = new Date().toISOString();
+    const message = String(body.message || '').slice(0, 2000);
+    await env.DB.prepare(`
+      INSERT INTO support_tickets (
+        id, organization_id, requester_id, requester_name, requester_role,
+        type, title, description, status, messages, created_at, updated_at
+      ) VALUES (?, NULL, ?, ?, ?, 'Reactivation', ?, ?, 'Raised', '[]', ?, ?)
+    `).bind(
+      id,
+      user.id,
+      user.name || 'User',
+      user.role,
+      `Reactivation request — ${user.status} account`,
+      message || `${user.name} (${user.email || phone}) requests reactivation of their ${user.status} account.`,
+      now,
+      now
+    ).run();
+
+    // The Super Admin desk is told immediately.
+    try {
+      const { notifyEvent } = await import('../email');
+      const admin = await env.DB.prepare(
+        `SELECT email, name FROM users WHERE role IN ('superadmin', 'admin') AND email IS NOT NULL AND email != '' LIMIT 1`
+      ).first<{ email: string; name: string | null }>();
+      if (admin?.email?.includes('@')) {
+        await notifyEvent(env, 'support.ticket_raised', {
+          to: admin.email,
+          toName: admin.name || 'Super Admin',
+          data: {
+            requesterName: user.name || 'User',
+            ticketType: 'Reactivation',
+            title: `Reactivation request — ${user.status} account`,
+            description: message || `${user.email || phone} requests reactivation.`,
+            referenceId: id,
+          },
+          dedupeKey: `reactivation-${user.id}`,
+        });
+      }
+    } catch { /* mail is best-effort; the ticket row is the durable record */ }
+
+    return json({ success: true, id }, 201);
+  } catch (error) {
+    console.error('reactivation', error);
+    return json({ error: 'Could not raise the reactivation request' }, 500);
+  }
+}
+
 // User-facing support tickets. Anyone signed in can raise a ticket; the
 // requester is taken from the JWT, never from the body.
 export async function supportTicketsHandler(request: Request, env: Env): Promise<Response> {

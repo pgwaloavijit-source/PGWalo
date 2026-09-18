@@ -30,6 +30,7 @@ import {
   RefreshCw,
   ExternalLink,
   FileText,
+  PenTool,
   LogOut,
   ImagePlus,
 } from 'lucide-react';
@@ -156,10 +157,12 @@ export const ResidentDashboard: React.FC = () => {
       (!broadcast.propertyId || (currentResident?.propertyId && broadcast.propertyId === currentResident.propertyId))
   );
 
-  // Active tab: If not allocated, default to 'visits' or 'bookings'
+  // Active tab: a pending agreement takes priority so the tenant sees the
+  // sign request immediately; otherwise the original defaults apply.
   const [activeTab, setActiveTab] = useState<
-    'visits' | 'bookings' | 'stay' | 'rent' | 'attendance' | 'menu' | 'chat' | 'tickets'
+    'agreement' | 'visits' | 'bookings' | 'stay' | 'rent' | 'attendance' | 'menu' | 'chat' | 'tickets'
   >(() => {
+    if (myAgreement && !myAgreement.tenantSigned) return 'agreement';
     if (isAllocated) return 'stay';
     if (myVisits.length > 0) return 'visits';
     if (myBookings.length > 0) return 'bookings';
@@ -470,6 +473,7 @@ export const ResidentDashboard: React.FC = () => {
         >
           {(
             [
+              { id: 'agreement' as const, label: 'Agreement', Icon: FileText, count: 0, locked: false, pending: Boolean(myAgreement && !myAgreement.tenantSigned) },
               { id: 'visits' as const, label: 'Scheduled visits', Icon: Calendar, count: upcomingVisits.length, locked: false },
               { id: 'bookings' as const, label: 'Room applications', Icon: Bed, count: pendingBookings.length, locked: false },
               { id: 'stay' as const, label: 'My stay & room', Icon: Home, count: 0, locked: !isAllocated },
@@ -494,6 +498,11 @@ export const ResidentDashboard: React.FC = () => {
                 <item.Icon className="w-4 h-4 mx-auto sm:mx-0 shrink-0" />
                 <span className="text-[10px] sm:text-xs font-bold leading-tight">{item.label}</span>
                 <span className="sm:ml-auto flex items-center justify-center gap-1">
+                  {item.pending && (
+                    <span className="px-1.5 rounded-full text-[10px] font-black bg-amber-100 text-amber-700 animate-pulse">
+                      Sign
+                    </span>
+                  )}
                   {item.count > 0 && (
                     <span className={`px-1.5 rounded-full text-[10px] font-black ${active ? 'bg-white text-blue-600' : 'bg-blue-100 text-blue-700'}`}>
                       {item.count}
@@ -506,6 +515,65 @@ export const ResidentDashboard: React.FC = () => {
           })}
         </nav>
         <div className="flex-1 min-w-0 mb-6">
+
+        {/* ============================================================ */}
+        {/* TAB: DIGITAL AGREEMENT (review & sign)                       */}
+        {/* ============================================================ */}
+        {activeTab === 'agreement' && (
+          <div className="max-w-4xl mx-auto space-y-6">
+            {!myAgreement ? (
+              <div className="bg-white rounded-3xl border border-slate-200 p-10 text-center shadow-2xs">
+                <FileText className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+                <h2 className="text-lg font-black text-slate-900">No agreement yet</h2>
+                <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+                  Once your booking is approved, your digital tenancy agreement appears here for review and signature.
+                </p>
+              </div>
+            ) : (
+              <div className="bg-white rounded-3xl border border-slate-200 p-6 sm:p-7 shadow-2xs">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div>
+                    <div className="inline-flex items-center gap-1.5 text-xs font-bold text-blue-600 uppercase tracking-wider mb-1">
+                      <FileText className="w-3.5 h-3.5" />
+                      <span>Digital Tenancy Agreement</span>
+                    </div>
+                    <h2 className="text-xl font-black text-slate-900">{myAgreement.agreementNumber}</h2>
+                    <p className="text-xs text-slate-500 mt-1">
+                      {myAgreement.propertyName} • Room {myAgreement.roomNumber} ({myAgreement.bedNumber}) • ₹{myAgreement.monthlyRent.toLocaleString()}/mo
+                    </p>
+                  </div>
+                  {myAgreement.tenantSigned ? (
+                    <span className="px-4 py-2 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-bold flex items-center gap-1.5">
+                      <ShieldCheck className="w-4 h-4 text-emerald-600" /> Signed
+                      {myAgreement.status === 'Active' ? ' & Active' : ' — awaiting owner countersign'}
+                    </span>
+                  ) : (
+                    <button
+                      onClick={() => setActiveAgreementId(myAgreement.id)}
+                      className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-md animate-pulse"
+                    >
+                      <PenTool className="w-4 h-4" /> Review & Sign Now
+                    </button>
+                  )}
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-6 pt-5 border-t border-slate-100 text-xs">
+                  <div><p className="text-slate-400 font-bold uppercase text-[10px]">Start date</p><p className="font-bold text-slate-900 mt-0.5">{myAgreement.startDate}</p></div>
+                  <div><p className="text-slate-400 font-bold uppercase text-[10px]">End date</p><p className="font-bold text-slate-900 mt-0.5">{myAgreement.endDate}</p></div>
+                  <div><p className="text-slate-400 font-bold uppercase text-[10px]">Security deposit</p><p className="font-bold text-slate-900 mt-0.5">₹{myAgreement.securityDeposit.toLocaleString()}</p></div>
+                  <div><p className="text-slate-400 font-bold uppercase text-[10px]">Notice period</p><p className="font-bold text-slate-900 mt-0.5">{myAgreement.noticePeriodDays} days</p></div>
+                </div>
+                {myAgreement.tenantSigned && (
+                  <button
+                    onClick={() => setActiveAgreementId(myAgreement.id)}
+                    className="mt-5 text-xs font-bold text-blue-600 hover:text-blue-700 flex items-center gap-1"
+                  >
+                    <Eye className="w-3.5 h-3.5" /> View full signed document
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* ============================================================ */}
         {/* TAB: MY SCHEDULED VISITS (Upcoming & Past)                   */}

@@ -2,6 +2,58 @@ import { Env, User, AuthResult } from '../types';
 import { verifyJWT } from '../utils/jwt';
 import { isPlatformAdmin } from '../utils/platformAdmin';
 
+/**
+ * Live account state, checked on every authenticated request.
+ *
+ * A JWT used to be trusted until expiry, so a user the Super Admin disabled
+ * kept full access for the rest of the token lifetime. Every authenticated
+ * call now re-reads the account status from D1 (through a short per-isolate
+ * cache so hot SSE polling does not hammer the database). Disabled or
+ * suspended accounts are rejected immediately — logging out, re-signing in,
+ * or crafting requests changes nothing.
+ */
+interface StatusRow { status: string | null; role: string }
+
+const statusCache = new Map<string, { value: string | null; role: string; at: number }>();
+const STATUS_TTL_MS = 30_000;
+
+async function liveAccountStatus(env: Env, userId: string): Promise<{ status: string | null; role: string } | null> {
+  const cached = statusCache.get(userId);
+  if (cached && Date.now() - cached.at < STATUS_TTL_MS) {
+    return { status: cached.value, role: cached.role };
+  }
+  try {
+    const row = await env.DB.prepare('SELECT status, role FROM users WHERE id = ? LIMIT 1')
+      .bind(userId).first<StatusRow>();
+    if (!row) return null;
+    statusCache.set(userId, { value: row.status || null, role: row.role, at: Date.now() });
+    return { status: row.status || null, role: row.role };
+  } catch {
+    return cached ? { status: cached.value, role: cached.role } : null;
+  }
+}
+
+const BLOCKED_STATUSES = new Set(['Disabled', 'Suspended']);
+
+function blockedResult(status: string | null): AuthResult {
+  return {
+    success: false,
+    error: status === 'Suspended'
+      ? 'Account suspended'
+      : 'Account disabled',
+    user: undefined,
+  };
+}
+
+async function finalizeAuth(env: Env, user: User): Promise<AuthResult> {
+  // The platform Super Admin is a config-defined operator, not a users row —
+  // there is nothing to disable.
+  if (isPlatformAdmin(user.role)) return { success: true, user };
+  const live = await liveAccountStatus(env, user.id);
+  if (live && BLOCKED_STATUSES.has(live.status || 'Active')) return blockedResult(live.status);
+  return { success: true, user };
+}
+
 export async function authMiddleware(request: Request, env: Env, tokenOverride?: string): Promise<AuthResult> {
   const authHeader = request.headers.get('Authorization');
 
@@ -14,16 +66,13 @@ export async function authMiddleware(request: Request, env: Env, tokenOverride?:
     }
     const payload = await verifyJWT(tokenOverride, secret);
     if (payload) {
-      return {
-        success: true,
-        user: {
-          id: payload.userId,
-          role: payload.role,
-          organizationId: payload.organizationId,
-          name: payload.name,
-          email: payload.email,
-        },
-      };
+      return finalizeAuth(env, {
+        id: payload.userId,
+        role: payload.role,
+        organizationId: payload.organizationId,
+        name: payload.name,
+        email: payload.email,
+      });
     }
     return { success: false, error: 'Invalid or expired token' };
   }
@@ -36,16 +85,13 @@ export async function authMiddleware(request: Request, env: Env, tokenOverride?:
     }
     const payload = await verifyJWT(token, secret);
     if (payload) {
-      return {
-        success: true,
-        user: {
-          id: payload.userId,
-          role: payload.role,
-          organizationId: payload.organizationId,
-          name: payload.name,
-          email: payload.email,
-        },
-      };
+      return finalizeAuth(env, {
+        id: payload.userId,
+        role: payload.role,
+        organizationId: payload.organizationId,
+        name: payload.name,
+        email: payload.email,
+      });
     }
     return { success: false, error: 'Invalid or expired token' };
   }
@@ -58,10 +104,8 @@ export async function authMiddleware(request: Request, env: Env, tokenOverride?:
     if (!validRoles.includes(role)) {
       return { success: false, error: 'Invalid role' };
     }
-    return {
-      success: true,
-      user: { id: userId || 'user-demo', role, organizationId },
-    };
+    const devUser: User = { id: userId || 'user-demo', role, organizationId };
+    return await finalizeAuth(env, devUser);
   }
 
   return { success: false, error: 'Authentication required' };

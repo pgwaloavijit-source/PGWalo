@@ -406,6 +406,8 @@ export interface StaffMember {
   organizationId?: string;
   name: string;
   role: 'Housekeeping' | 'Mess Cook' | 'Security Guard' | 'Manager' | 'Electrician';
+  /** Additional operational roles — a staff member can hold several. */
+  roles?: string[];
   phone: string;
   avatar: string;
   propertyId: string;

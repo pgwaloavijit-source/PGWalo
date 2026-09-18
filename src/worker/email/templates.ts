@@ -164,6 +164,14 @@ export const EVENTS: Record<string, EventDef> = {
   },
 
   // ---- visits -------------------------------------------------------------
+  'visit.requested': {
+    category: 'visit',
+    subject: (d) => `New visit request — ${str(d.propertyName)}`,
+    title: (d) => `${str(d.applicantName) || 'Someone'} wants to visit ${str(d.propertyName)}`,
+    intro: () => 'Confirm or reschedule the visit from your owner dashboard.',
+    rows: (d) => rows([['Property', d.propertyName], ['Visitor', d.applicantName], ['Preferred date', d.visitDate], ['Slot', d.visitTimeSlot], ['Mobile', d.applicantPhone], ['Reference', d.referenceId]]),
+    cta: (d) => ({ label: 'Review request', url: `${app(d)}/owner` }),
+  },
   'visit.scheduled': {
     category: 'visit',
     subject: (d) => `Visit confirmed — ${str(d.propertyName)}`,
@@ -400,6 +408,24 @@ export const EVENTS: Record<string, EventDef> = {
     title: (d) => str(d.title) || 'Announcement from your PG',
     intro: (d) => str(d.message) || 'You have a new announcement from your property manager.',
     rows: (d) => rows([['Property', d.propertyName], ['Category', d.category], ['From', d.sender]]),
+  },
+
+  // ---- platform moderation (Super Admin actions) --------------------------
+  'account.disabled': {
+    category: 'auth',
+    subject: (d) => `Your PGWalo account has been ${str(d.status) === 'Suspended' ? 'suspended' : 'disabled'}`,
+    title: () => 'Account access paused by the Super Admin',
+    intro: () => 'Your data is safe, but your account is now read-only until it is reactivated.',
+    rows: (d) => rows([['Status', str(d.status) === 'Suspended' ? 'Suspended' : 'Disabled'], ['Action needed', 'Raise a reactivation request']]),
+    cta: (d) => ({ label: 'How to reactivate', url: `${app(d)}/support` }),
+    footnote: () => 'Sign in and open Support → Reactivation request. The Super Admin reviews every request.',
+  },
+  'account.reactivated': {
+    category: 'auth',
+    subject: () => 'Your PGWalo account has been reactivated',
+    title: () => 'Welcome back — access restored',
+    intro: () => 'The Super Admin has restored your account. Sign in again to continue where you left off.',
+    cta: (d) => ({ label: 'Sign in', url: `${app(d)}/` }),
   },
 
   // ---- support & admin desk ----------------------------------------------

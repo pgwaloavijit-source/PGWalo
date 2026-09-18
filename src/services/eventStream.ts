@@ -19,11 +19,15 @@ const apiUrl = (path: string) => sharedApiUrl(path);
  * slow-poll fallback, so the worst case is the old 25-45 s latency.
  */
 
-export type StreamKind = 'tickets' | 'notifications';
+export type StreamKind = 'tickets' | 'notifications' | 'inquiries' | 'data';
 
 interface StreamHandlers {
   onTicketsChanged?: () => void;
   onNotificationsChanged?: () => void;
+  /** A booking/visit request appeared or changed status. */
+  onInquiriesChanged?: () => void;
+  /** Operational data changed (approvals, allocations, disables, listings). */
+  onDataChanged?: () => void;
   onStatus?: (status: 'connecting' | 'open' | 'offline') => void;
 }
 
@@ -85,6 +89,8 @@ export function connectEventStream(kinds: StreamKind[], handlers: StreamHandlers
                 const parsed = JSON.parse(data) as { kind?: string };
                 if (parsed.kind === 'tickets') handlers.onTicketsChanged?.();
                 else if (parsed.kind === 'notifications') handlers.onNotificationsChanged?.();
+                else if (parsed.kind === 'inquiries') handlers.onInquiriesChanged?.();
+                else if (parsed.kind === 'data') handlers.onDataChanged?.();
               } catch { /* malformed event — ignore */ }
             } else if (event === 'ready') {
               handlers.onStatus?.('open');

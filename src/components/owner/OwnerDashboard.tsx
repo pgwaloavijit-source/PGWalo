@@ -33,10 +33,12 @@ import {
   LogOut,
   Pencil,
   Wrench,
+  ClipboardList,
 } from 'lucide-react';
 import { BedMatrixTab } from './BedMatrixTab';
 import { LeadFunnelTab } from './LeadFunnelTab';
 import { AgreementsTab } from './AgreementsTab';
+import { OwnerOpsTab } from './OwnerOpsTab';
 import { ProfitabilityTab } from './ProfitabilityTab';
 import { OwnerMaintenanceTab } from './OwnerMaintenanceTab';
 import { AIPropertyOnboardingModal } from '../features/AIPropertyOnboardingModal';
@@ -52,7 +54,7 @@ import { PlanBadge } from '../common/PlanBadge';
 import { fetchListingOrder } from '../../services/payments';
 import { takePendingPayOrder } from '../../utils/payLink';
 import { fireEmailEvent } from '../../services/emailEvents';
-import { useOwnerScope } from '../../utils/ownership';
+import { useOwnerScope, ownsProperty } from '../../utils/ownership';
 import { AMENITIES, amenityLabel, normalizeAmenities } from '../../utils/amenities';
 
 export const OwnerDashboard: React.FC = () => {
@@ -98,6 +100,7 @@ export const OwnerDashboard: React.FC = () => {
     | 'properties'
     | 'residents'
     | 'staff'
+    | 'operations'
     | 'maintenance'
     | 'attendance'
     | 'menu'
@@ -345,6 +348,7 @@ export const OwnerDashboard: React.FC = () => {
   const [showAddStaffModal, setShowAddStaffModal] = useState(false);
   const [newStaffName, setNewStaffName] = useState('');
   const [newStaffRole, setNewStaffRole] = useState<'Housekeeping' | 'Mess Cook' | 'Security Guard' | 'Manager' | 'Electrician'>('Housekeeping');
+  const [newStaffRoles, setNewStaffRoles] = useState<string[]>([]);
   const [newStaffPhone, setNewStaffPhone] = useState('');
   const [newStaffEmail, setNewStaffEmail] = useState('');
   const [newStaffPin, setNewStaffPin] = useState('');
@@ -579,6 +583,32 @@ export const OwnerDashboard: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 pb-20">
+      {/* Disabled-listing banner: the Super Admin froze a listing. Read-only
+          until the reactivation ticket is resolved. */}
+      {properties.some((p) => ownsProperty(p, currentUser!) && (p.status === 'Archived' || p.status === 'Restricted')) && (
+        <div className="bg-rose-50 border-b border-rose-200 px-4 sm:px-6 lg:px-8 py-3">
+          <div className="max-w-7xl mx-auto flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
+            <div className="flex items-center gap-2 flex-1">
+              <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+              <div>
+                <p className="text-xs font-black text-rose-900">
+                  Listing disabled by the Super Admin
+                </p>
+                <p className="text-[11px] text-rose-700">
+                  {properties.filter((p) => ownsProperty(p, currentUser!) && (p.status === 'Archived' || p.status === 'Restricted')).map((p) => p.name).join(', ')}
+                  {' '}— hidden from search and read-only. Raise a reactivation request to restore it.
+                </p>
+              </div>
+            </div>
+            <a
+              href="#/support"
+              className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-[11px] font-bold text-center shrink-0"
+            >
+              Raise reactivation request
+            </a>
+          </div>
+        </div>
+      )}
       {/* Toast banner */}
       {reminderToast && (
         <div className="fixed top-20 right-6 z-50 bg-blue-600 text-white px-4 py-2.5 rounded-xl shadow-xl flex items-center gap-2 text-xs font-semibold animate-in fade-in">
@@ -667,6 +697,7 @@ export const OwnerDashboard: React.FC = () => {
             { key: 'properties', label: 'Properties', icon: Building2, count: properties.length },
             { key: 'residents', label: 'Residents & Bookings', icon: Users, count: residents.length },
             { key: 'staff', label: 'Staff & Team', icon: ShieldCheck, count: staff.length },
+            { key: 'operations', label: 'Staff Operations', icon: ClipboardList, count: 0 },
             { key: 'maintenance', label: 'Maintenance SLA', icon: Wrench, count: openComplaints },
             { key: 'attendance', label: 'Attendance & Gate Log', icon: Clock, count: 0 },
             { key: 'menu', label: 'Mess & Food Menu', icon: Utensils, count: 0 },
@@ -1187,6 +1218,7 @@ export const OwnerDashboard: React.FC = () => {
         {/* TAB: STAFF & OPERATIONS */}
         {activeTab === 'maintenance' && <OwnerMaintenanceTab />}
 
+        {activeTab === 'operations' && <OwnerOpsTab />}
         {activeTab === 'staff' && (
           <div className="space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -1828,9 +1860,11 @@ export const OwnerDashboard: React.FC = () => {
                   setStaffFormError('List a PG first, then assign staff to it.');
                   return;
                 }
+                const roles = Array.from(new Set([newStaffRole, ...newStaffRoles]));
                 const rosterEntry = {
                   name: newStaffName.trim(),
                   role: newStaffRole,
+                  roles,
                   phone: newStaffPhone.replace(/\D/g, '').slice(-10),
                   shift: newStaffShift as StaffMember['shift'],
                   avatar: '',
@@ -1849,6 +1883,7 @@ export const OwnerDashboard: React.FC = () => {
                     phone: newStaffPhone,
                     email: newStaffEmail || undefined,
                     staffRole: newStaffRole,
+                    roles,
                     pin: newStaffPin,
                     propertyId,
                     shift: newStaffShift,
@@ -1867,6 +1902,7 @@ export const OwnerDashboard: React.FC = () => {
                 setNewStaffPhone('');
                 setNewStaffEmail('');
                 setNewStaffPin('');
+                setNewStaffRoles([]);
               }}
               className="mt-4 space-y-3"
             >
@@ -1901,7 +1937,9 @@ export const OwnerDashboard: React.FC = () => {
               </div>
 
               <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">Duty role</label>
+                <label className="text-xs font-bold text-slate-700 block mb-1">
+                  Role(s) — tap to select one or more
+                </label>
                 <div className="flex flex-wrap gap-1.5">
                   {([
                     ['Housekeeping', 'Housekeeping'],
@@ -1909,21 +1947,38 @@ export const OwnerDashboard: React.FC = () => {
                     ['Electrician', 'Maintenance'],
                     ['Security Guard', 'Security'],
                     ['Manager', 'Warden'],
-                  ] as const).map(([value, label]) => (
-                    <button
-                      key={value}
-                      type="button"
-                      onClick={() => setNewStaffRole(value)}
-                      className={`px-2.5 py-1.5 rounded-xl text-[11px] font-bold border transition ${
-                        newStaffRole === value
-                          ? 'bg-blue-600 text-white border-blue-600'
-                          : 'bg-white text-slate-600 border-slate-200 hover:border-blue-300'
-                      }`}
-                    >
-                      {label}
-                    </button>
-                  ))}
+                    ['Caretaker', 'Caretaker'],
+                    ['Reception/Front Desk', 'Front Desk'],
+                    ['Inventory/Store Staff', 'Inventory'],
+                    ['Operations Staff', 'Operations'],
+                  ] as const).map(([value, label]) => {
+                    const selected = newStaffRoles.includes(value) || newStaffRole === value;
+                    return (
+                      <button
+                        key={value}
+                        type="button"
+                        onClick={() => {
+                          setNewStaffRole(value);
+                          setNewStaffRoles((prev) =>
+                            prev.includes(value) ? prev.filter((r) => r !== value) : [...prev, value]
+                          );
+                        }}
+                        className={`px-2.5 py-1.5 rounded-xl text-[11px] font-bold border transition ${
+                          selected
+                            ? 'bg-blue-600 text-white border-blue-600'
+                            : 'bg-white text-slate-600 border-slate-200 hover:border-blue-300'
+                        }`}
+                      >
+                        {selected && '✓ '}{label}
+                      </button>
+                    );
+                  })}
                 </div>
+                {newStaffRoles.length > 1 && (
+                  <p className="text-[10px] text-slate-500 mt-1.5">
+                    {newStaffRoles.length} roles — {newStaffRoles.join(' + ')}. Their dashboard combines all role checklists.
+                  </p>
+                )}
               </div>
 
               <div>

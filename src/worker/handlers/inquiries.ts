@@ -2,12 +2,60 @@ import { Env } from '../types';
 import { addCorsHeaders } from '../utils/cors';
 import { authMiddleware } from '../middleware/auth';
 import { isPlatformAdmin } from '../utils/platformAdmin';
+import { notifyEvent, type WaitUntilContext } from '../email';
 
 function json(data: unknown, status = 200) {
   return addCorsHeaders(new Response(JSON.stringify(data), {
     status,
     headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
   }));
+}
+
+/**
+ * Personal in-app notice to a user account. Approval/cancellation used to
+ * exist only in the acting browser's local state — the applicant found out
+ * by watching the status chip. recipient_id makes it theirs alone.
+ */
+async function notifyUser(env: Env, userId: string, title: string, message: string): Promise<void> {
+  try {
+    await env.DB.prepare(`
+      INSERT INTO broadcast_notifications
+        (id, title, message, category, target, timestamp, sender, read, created_at, recipient_id)
+      VALUES (?, ?, ?, 'Event', 'All Residents', ?, 'PGWalo', 0, ?, ?)
+    `).bind(
+      `bc-inq-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      title,
+      message,
+      new Date().toISOString(),
+      new Date().toISOString(),
+      userId
+    ).run();
+  } catch (error) {
+    console.error('inquiry notification', error);
+  }
+}
+
+/**
+ * Find the applicant's account by the email/phone they submitted, so the
+ * decision reaches the person who made the request (in-app + email) even
+ * though they are not the one clicking the button.
+ */
+async function findApplicant(env: Env, email: string, phone: string) {
+  try {
+    if (email.includes('@')) {
+      const row = await env.DB.prepare(
+        'SELECT id, email, name FROM users WHERE LOWER(email) = LOWER(?) LIMIT 1'
+      ).bind(email.trim()).first<{ id: string; email: string; name: string }>();
+      if (row) return row;
+    }
+    if (phone) {
+      const row = await env.DB.prepare(
+        `SELECT id, email, name FROM users WHERE substr(phone, -10) = ? LIMIT 1`
+      ).bind(phone.replace(/\D/g, '').slice(-10)).first<{ id: string; email: string; name: string }>();
+      if (row) return row;
+    }
+  } catch { /* users table quirk — fall through */ }
+  return null;
 }
 
 function rowToInquiry(row: Record<string, unknown>) {
@@ -34,7 +82,7 @@ function rowToInquiry(row: Record<string, unknown>) {
   };
 }
 
-export async function inquiriesHandler(request: Request, env: Env): Promise<Response> {
+export async function inquiriesHandler(request: Request, env: Env, ctx?: WaitUntilContext): Promise<Response> {
   const url = new URL(request.url);
   const auth = await authMiddleware(request, env);
 
@@ -85,6 +133,8 @@ export async function inquiriesHandler(request: Request, env: Env): Promise<Resp
   }
 
   if (request.method === 'POST') {
+    const auth = await authMiddleware(request, env);
+    if (!auth.success || !auth.user) return json({ error: auth.error || 'Authentication required' }, 401);
     const body = await request.json() as Record<string, unknown>;
     const propertyId = String(body.propertyId || '');
     const applicantName = String(body.applicantName || '').trim();
@@ -131,6 +181,44 @@ export async function inquiriesHandler(request: Request, env: Env): Promise<Resp
         String(body.visitTimeSlot || ''),
         String(body.referenceId || id)
       ).run();
+
+      // The owner used to discover a new visit/booking only by refreshing.
+      // Personal notification + email land the moment the request is created.
+      if (property?.owner_user_id) {
+        const kindLabel = type === 'visit' ? 'Property visit request' : 'New booking request';
+        await notifyUser(
+          env,
+          property.owner_user_id,
+          kindLabel,
+          `${applicantName} requested a ${type === 'visit' ? `visit on ${String(body.visitDate || body.preferredMoveInDate || 'the listed date')}` : `${String(body.roomType || 'Double')}-sharing stay`} at ${String(body.propertyName || property.name)}.`
+        );
+        try {
+          const owner = await env.DB.prepare('SELECT email, name FROM users WHERE id = ?')
+            .bind(property.owner_user_id).first<{ email: string; name: string }>();
+          if (owner?.email?.includes('@')) {
+            await notifyEvent(env, type === 'visit' ? 'visit.requested' : 'booking.requested', {
+              to: owner.email,
+              toName: owner.name || 'Owner',
+              propertyId,
+              data: {
+                propertyName: String(body.propertyName || property.name || ''),
+                applicantName,
+                applicantPhone: phone,
+                visitDate: String(body.visitDate || ''),
+                visitTimeSlot: String(body.visitTimeSlot || ''),
+                roomType: String(body.roomType || ''),
+                moveInDate: String(body.preferredMoveInDate || ''),
+                referenceId: String(body.referenceId || id),
+              },
+              dedupeKey: `inquiry-created-${id}`,
+              ctx,
+            });
+          }
+        } catch (error) {
+          console.error('inquiry owner email', error);
+        }
+      }
+
       return json({ success: true, id }, 201);
     } catch (error) {
       console.error('inquiries save', error);
@@ -139,6 +227,10 @@ export async function inquiriesHandler(request: Request, env: Env): Promise<Resp
   }
 
   if (request.method === 'PATCH') {
+    const auth = await authMiddleware(request, env);
+    if (!auth.success || !auth.user) return json({ error: auth.error || 'Authentication required' }, 401);
+    const caller = auth.user;
+
     const body = await request.json() as Record<string, unknown>;
     const id = String(body.id || url.searchParams.get('id') || '');
     if (!id) return json({ error: 'Inquiry id required' }, 400);
@@ -146,8 +238,46 @@ export async function inquiriesHandler(request: Request, env: Env): Promise<Resp
     if (!['Pending', 'Approved', 'Rejected', 'Cancelled'].includes(status)) {
       return json({ error: 'Invalid status' }, 400);
     }
+
+    // A disabled or suspended account is read-only — its writes are rejected
+    // here at the API layer, not just hidden in the UI.
+    if (caller.role !== 'admin' && caller.role !== 'superadmin') {
+      const live = await env.DB.prepare('SELECT status FROM users WHERE id = ? LIMIT 1')
+        .bind(caller.id).first<{ status: string | null }>();
+      if (live && (live.status === 'Disabled' || live.status === 'Suspended')) {
+        return json({ error: `Account ${String(live.status).toLowerCase()} — request the Super Admin to reactivate it` }, 403);
+      }
+    }
+
+    // Only the property's owner, a platform admin, or the inquiry's own
+    // applicant (cancelling their own request) may change it. A crafted PATCH
+    // used to be able to flip any property's requests.
+    const existing = await env.DB.prepare(
+      'SELECT * FROM booking_requests WHERE id = ? OR reference_id = ? LIMIT 1'
+    ).bind(id, id).first<Record<string, unknown>>();
+    if (!existing) return json({ error: 'Inquiry not found' }, 404);
+
+    if (!isPlatformAdmin(caller.role)) {
+      let allowed = false;
+      if (caller.role === 'owner') {
+        const own = await env.DB.prepare(
+          `SELECT 1 FROM booking_requests br JOIN properties p ON p.id = br.property_id
+            WHERE (br.id = ? OR br.reference_id = ?) AND p.owner_user_id = ? LIMIT 1`
+        ).bind(id, id, caller.id).first();
+        allowed = Boolean(own);
+      }
+      if (!allowed) {
+        // The applicant may withdraw (cancel) their own request — nothing else.
+        const email = (caller.email || '').toLowerCase();
+        const isSelf = status === 'Cancelled' && Boolean(
+          email && String(existing.email || '').toLowerCase() === email
+        );
+        if (!isSelf) return json({ error: 'You can only manage requests for your own properties' }, 403);
+      }
+    }
+
     try {
-      await env.DB.prepare(
+      const result = await env.DB.prepare(
         `UPDATE booking_requests SET status = ?, allocated_room_number = ?, allocated_bed_number = ? WHERE id = ? OR reference_id = ?`
       ).bind(
         status,
@@ -156,11 +286,63 @@ export async function inquiriesHandler(request: Request, env: Env): Promise<Resp
         id,
         id
       ).run();
-      return json({ success: true });
+      if (!result.meta || result.meta.changes === 0) {
+        return json({ error: 'Inquiry not found' }, 404);
+      }
     } catch (error) {
       console.error('inquiries patch', error);
       return json({ error: 'Could not update inquiry' }, 500);
     }
+
+    // The decision must reach the applicant: personal in-app notice + email.
+    // The applicant's account is matched by the email/phone on the request.
+    if (status === 'Approved' || status === 'Rejected' || status === 'Cancelled') {
+      const applicant = await findApplicant(env, String(existing.email || ''), String(existing.phone || ''));
+      const isVisit = String(existing.type || 'booking') === 'visit';
+      const propertyName = String(existing.property_name || 'the property');
+      const referenceId = String(existing.reference_id || existing.id || id);
+      if (applicant) {
+        const title = isVisit
+          ? (status === 'Approved' ? 'Your property visit is confirmed' : 'Your visit request was not confirmed')
+          : (status === 'Approved' ? 'Your booking is approved' : 'Your booking request was not approved');
+        const roomBit = status === 'Approved' && !isVisit && (body.allocatedRoomNumber || body.allocatedBedNumber)
+          ? ` Room ${String(body.allocatedRoomNumber)} (${String(body.allocatedBedNumber)}) is allocated.`
+          : '';
+        await notifyUser(
+          env,
+          applicant.id,
+          title,
+          `${propertyName}: ${isVisit ? 'visit' : 'booking'} ${referenceId} — ${status === 'Approved' ? `confirmed by the owner.${roomBit}` : status === 'Cancelled' ? 'you cancelled this request.' : 'the owner could not approve it.'}`
+        );
+        try {
+          const event = isVisit
+            ? (status === 'Approved' ? 'visit.scheduled' : 'visit.cancelled')
+            : (status === 'Approved' ? 'booking.approved' : 'booking.rejected');
+          if (applicant.email?.includes('@')) {
+            await notifyEvent(env, event, {
+              to: applicant.email,
+              toName: applicant.name || 'there',
+              propertyId: String(existing.property_id || '') || undefined,
+              data: {
+                propertyName,
+                roomNumber: String(body.allocatedRoomNumber || ''),
+                bedNumber: String(body.allocatedBedNumber || ''),
+                visitDate: String(existing.visit_date || ''),
+                visitTimeSlot: String(existing.visit_time_slot || ''),
+                moveInDate: String(existing.preferred_move_in_date || ''),
+                referenceId,
+              },
+              dedupeKey: `inquiry-${status.toLowerCase()}-${referenceId}`,
+              ctx,
+            });
+          }
+        } catch (error) {
+          console.error('inquiry applicant email', error);
+        }
+      }
+    }
+
+    return json({ success: true });
   }
 
   return json({ error: 'Method not allowed' }, 405);
