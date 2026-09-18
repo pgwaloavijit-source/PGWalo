@@ -108,7 +108,14 @@ export const ResidentDashboard: React.FC = () => {
   const pendingBookings = myBookings.filter((b) => b.status === 'Pending');
   const approvedBookings = myBookings.filter((b) => b.status === 'Approved');
   const myBroadcasts = broadcasts.filter(
-    (broadcast) => !broadcast.propertyId || (currentResident?.propertyId && broadcast.propertyId === currentResident.propertyId)
+    (broadcast) =>
+      // Personal notices (per-resident rent reminders) are addressed to one
+      // account — never show another resident's reminder. The stamped id may
+      // be the account id or the resident-row id; both resolve to self here.
+      (!broadcast.recipientId ||
+        broadcast.recipientId === currentUser?.id ||
+        broadcast.recipientId === currentResident?.id) &&
+      (!broadcast.propertyId || (currentResident?.propertyId && broadcast.propertyId === currentResident.propertyId))
   );
 
   // Active tab: If not allocated, default to 'visits' or 'bookings'

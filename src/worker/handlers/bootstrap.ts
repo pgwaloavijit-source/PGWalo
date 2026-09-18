@@ -211,8 +211,10 @@ export async function bootstrapHandler(request: Request, env: Env, user: User): 
             params.push(user.id);
           } else if (table === 'broadcast_notifications' && columns.has('recipient_id')) {
             // Announcements plus anything addressed to this account personally.
-            conditions.push('(recipient_id IS NULL OR recipient_id = ?)');
-            params.push(user.id);
+            // The recipient may be stamped with the account id or the linked
+            // resident-row id (`res-<accountId>`), so match both.
+            conditions.push('(recipient_id IS NULL OR recipient_id = ? OR recipient_id = ?)');
+            params.push(user.id, `res-${user.id}`);
           }
         }
 

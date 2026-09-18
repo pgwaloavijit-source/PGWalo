@@ -1,10 +1,24 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
-import {defineConfig} from 'vite';
+import {defineConfig, loadEnv} from 'vite';
 import {VitePWA} from 'vite-plugin-pwa';
 
-export default defineConfig(({ command }) => {
+export default defineConfig(({ command, mode }) => {
+  // Production builds must never bake a localhost API base into the bundle:
+  // Vite inlines VITE_* vars, and a localhost base makes every live API call
+  // hit a dead endpoint (this shipped once). Local dev is unaffected.
+  if (command === 'build') {
+    const env = loadEnv(mode, process.cwd(), '');
+    const apiBase = env.VITE_API_BASE_URL || '';
+    if (/localhost|127\.0\.0\.1|:8787/.test(apiBase)) {
+      throw new Error(
+        `VITE_API_BASE_URL="${apiBase}" points at a local address. Remove it from .env ` +
+          '(it belongs in .env.development only) before building for production.'
+      );
+    }
+  }
+
   return {
     plugins: [
       react(),

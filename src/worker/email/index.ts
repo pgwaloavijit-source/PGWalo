@@ -64,17 +64,37 @@ export async function sendTransactional(
   const result = await enqueueEmail(env, msg);
   if (!result.queued) return result.reason === 'duplicate';
 
-  // Still record the attempt so the outbox is a truthful audit trail, but the
-  // return value means "actually delivered" — with no sender configured the
-  // callers (e.g. OTP) must keep their local fallback behaviour.
   const deliverable = activeProvider(env) !== 'none';
-  const drain = drainOutbox(env, 5);
+  // A configured sender is necessary but not sufficient: an unverified sending
+  // domain or a revoked key makes every send fail, and callers (OTP) must know
+  // that so they can fall back. The drain pass just updated the row — read its
+  // verdict back when a real sender attempted delivery.
+  // Oldest-first, so a backlog of earlier failures could starve this fresh
+  // row out of a small batch — take enough to always include it.
+  const drain = drainOutbox(env, 25);
   if (msg.ctx) {
     msg.ctx.waitUntil(drain);
-    return deliverable;
+    if (!deliverable) return false;
+    // waitUntil: cannot read synchronously without awaiting, so optimistically
+    // trust a configured sender here; failures retry via cron and the probe
+    // surfaces the exact error.
+    return true;
   }
   await drain;
-  return deliverable;
+  if (!deliverable) return false;
+  try {
+    const row = await env.DB.prepare(
+      `SELECT status FROM email_outbox WHERE id = ?`
+    )
+      .bind(result.id)
+      .first<{ status: string }>();
+    // `sent` = provider accepted it. `queued`/`failed` = it did not deliver;
+    // report that so the OTP path hands out its fallback code instead of
+    // silently dropping the signup.
+    return row?.status === 'sent';
+  } catch {
+    return deliverable;
+  }
 }
 
 export interface NotifyContext {
@@ -164,11 +184,26 @@ export async function deliverEmail(
 export async function probeEmailProviders(env: Env) {
   const candidates: ProviderName[] = ['cloudflare', 'resend'];
   const results = await Promise.all(candidates.map((provider) => probeProvider(env, provider)));
+  // The most recent REAL (non-simulated) delivery attempt says more than any
+  // probe: "domain not verified", quota, suppression, etc. Surface it so the
+  // operator sees the actual reason mail is not arriving.
+  let lastDeliveryError: string | null = null;
+  try {
+    const row = await env.DB.prepare(
+      `SELECT last_error, created_at FROM email_outbox
+       WHERE provider != 'none' AND last_error IS NOT NULL AND last_error != ''
+       ORDER BY created_at DESC LIMIT 1`
+    ).first<{ last_error: string; created_at: string }>();
+    lastDeliveryError = row ? `${row.last_error} (at ${row.created_at})` : null;
+  } catch {
+    /* outbox table may not exist yet */
+  }
   return {
     transport: emailTransportSummary(env),
     providers: results,
     /** The sender the very next message would use. */
     nextSendUses: activeProvider(env),
+    lastDeliveryError,
   };
 }
 
@@ -177,13 +212,38 @@ export async function sendTestEmail(
   to: string,
   ctx?: WaitUntilContext
 ): Promise<{ ok: boolean; provider: ProviderName; simulated?: boolean; failedOver?: boolean; error?: string }> {
-  const result = await sendViaProvider(env, {
+  // Routed through the durable outbox like every other message: the outcome —
+  // including the provider's exact failure, e.g. an unverified sending
+  // domain — is recorded on the outbox row and surfaced here and by the probe.
+  const simulated = activeProvider(env) === 'none';
+  const delivered = await sendTransactional(env, {
     to,
     subject: 'PGWalo email test',
     html: '<p>Email delivery is wired correctly. Nothing to do.</p>',
     text: 'Email delivery is wired correctly.',
+    category: 'transactional',
+    security: true,
   });
-  if (result.ok && !result.simulated) await ensureEmailTables(env);
+  const result: { ok: boolean; provider: ProviderName; simulated?: boolean; failedOver?: boolean; error?: string } = {
+    ok: delivered,
+    provider: activeProvider(env),
+    simulated: simulated || undefined,
+  };
+  if (!delivered && !simulated) {
+    // Read back the row the drain just updated for the precise reason.
+    try {
+      const row = await env.DB.prepare(
+        `SELECT status, last_error FROM email_outbox
+         WHERE LOWER(to_email) = ? ORDER BY created_at DESC LIMIT 1`
+      )
+        .bind(to.trim().toLowerCase())
+        .first<{ status: string; last_error: string | null }>();
+      result.error = row?.last_error || `outbox status: ${row?.status || 'unknown'}`;
+    } catch {
+      result.error = 'delivery failed (see GET /api/admin/email/stats)';
+    }
+  }
+  if (result.ok && !simulated) await ensureEmailTables(env);
   if (ctx) ctx.waitUntil(Promise.resolve());
   return {
     ok: result.ok,

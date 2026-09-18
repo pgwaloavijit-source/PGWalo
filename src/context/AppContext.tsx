@@ -252,8 +252,6 @@ interface AppContextType {
   // Navigation & Interactive Walkthrough
   globalSearchQuery: string;
   setGlobalSearchQuery: (query: string) => void;
-  showAIOnboardingModal: boolean;
-  setShowAIOnboardingModal: (show: boolean) => void;
   showVirtualTourModal: boolean;
   setShowVirtualTourModal: (show: boolean) => void;
   virtualTourRoom: string;
@@ -719,7 +717,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   });
 
   const [globalSearchQuery, setGlobalSearchQuery] = useState('');
-  const [showAIOnboardingModal, setShowAIOnboardingModal] = useState(false);
   const [showVirtualTourModal, setShowVirtualTourModal] = useState(false);
   const [virtualTourRoom, setVirtualTourRoom] = useState('Reception & Lobby');
 
@@ -3521,7 +3518,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const addBroadcast = (broadcast: Omit<BroadcastNotification, 'id' | 'timestamp'>) => {
     const newB: BroadcastNotification = {
       ...broadcast,
-      id: `b-${Date.now()}`,
+      // Two broadcasts inside the same millisecond (e.g. per-resident rent
+      // reminders) collided on `b-${Date.now()}` — one overwrote the other.
+      id: `b-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       timestamp: new Date().toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }),
     };
     setBroadcasts((prev) => [newB, ...prev]);
@@ -3866,8 +3865,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updatePropertyModules,
         globalSearchQuery,
         setGlobalSearchQuery,
-        showAIOnboardingModal,
-        setShowAIOnboardingModal,
         showVirtualTourModal,
         setShowVirtualTourModal,
         virtualTourRoom,

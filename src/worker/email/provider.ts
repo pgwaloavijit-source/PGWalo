@@ -252,7 +252,16 @@ export async function probeProvider(env: Env, provider: ProviderName): Promise<P
         headers: { Authorization: `Bearer ${env.RESEND_API_KEY}` },
       });
       if (res.status === 401 || res.status === 403) {
-        return { provider, ready: false, detail: 'api key rejected' };
+        // Ambiguous: a fully-invalid key AND a send-only scoped key both look
+        // like this. A scoped key can still deliver mail — the definitive
+        // check is a real send via POST /api/admin/email/test, whose error
+        // (e.g. "domain not verified") is recorded on the outbox row and
+        // surfaced by the probe's lastDeliveryError.
+        return {
+          provider,
+          ready: false,
+          detail: 'key rejected by the domains API (invalid key, or a send-only scoped key) - run POST /api/admin/email/test for a definitive verdict',
+        };
       }
       if (!res.ok) return { provider, ready: false, detail: `domains check HTTP ${res.status}` };
       const body = await res.json().catch(() => ({})) as {

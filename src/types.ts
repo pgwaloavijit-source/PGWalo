@@ -436,6 +436,9 @@ export interface BroadcastNotification {
   timestamp: string;
   sender: string;
   read?: boolean;
+  /** Set = a personal notice for this one account (e.g. a rent reminder). */
+  recipientId?: string;
+  recipientName?: string;
 }
 
 export interface ChatMessage {

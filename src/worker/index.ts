@@ -7,6 +7,7 @@ import { healthHandler } from './handlers/health';
 import { mediaHandler } from './handlers/media';
 import { authHandler } from './handlers/auth';
 import { notifyHandler } from './handlers/notify';
+import { aiListingCopyHandler } from './handlers/aiCopy';
 import { geoHandler } from './handlers/geo';
 import { listingsHandler } from './handlers/listings';
 import { inquiriesHandler } from './handlers/inquiries';
@@ -73,6 +74,11 @@ export default {
 
       if (path.startsWith('/api/geo')) {
         return geoHandler(request, env);
+      }
+
+      // AI listing copy for the owner onboarding flow (JWT-required).
+      if (path === '/api/ai/listing-copy') {
+        return aiListingCopyHandler(request, env);
       }
 
       if (path.startsWith('/api/media')) {

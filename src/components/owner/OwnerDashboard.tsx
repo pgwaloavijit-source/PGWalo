@@ -51,6 +51,7 @@ import { PublishPlanModal, PayTarget } from './PublishPlanModal';
 import { PlanBadge } from '../common/PlanBadge';
 import { fetchListingOrder } from '../../services/payments';
 import { takePendingPayOrder } from '../../utils/payLink';
+import { fireEmailEvent } from '../../services/emailEvents';
 import { useOwnerScope } from '../../utils/ownership';
 import { AMENITIES, amenityLabel, normalizeAmenities } from '../../utils/amenities';
 
@@ -357,6 +358,7 @@ export const OwnerDashboard: React.FC = () => {
   const [broadcastMsg, setBroadcastMsg] = useState('');
   const [broadcastCategory, setBroadcastCategory] = useState<'Urgent' | 'Maintenance' | 'Rent' | 'Event' | 'Food'>('General' as any);
   const [reminderToast, setReminderToast] = useState<string | null>(null);
+  const [remindersSending, setRemindersSending] = useState(false);
 
   // Stats calculation
   const totalResidentsCount = residents.length;
@@ -472,20 +474,58 @@ export const OwnerDashboard: React.FC = () => {
     setTimeout(() => setReminderToast(null), 3500);
   };
 
-  const handlePushRentReminders = () => {
-    const overdueResidents = residents.filter((r) => r.rentStatus !== 'Paid');
-    addBroadcast({
-      title: 'Monthly Rent Reminder (Urgent)',
-      message: `Dear residents with pending dues, kindly clear your room dues today. Instant online UPI payment is available in your Resident Portal.`,
-      category: 'Rent',
-      target: 'All Residents',
-      propertyId: properties[0]?.id,
-      propertyName: properties[0]?.name,
-      sender: `${currentUser?.name || 'Owner'} (Owner)`,
-    });
+  const handlePushRentReminders = async () => {
+    // One resident = one personal notice + one email. Nothing went to the
+    // server before: the broadcast was browser-only and sent to everyone.
+    const dueResidents = residents.filter((r) => r.rentStatus === 'Pending' || r.rentStatus === 'Overdue');
+    if (!dueResidents.length || remindersSending) return;
 
-    setReminderToast(`Pushed instant rent reminders to ${overdueResidents.length} residents!`);
+    setRemindersSending(true);
+    let notified = 0;
+    let emailed = 0;
+
+    for (const resident of dueResidents) {
+      const overdue = resident.rentStatus === 'Overdue';
+      const amount = `\u20B9${(resident.outstandingBalance ?? resident.monthlyRent).toLocaleString('en-IN')}`;
+      const dueDate = resident.rentDueDate || 'this month';
+
+      addBroadcast({
+        title: overdue ? 'Rent overdue — action needed' : 'Rent reminder',
+        message: `Hi ${resident.name}, your rent of ${amount} is ${overdue ? 'overdue' : 'due on ' + dueDate}. Pay instantly from your Resident Portal.`,
+        category: 'Rent',
+        target: 'All Residents',
+        propertyId: resident.propertyId,
+        propertyName: resident.propertyName,
+        sender: `${currentUser?.name || 'Owner'} (Owner)`,
+        recipientId: resident.id,
+        recipientName: resident.name,
+      });
+      notified += 1;
+
+      fireEmailEvent(overdue ? 'rent.overdue' : 'rent.due_reminder', {
+        to: 'resident',
+        propertyId: resident.propertyId,
+        residentId: resident.id,
+        residentEmail: resident.email,
+        data: {
+          residentName: resident.name,
+          propertyName: resident.propertyName,
+          roomNumber: resident.roomNumber,
+          amount,
+          outstanding: amount,
+          dueDate,
+          month: new Date().toLocaleString('en-IN', { month: 'long', year: 'numeric' }),
+        },
+        // A month key in the dedupe key means one reminder per resident per
+        // month survives double-clicks, retries and re-renders.
+        dedupeKey: `rent-reminder-${resident.id}-${new Date().getFullYear()}-${new Date().getMonth() + 1}`,
+      });
+      emailed += 1;
+    }
+
+    setReminderToast(`Reminders sent to ${notified} resident${notified === 1 ? '' : 's'}${emailed ? ' — emails queued' : ''}`);
     setTimeout(() => setReminderToast(null), 3500);
+    setRemindersSending(false);
   };
 
   // Phase 1 & 2: Room Transfer & Notice Period State
@@ -587,10 +627,18 @@ export const OwnerDashboard: React.FC = () => {
             <button
               id="owner-push-rent-reminder-btn"
               onClick={handlePushRentReminders}
-              className="px-3.5 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 text-xs font-bold transition flex items-center gap-1.5 shadow-2xs"
+              disabled={remindersSending || pendingRentCount === 0}
+              title={
+                pendingRentCount === 0
+                  ? 'Every resident is paid up — nothing to remind'
+                  : `Send a personal in-app notification + email to ${pendingRentCount} resident${pendingRentCount === 1 ? '' : 's'}`
+              }
+              className="px-3.5 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 text-xs font-bold transition flex items-center gap-1.5 shadow-2xs disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <CreditCard className="w-3.5 h-3.5 text-amber-600" />
-              <span>Push Rent Reminders ({pendingRentCount})</span>
+              <CreditCard className={`w-3.5 h-3.5 text-amber-600 ${remindersSending ? 'animate-pulse' : ''}`} />
+              <span>
+                {remindersSending ? 'Sending…' : `Push Rent Reminders (${pendingRentCount})`}
+              </span>
             </button>
             <button
               id="owner-add-property-btn"

@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Property, RoomSharingType, PendingCustomerAction } from '../../types';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Property, RoomOption, RoomSharingType, PendingCustomerAction } from '../../types';
 import { useApp } from '../../context/AppContext';
 import { defaultVisitDate, defaultVisitSlot, availableVisitSlots, localIsoDate, VisitSlotId } from '../../utils/datetime';
 import { visitedPropertyIds, activeBookingForProperty } from '../../utils/userBookings';
@@ -66,7 +66,32 @@ export const PGDetailModal: React.FC<{
   const [applicantName, setApplicantName] = useState(currentUser?.name || '');
   const [email, setEmail] = useState(currentUser?.email || '');
   const [phone, setPhone] = useState(currentUser?.phone || '');
-  const [selectedRoom, setSelectedRoom] = useState<RoomSharingType>(property.rooms[0]?.type || 'Double');
+  // A room type is NOT preselected: the user must actively choose a sharing
+  // option before booking. Null = nothing chosen yet.
+  const [selectedRoom, setSelectedRoom] = useState<RoomSharingType | null>(null);
+  const [roomError, setRoomError] = useState<string | null>(null);
+
+  // `rooms` holds one row per physical room, so the pricing grid showed the
+  // same "Double Sharing" card several times. Group by sharing type: one card
+  // per type with summed beds and the lowest rent/deposit.
+  const roomGroups = useMemo<RoomOption[]>(() => {
+    const byType = new Map<RoomSharingType, RoomOption>();
+    for (const room of property.rooms || []) {
+      const existing = byType.get(room.type);
+      if (existing) {
+        existing.availableBeds += room.availableBeds || 0;
+        existing.totalBeds += room.totalBeds || room.availableBeds || 0;
+        existing.rentPerMonth = Math.min(existing.rentPerMonth || room.rentPerMonth || 0, room.rentPerMonth || 0);
+        existing.deposit = Math.min(existing.deposit || room.deposit || 0, room.deposit || 0);
+      } else {
+        byType.set(room.type, { ...room });
+      }
+    }
+    const order: RoomSharingType[] = ['Single', 'Double', 'Triple', 'Four'];
+    return Array.from(byType.values()).sort(
+      (a, b) => (order.indexOf(a.type) + 1 || 9) - (order.indexOf(b.type) + 1 || 9)
+    );
+  }, [property.rooms]);
   const [moveInDate, setMoveInDate] = useState(localIsoDate());
   const [visitDate, setVisitDate] = useState(defaultVisitDate());
   const [visitTimeSlot, setVisitTimeSlot] = useState<VisitSlotId>(defaultVisitSlot(defaultVisitDate()));
@@ -136,7 +161,17 @@ export const PGDetailModal: React.FC<{
       return;
     }
     const chosenRoom = roomType || selectedRoom;
-    if (roomType) setSelectedRoom(roomType);
+    if (roomType) {
+      setSelectedRoom(roomType);
+      setRoomError(null);
+    }
+    // A sharing type must be chosen before any booking/visit action.
+    if (!chosenRoom) {
+      setRoomError('Please select a room sharing type first, then continue.');
+      setActiveTab('rooms');
+      alert('Please select a room sharing type first.\n\nPick one of the sharing options in the “Room Pricing & Sharing” tab, then click Schedule a Visit or Book again.');
+      return;
+    }
     const start = () => {
       setActionType(type);
       setPendingAction({
@@ -192,6 +227,12 @@ export const PGDetailModal: React.FC<{
     }
     if (actionType === 'booking' && moveInDate < localIsoDate()) {
       alert('Move-in date must be today or later.');
+      return;
+    }
+
+    if (!selectedRoom) {
+      setRoomError('Please select a room sharing type before continuing.');
+      alert('Please select a room sharing type before continuing.');
       return;
     }
 
@@ -428,18 +469,35 @@ export const PGDetailModal: React.FC<{
 
           {/* Tab 1: Room Details & Pricing */}
           {activeTab === 'rooms' && (
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              {property.rooms.map((room) => (
+            <div className="space-y-3">
+              {roomError && (
+                <div
+                  id="room-selection-error"
+                  role="alert"
+                  className="px-4 py-2.5 rounded-xl bg-red-50 border border-red-300 text-red-700 text-xs font-bold flex items-center gap-2 animate-in fade-in"
+                >
+                  <Info className="w-4 h-4 shrink-0" />
+                  {roomError}
+                </div>
+              )}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              {roomGroups.map((room) => (
                 <button
-                  key={room.id}
+                  key={room.type}
                   type="button"
-                  disabled={Boolean(existingBooking)}
-                  onClick={() => handleOpenAction('booking', room.type)}
+                  disabled={Boolean(existingBooking) || (room.availableBeds ?? 0) <= 0}
+                  onClick={() => {
+                    // Selecting is step 1; booking happens from the CTA below.
+                    setSelectedRoom(room.type);
+                    setRoomError(null);
+                  }}
                   className={`p-4 rounded-2xl border transition relative text-left ${
                     existingBooking
                       ? 'border-slate-200 bg-slate-50 cursor-not-allowed opacity-80'
+                      : (room.availableBeds ?? 0) <= 0
+                      ? 'border-slate-200 bg-slate-50 cursor-not-allowed opacity-70'
                       : selectedRoom === room.type
-                      ? 'border-blue-600 bg-blue-50/40 ring-1 ring-blue-600 cursor-pointer'
+                      ? 'border-blue-600 bg-blue-50/40 ring-2 ring-blue-600 cursor-pointer'
                       : 'border-slate-200 hover:border-blue-400 hover:bg-blue-50/30 bg-white cursor-pointer'
                   }`}
                 >
@@ -450,7 +508,7 @@ export const PGDetailModal: React.FC<{
                         room.availableBeds > 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
                       }`}
                     >
-                      {room.availableBeds > 0 ? `${room.availableBeds} beds left` : 'Sold out'}
+                      {room.availableBeds > 0 ? `${room.availableBeds} bed${room.availableBeds === 1 ? '' : 's'} left` : 'Sold out'}
                     </span>
                   </div>
                   <div className="text-lg font-black text-slate-900 mb-2">
@@ -464,16 +522,30 @@ export const PGDetailModal: React.FC<{
                     <p>Notice Period: {property.noticePeriodDays || 30} days</p>
                   </div>
                   <span className={`block w-full py-2 rounded-xl font-bold text-xs text-center ${
-                    existingBooking ? 'bg-slate-200 text-slate-500' : 'bg-blue-600 text-white'
+                    existingBooking
+                      ? 'bg-slate-200 text-slate-500'
+                      : (room.availableBeds ?? 0) <= 0
+                      ? 'bg-slate-200 text-slate-500'
+                      : selectedRoom === room.type
+                      ? 'bg-emerald-600 text-white'
+                      : 'bg-slate-100 text-slate-700 border border-slate-200'
                   }`}>
                     {existingBooking
                       ? existingBooking.status === 'Approved'
                         ? 'Already booked'
                         : 'Request pending'
-                      : 'Select & Book'}
+                      : (room.availableBeds ?? 0) <= 0
+                      ? 'Sold out'
+                      : selectedRoom === room.type
+                      ? '\u2713 Selected'
+                      : 'Select this sharing type'}
                   </span>
                 </button>
               ))}
+              </div>
+              <p className="text-[11px] text-slate-500">
+                Step 1 — pick a sharing type above, then use “Schedule a Visit” or “Book / Request to Join” below.
+              </p>
             </div>
           )}
 
@@ -787,16 +859,27 @@ export const PGDetailModal: React.FC<{
                           Room Sharing
                         </label>
                         <select
-                          value={selectedRoom}
-                          onChange={(e) => setSelectedRoom(e.target.value as RoomSharingType)}
-                          className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-600 focus:outline-hidden bg-white"
+                          value={selectedRoom ?? ''}
+                          onChange={(e) => {
+                            setSelectedRoom(e.target.value as RoomSharingType);
+                            setRoomError(null);
+                          }}
+                          className={`w-full px-3 py-2 text-xs border rounded-xl focus:ring-2 focus:ring-blue-600 focus:outline-hidden bg-white ${
+                            roomError && !selectedRoom ? 'border-red-400' : 'border-slate-200'
+                          }`}
                         >
-                          {property.rooms.map((r) => (
-                            <option key={r.id} value={r.type}>
-                              {r.type} (₹{(r.rentPerMonth ?? 0).toLocaleString()})
+                          <option value="" disabled>
+                            Select sharing type…
+                          </option>
+                          {roomGroups.map((r) => (
+                            <option key={r.type} value={r.type} disabled={(r.availableBeds ?? 0) <= 0}>
+                              {r.type} (₹{(r.rentPerMonth ?? 0).toLocaleString()}){(r.availableBeds ?? 0) <= 0 ? ' — sold out' : ''}
                             </option>
                           ))}
                         </select>
+                        {roomError && !selectedRoom && (
+                          <p className="mt-1 text-[11px] font-bold text-red-600">{roomError}</p>
+                        )}
                       </div>
                       <div>
                         <label className="block text-[11px] font-bold uppercase text-slate-500 mb-1">
