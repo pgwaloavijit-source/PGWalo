@@ -87,6 +87,42 @@ async function main() {
   const ownerToken = ownerLogin.data?.token as string;
   check('owner can log in with new credentials', ownerLogin.status === 200 && Boolean(ownerToken));
 
+  // ---------- 2b. Join us only mints owners and tenants ----------
+  const legacyRole = await signup('public', 'E2E Public');
+  check(
+    'join us rejects a role that is neither owner nor tenant',
+    !legacyRole.ok && legacyRole.step === 'register' && legacyRole.status === 400,
+    legacyRole.ok ? 'a public account was created' : `${legacyRole.step} ${legacyRole.status}`
+  );
+
+  const tenantAlias = await signup('tenant' as unknown as 'resident', 'E2E Tenant Alias');
+  check(
+    'join us accepts "tenant" and stores it as a resident',
+    tenantAlias.ok && tenantAlias.user?.role === 'resident',
+    tenantAlias.ok ? `role ${tenantAlias.user?.role}` : `${tenantAlias.step} ${tenantAlias.status}`
+  );
+  if (tenantAlias.ok) {
+    const aliasLogin = await api('/api/auth/login', {
+      method: 'POST',
+      body: { phone: tenantAlias.phone, password: 'PGWalo@2026' },
+    });
+    check('a tenant can log in by mobile number', aliasLogin.status === 200 && Boolean(aliasLogin.data?.token));
+    check(
+      'the tenant session carries a dashboard role, never the retired public one',
+      aliasLogin.data?.user?.role === 'resident',
+      `role ${aliasLogin.data?.user?.role}`
+    );
+  }
+
+  const unknownLogin = await api('/api/auth/login', {
+    method: 'POST',
+    body: { email: `ghost-${stamp}@e2e.pgwalo.test`, password: 'PGWalo@2026' },
+  });
+  check('signing in with an unknown account says so instead of "invalid credentials"', unknownLogin.status === 404);
+
+  const wrongPin = await api('/api/auth/login', { method: 'POST', body: { email: owner.email, password: 'NotMyPin99' } });
+  check('a wrong PIN is rejected', wrongPin.status === 401);
+
   const listing = {
     id: `prop-e2e-${stamp}`,
     name: `E2E Residency ${stamp}`,

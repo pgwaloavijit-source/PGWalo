@@ -304,12 +304,37 @@ export async function authHandler(request: Request, env: Env): Promise<Response>
         deviceType: body.deviceType,
       };
 
-      if (!body.password || !user?.password_hash || !(await verifyPassword(body.password, user.password_hash))) {
+      if (!user) {
         await track({ ...trackBase, eventType: 'login_failed', role: body.role }, env);
-        return json({ success: false, error: 'Invalid credentials' }, 401);
+        return json({
+          success: false,
+          error: 'No account found for that email or mobile. Use Join us to create one.',
+        }, 404);
       }
 
-      const role = user.role || 'public';
+      if (!body.password || !user.password_hash || !(await verifyPassword(body.password, user.password_hash))) {
+        await track({ ...trackBase, eventType: 'login_failed', role: body.role }, env);
+        return json({
+          success: false,
+          error: user.password_hash
+            ? 'Incorrect PIN. Use the PIN you set when you joined.'
+            : 'This account has no PIN yet. Re-register with Join us or ask support to reset it.',
+        }, 401);
+      }
+
+      // "public" viewer accounts are retired and have no dashboard, so signing in
+      // with one used to land on the marketing page and look like a failed login.
+      // Treat them as tenants and heal the stored role so every later sign-in
+      // (and the bootstrap endpoints) resolve to a real dashboard.
+      let role = user.role || '';
+      if (!role || role === 'public') {
+        role = 'resident';
+        try {
+          await env.DB.prepare(`UPDATE users SET role = 'resident' WHERE id = ?`).bind(user.id).run();
+        } catch (error) {
+          console.error('role heal failed', error);
+        }
+      }
       const token = await generateJWT({
         userId: user.id,
         role,
@@ -326,7 +351,13 @@ export async function authHandler(request: Request, env: Env): Promise<Response>
         role,
       }, env);
 
-      return json({ success: true, token, user: publicUser(user, env.DEFAULT_ORGANIZATION_ID) });
+      // `user` was read before the role heal above, so spread the healed role
+      // back over it — the client picks its dashboard from this value.
+      return json({
+        success: true,
+        token,
+        user: { ...publicUser(user, env.DEFAULT_ORGANIZATION_ID), role },
+      });
     } catch (error) {
       console.error('Login error:', error);
       return json({ success: false, error: 'Login failed' }, 400);
@@ -365,6 +396,25 @@ export async function authHandler(request: Request, env: Env): Promise<Response>
       if (!isValidPhone(body.phone) || !isValidEmail(body.email)) {
         return json({ success: false, error: 'Invalid mobile or email' }, 400);
       }
+
+      // Join us offers exactly two kinds of account: an owner or a tenant.
+      // "public" is retired — an unknown or missing role used to be silently
+      // downgraded to a public viewer, which created accounts with no dashboard
+      // and looked like a broken sign-up. Reject instead of guessing.
+      const requestedRole = String(body.role || '').trim().toLowerCase();
+      const newRole: 'owner' | 'resident' | null =
+        requestedRole === 'owner'
+          ? 'owner'
+          : requestedRole === 'resident' || requestedRole === 'tenant'
+            ? 'resident'
+            : null;
+      if (!newRole) {
+        return json({
+          success: false,
+          error: 'Choose how you want to join: as an owner or as a tenant.',
+        }, 400);
+      }
+
       if (!body.verificationId) {
         return json({ success: false, error: 'Verify the code sent to your email first' }, 400);
       }
@@ -378,7 +428,7 @@ export async function authHandler(request: Request, env: Env): Promise<Response>
         return json({ success: false, error: 'Phone/email not verified. Request a new code.' }, 400);
       }
 
-      const role = ['owner', 'resident', 'public'].includes(body.role) ? body.role : 'public';
+      const role = newRole;
       const existing = await findUserByEmail(env, email) || await findUserByPhone(env, phone);
       if (existing) {
         return json({ success: false, error: 'Account already exists. Try signing in.' }, 409);
