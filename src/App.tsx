@@ -172,10 +172,16 @@ const MainAppContent: React.FC = () => {
         isStandalone ? 'standalone-shell' : ''
       }`}
     >
+      <a
+        href="#main-content"
+        className="skip-link"
+      >
+        Skip to main content
+      </a>
       {awaitingSnapshot && <PGWaloLoader done={productionHydrated} message="Loading your PGWalo workspace" />}
       <OfflineIndicator />
       {isPlatformAdminSession ? (
-        <main className="flex-1">{appContent}</main>
+        <main id="main-content" className="flex-1">{appContent}</main>
       ) : isStandalone ? (
         <PWAMobileShell
           currentTab={currentTab}
@@ -194,7 +200,13 @@ const MainAppContent: React.FC = () => {
             showNotifications={showNotifications}
             setShowNotifications={setShowNotifications}
           />
-          <main className="flex-1 pb-[calc(var(--app-tab-bar-height)+var(--safe-bottom))] md:pb-0">{appContent}</main>
+          <main
+            id="main-content"
+            tabIndex={-1}
+            className="flex-1 pb-[calc(var(--app-tab-bar-height)+var(--safe-bottom))] md:pb-0 outline-none"
+          >
+            {appContent}
+          </main>
           {showPublicFooter && (
             <div className="desktop-only">
               <Footer onAreaClick={handleAreaExplore} />

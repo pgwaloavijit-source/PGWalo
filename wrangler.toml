@@ -19,6 +19,12 @@ run_worker_first = true
 
 [vars]
 ENVIRONMENT = "production"
+# ---- Transactional email -------------------------------------------------
+# Provider is auto-detected: the EMAIL binding wins, then RESEND_API_KEY, then
+# 'none' (simulate + log, which is what local dev and pre-cutover use).
+EMAIL_FROM = "noreply@pgwalo.com"
+EMAIL_FROM_NAME = "PGWalo"
+EMAIL_REPLY_TO = "support@pgwalo.com"
 DEFAULT_ORGANIZATION_ID = "org-demo-pgwalo"
 # Local/dev Super Admin (override in production with `wrangler secret put`)
 SUPERADMIN_PHONE = "7070696968"
@@ -47,7 +53,29 @@ enabled = true
 
 # Escalation sweep: notify owner/manager when a complaint breaches its SLA.
 [triggers]
-crons = ["*/15 * * * *"]
+crons = ["*/15 * * * *"]
 
+# ---- Cloudflare Email Sending --------------------------------------------
+# Uncomment after: 1) Email Routing is enabled on the zone (this moves the
+# zone's MX to Cloudflare), 2) routing rules for your existing addresses
+# (support@, admin@, ...) exist and their destinations are verified, and
+# 3) pgwalo.com is onboarded as a sending domain. Then `npm run deploy`.
+# Sending to arbitrary recipients needs the Workers Paid plan.
+#
+# [[send_email]]
+# name = "EMAIL"
+
+# Alternative sender with no MX change: wrangler secret put RESEND_API_KEY
+#
+# ---- Switching senders at runtime (the escape hatch) ----------------------
+# Both of these are secrets, so they take effect immediately with no deploy
+# and override anything set here:
+#   npx wrangler secret put EMAIL_PROVIDER          # "cloudflare" | "resend" | "none"
+#   npx wrangler secret put EMAIL_FALLBACK_PROVIDER # optional explicit fallback
+# Check readiness first (credentials + sending-domain status, no mail sent):
+#   curl -X POST https://pgwalo.com/api/admin/email/probe -H "Authorization: Bearer <ADMIN_JWT>"
+# EMAIL_FALLBACK_PROVIDER defaults to the other configured sender, so with both
+# credentials present, a quota/auth failure on one is retried on the other
+# automatically and the outbox records which sender delivered.
 # wrangler secret put JWT_SECRET
 # optional: wrangler secret put GOOGLE_MAPS_SERVER_KEY  (server-side geocode only)

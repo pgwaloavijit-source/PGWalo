@@ -3,6 +3,8 @@ import { addCorsHeaders } from '../utils/cors';
 import { authMiddleware, hasPermission } from '../middleware/auth';
 import { rowToMaintenanceTicket } from '../utils/rowMap';
 import { deliverEmail } from '../utils/otp';
+import { notifyEvent } from '../email';
+import { resolveOwnerEmail } from './email';
 
 function json(data: unknown, status = 200) {
   return addCorsHeaders(new Response(JSON.stringify(data), {
@@ -632,6 +634,34 @@ export async function maintenanceTicketsHandler(request: Request, env: Env): Pro
       } catch (error) {
         console.error('maintenance staff notification', error);
       }
+    }
+
+    // Email the property owner as well — staff get the in-app notice, but an
+    // owner working off-site needs it in their inbox to act on the SLA clock.
+    try {
+      const owner = await resolveOwnerEmail(env, propertyId);
+      if (owner) {
+        await notifyEvent(env, 'maintenance.raised', {
+          to: owner.email,
+          toName: owner.name,
+          orgId: organizationId || undefined,
+          propertyId: propertyId || undefined,
+          entityId: id,
+          data: {
+            title,
+            category,
+            description,
+            priority,
+            roomNumber,
+            residentName: user.name,
+            slaDeadline,
+            referenceId: id.slice(-8).toUpperCase(),
+          },
+          dedupeKey: `maint-raised-${id}`,
+        });
+      }
+    } catch (error) {
+      console.error('maintenance owner email failed', error);
     }
 
     return json({ success: true, id, residentId, organizationId, slaDeadline }, 201);

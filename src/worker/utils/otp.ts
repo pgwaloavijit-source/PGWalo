@@ -1,5 +1,6 @@
 import { Env } from '../types';
 import { hashPassword, verifyPassword } from './password';
+import { sendTransactional } from '../email';
 
 export async function hashOtp(code: string): Promise<string> {
   return hashPassword(code);
@@ -28,16 +29,11 @@ export async function deliverEmail(
   html: string,
   text: string
 ): Promise<boolean> {
-  if (!env.EMAIL || !toEmail.includes('@')) return false;
+  if (!toEmail.includes('@')) return false;
+  // Every existing call site now gets the durable outbox, retries and audit
+  // log for free; delivery is best-effort and never fails the caller.
   try {
-    await env.EMAIL.send({
-      to: toEmail,
-      from: { email: 'noreply@pgwalo.com', name: 'PGWalo' },
-      subject,
-      html,
-      text,
-    });
-    return true;
+    return await sendTransactional(env, { to: toEmail, subject, html, text, category: 'transactional', security: true });
   } catch (error) {
     console.error('Email send failed', error);
     return false;

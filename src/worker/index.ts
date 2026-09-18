@@ -16,11 +16,19 @@ import { maintenanceTicketsHandler } from './handlers/maintenanceTickets';
 import { eventsHandler } from './handlers/events';
 import { notificationsHandler } from './handlers/notifications';
 import { runEscalationSweep } from './handlers/maintenanceTickets';
+import { emailHandler } from './handlers/email';
+import { drainOutbox } from './email';
 
 export default {
-  // Escalation sweep: breach detection + owner notifications every 15 minutes.
+  // Escalation sweep every 15 minutes, then drain the email outbox — retrying
+  // anything the inline attempt missed (or that failed transiently).
   async scheduled(_controller: ScheduledController, env: Env, _ctx: ExecutionContext): Promise<void> {
     await runEscalationSweep(env);
+    try {
+      await drainOutbox(env, 50);
+    } catch (error) {
+      console.error('email outbox drain failed', error);
+    }
   },
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     setCorsContext(request, env);
@@ -40,6 +48,20 @@ export default {
       // Authentication endpoints (no auth middleware required)
       if (path.startsWith('/api/auth')) {
         return authHandler(request, env);
+      }
+
+      // Email engine — declared before the generic /api/notify and /api/admin
+      // matchers so these exact paths land here.
+      if (
+        path === '/api/notify/event' ||
+        path === '/api/email/unsubscribe' ||
+        path === '/api/notifications/preferences' ||
+        path === '/api/admin/email/stats' ||
+        path === '/api/admin/email/drain' ||
+        path === '/api/admin/email/probe' ||
+        path === '/api/admin/email/test'
+      ) {
+        return emailHandler(request, env, ctx);
       }
 
       if (path.startsWith('/api/geo')) {

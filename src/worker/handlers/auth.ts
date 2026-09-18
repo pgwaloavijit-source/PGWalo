@@ -1,4 +1,5 @@
 import { Env } from '../types';
+import { notifyEvent } from '../email';
 import { addCorsHeaders } from '../utils/cors';
 import { generateJWT } from '../utils/jwt';
 import { hashPassword, verifyPassword } from '../utils/password';
@@ -410,6 +411,20 @@ export async function authHandler(request: Request, env: Env): Promise<Response>
       }, env.JWT_SECRET || 'default-secret');
 
       await track({ ...trackBase, eventType: 'register_success', userId, organizationId, role }, env);
+
+      // Welcome mail. Best-effort: registration never fails on email setup.
+      try {
+        await notifyEvent(env, 'auth.welcome', {
+          to: email,
+          toName: body.name.trim(),
+          userId,
+          orgId: organizationId,
+          data: { phone, role },
+          dedupeKey: `welcome-${userId}`,
+        });
+      } catch (error) {
+        console.error('welcome email failed', error);
+      }
 
       return json({
         success: true,

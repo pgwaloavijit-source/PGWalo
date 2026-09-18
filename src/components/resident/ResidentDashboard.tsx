@@ -36,6 +36,7 @@ import {
 import { downloadInvoicePdf, downloadReceiptPdf } from '../../utils/pdfDocuments';
 import { DigitalAgreementModal } from '../features/DigitalAgreementModal';
 import { uploadComplaintPhoto } from '../../services/media';
+import { ModalFocusScope } from '../common/ModalFocusScope';
 
 export const ResidentDashboard: React.FC = () => {
   const {
@@ -291,7 +292,10 @@ export const ResidentDashboard: React.FC = () => {
     <div className="min-h-screen bg-slate-50 text-slate-900 pb-20">
       {/* Toast Notification */}
       {actionNotice && (
-        <div className="fixed top-20 right-6 z-50 bg-slate-900 text-white px-4 py-3 rounded-2xl shadow-xl flex items-center gap-2.5 text-xs font-semibold border border-slate-700 animate-in fade-in">
+        <div
+          role="status"
+          className="fixed top-20 right-6 z-50 bg-slate-900 text-white px-4 py-3 rounded-2xl shadow-xl flex items-center gap-2.5 text-xs font-semibold border border-slate-700 animate-in fade-in"
+        >
           <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
           <span>{actionNotice}</span>
         </div>
@@ -313,6 +317,7 @@ export const ResidentDashboard: React.FC = () => {
                 className="w-13 h-13 rounded-2xl object-cover border-2 border-slate-100 shadow-2xs"
               />
               <span
+                aria-hidden={true}
                 className={`absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2 border-white ${
                   isAllocated ? 'bg-emerald-500' : 'bg-amber-500'
                 }`}
@@ -428,6 +433,7 @@ export const ResidentDashboard: React.FC = () => {
                 key={item.id}
                 id={`tab-btn-${item.id}`}
                 onClick={() => setActiveTab(item.id)}
+                aria-current={active}
                 className={`w-full mb-1 last:mb-0 rounded-2xl flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2 px-1.5 py-2.5 sm:px-3 sm:py-2.5 text-center sm:text-left transition min-h-[52px] sm:min-h-[44px] ${
                   active ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-50 hover:text-blue-700'
                 }`}
@@ -1491,7 +1497,12 @@ export const ResidentDashboard: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                <div
+                  className="flex-1 overflow-y-auto p-4 space-y-3"
+                  role="log"
+                  aria-label="Chat with property manager"
+                  aria-live="polite"
+                >
                   {chatMessages.map((msg) => (
                     <div
                       key={msg.id}
@@ -1535,6 +1546,7 @@ export const ResidentDashboard: React.FC = () => {
                 <form onSubmit={handleSendChat} className="p-3 border-t bg-slate-50 flex items-center gap-2">
                   <input
                     type="text"
+                    aria-label="Type your message to owner or warden"
                     placeholder="Type your message to owner / warden..."
                     value={chatInput}
                     onChange={(e) => setChatInput(e.target.value)}
@@ -1542,6 +1554,7 @@ export const ResidentDashboard: React.FC = () => {
                   />
                   <button
                     type="submit"
+                    aria-label="Send chat message"
                     className="p-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl shadow-xs transition"
                   >
                     <Send className="w-4 h-4" />
@@ -1564,10 +1577,11 @@ export const ResidentDashboard: React.FC = () => {
 
                   <form onSubmit={handleCreateTicket} className="space-y-3 text-xs">
                     <div>
-                      <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">
+                      <label htmlFor="ticket-title" className="block text-[11px] font-bold text-slate-500 uppercase mb-1">
                         Issue Title *
                       </label>
                       <input
+                        id="ticket-title"
                         type="text"
                         required
                         placeholder="e.g. Geyser not heating properly"
@@ -1578,10 +1592,11 @@ export const ResidentDashboard: React.FC = () => {
                     </div>
 
                     <div>
-                      <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">
+                      <label htmlFor="ticket-desc" className="block text-[11px] font-bold text-slate-500 uppercase mb-1">
                         Describe the problem
                       </label>
                       <textarea
+                        id="ticket-desc"
                         rows={3}
                         placeholder="Since when? What exactly is happening? (optional — helps staff come prepared)"
                         value={ticketDesc}
@@ -1592,10 +1607,11 @@ export const ResidentDashboard: React.FC = () => {
 
                     <div className="grid grid-cols-2 gap-2">
                       <div>
-                        <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">
+                        <label htmlFor="ticket-category" className="block text-[11px] font-bold text-slate-500 uppercase mb-1">
                           Category
                         </label>
                         <select
+                          id="ticket-category"
                           value={ticketCategory}
                           onChange={(e) => setTicketCategory(e.target.value as any)}
                           className="w-full px-3 py-2 border rounded-xl bg-white"
@@ -1609,10 +1625,11 @@ export const ResidentDashboard: React.FC = () => {
                       </div>
 
                       <div>
-                        <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">
+                        <label htmlFor="ticket-priority" className="block text-[11px] font-bold text-slate-500 uppercase mb-1">
                           Priority
                         </label>
                         <select
+                          id="ticket-priority"
                           value={ticketPriority}
                           onChange={(e) => setTicketPriority(e.target.value as any)}
                           className="w-full px-3 py-2 border rounded-xl bg-white"
@@ -1759,13 +1776,14 @@ export const ResidentDashboard: React.FC = () => {
       {/* Online Rent Payment Modal */}
       {showPayModal && currentResident && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4">
+          <ModalFocusScope labelledBy="pay-modal-title">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-blue-100">
             {paymentReceipt ? (
               <div className="text-center py-4 space-y-3">
                 <div className="w-14 h-14 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto">
                   <CheckCircle2 className="w-8 h-8" />
                 </div>
-                <h3 className="text-lg font-black text-slate-900">Payment Successful!</h3>
+                <h3 id="pay-modal-title" className="text-lg font-black text-slate-900">Payment Successful!</h3>
                 <p className="text-xs text-slate-600">
                   ₹{paymentReceipt.amount.toLocaleString()} paid via {paymentReceipt.paymentMethod}
                 </p>
@@ -1793,7 +1811,7 @@ export const ResidentDashboard: React.FC = () => {
               <form onSubmit={handlePayRentSubmit} className="space-y-4 text-xs">
                 <div className="flex items-center justify-between border-b pb-3">
                   <div>
-                    <h3 className="text-base font-extrabold text-slate-900">Pay Room Rent</h3>
+                    <h3 id="pay-modal-title" className="text-base font-extrabold text-slate-900">Pay Room Rent</h3>
                     <p className="text-[11px] text-slate-500">
                       Room {currentResident.roomNumber} • September 2026
                     </p>
@@ -1808,6 +1826,7 @@ export const ResidentDashboard: React.FC = () => {
                     <button
                       type="button"
                       key={m}
+                      aria-pressed={payMethod === m}
                       onClick={() => setPayMethod(m)}
                       className={`py-2 rounded-xl text-xs font-bold border transition ${
                         payMethod === m
@@ -1822,10 +1841,11 @@ export const ResidentDashboard: React.FC = () => {
 
                 {payMethod === 'UPI' && (
                   <div className="space-y-2">
-                    <label className="block text-[11px] font-bold text-slate-500 uppercase">
+                    <label htmlFor="upi-id" className="block text-[11px] font-bold text-slate-500 uppercase">
                       Enter UPI ID / VPA
                     </label>
                     <input
+                      id="upi-id"
                       type="text"
                       required
                       placeholder="e.g. yourname@okhdfcbank"
@@ -1857,20 +1877,23 @@ export const ResidentDashboard: React.FC = () => {
               </form>
             )}
           </div>
+          </ModalFocusScope>
         </div>
       )}
 
       {/* Reschedule Visit Modal */}
       {reschedulingVisit && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4">
+          <ModalFocusScope labelledBy="reschedule-modal-title">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-blue-100 space-y-4">
             <div className="flex items-center justify-between border-b pb-3">
               <div>
-                <h3 className="text-base font-extrabold text-slate-900">Reschedule Tour</h3>
+                <h3 id="reschedule-modal-title" className="text-base font-extrabold text-slate-900">Reschedule Tour</h3>
                 <p className="text-xs text-slate-500">{reschedulingVisit.propertyName}</p>
               </div>
               <button
                 onClick={() => setReschedulingVisit(null)}
+                aria-label="Close reschedule dialog"
                 className="w-8 h-8 rounded-full hover:bg-slate-100 flex items-center justify-center"
               >
                 <X className="w-4 h-4 text-slate-500" />
@@ -1879,10 +1902,11 @@ export const ResidentDashboard: React.FC = () => {
 
             <form onSubmit={handleConfirmReschedule} className="space-y-4 text-xs">
               <div>
-                <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">
+                <label htmlFor="visit-date" className="block text-[11px] font-bold text-slate-500 uppercase mb-1">
                   Choose New Visit Date
                 </label>
                 <input
+                  id="visit-date"
                   type="date"
                   required
                   min={today}
@@ -1893,10 +1917,11 @@ export const ResidentDashboard: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">
+                <label htmlFor="visit-slot" className="block text-[11px] font-bold text-slate-500 uppercase mb-1">
                   Select Time Slot
                 </label>
                 <select
+                  id="visit-slot"
                   value={newVisitSlot}
                   onChange={(e) => setNewVisitSlot(e.target.value)}
                   className="w-full px-3 py-2 border rounded-xl bg-white"
@@ -1925,20 +1950,23 @@ export const ResidentDashboard: React.FC = () => {
               </div>
             </form>
           </div>
+          </ModalFocusScope>
         </div>
       )}
 
       {/* Resident Notice Period Modal */}
       {showNoticeModal && currentResident && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <ModalFocusScope labelledBy="notice-modal-title">
           <div className="bg-white rounded-3xl p-6 max-w-md w-full shadow-2xl border border-slate-100 animate-in fade-in space-y-4 text-xs">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <div className="flex items-center gap-2">
                 <LogOut className="w-4 h-4 text-amber-600" />
-                <h4 className="font-black text-sm text-slate-900">Submit Vacating Notice</h4>
+                <h4 id="notice-modal-title" className="font-black text-sm text-slate-900">Submit Vacating Notice</h4>
               </div>
               <button
                 onClick={() => setShowNoticeModal(false)}
+                aria-label="Close vacating notice dialog"
                 className="text-slate-400 hover:text-slate-600 font-bold"
               >
                 ✕
@@ -1951,8 +1979,9 @@ export const ResidentDashboard: React.FC = () => {
 
             <div className="space-y-3">
               <div>
-                <label className="font-bold text-slate-700 block mb-1">Notice Date</label>
+                <label htmlFor="notice-date" className="font-bold text-slate-700 block mb-1">Notice Date</label>
                 <input
+                  id="notice-date"
                   type="date"
                   value={residentNoticeDate}
                   onChange={(e) => setResidentNoticeDate(e.target.value)}
@@ -1961,8 +1990,9 @@ export const ResidentDashboard: React.FC = () => {
               </div>
 
               <div>
-                <label className="font-bold text-slate-700 block mb-1">Expected Vacating / Move-Out Date</label>
+                <label htmlFor="checkout-date" className="font-bold text-slate-700 block mb-1">Expected Vacating / Move-Out Date</label>
                 <input
+                  id="checkout-date"
                   type="date"
                   value={residentCheckoutDate}
                   onChange={(e) => setResidentCheckoutDate(e.target.value)}
@@ -1971,8 +2001,9 @@ export const ResidentDashboard: React.FC = () => {
               </div>
 
               <div>
-                <label className="font-bold text-slate-700 block mb-1">Reason for Vacating</label>
+                <label htmlFor="notice-reason" className="font-bold text-slate-700 block mb-1">Reason for Vacating</label>
                 <textarea
+                  id="notice-reason"
                   rows={2}
                   value={residentNoticeReason}
                   onChange={(e) => setResidentNoticeReason(e.target.value)}
@@ -2004,6 +2035,7 @@ export const ResidentDashboard: React.FC = () => {
               </button>
             </div>
           </div>
+          </ModalFocusScope>
         </div>
       )}
     </div>

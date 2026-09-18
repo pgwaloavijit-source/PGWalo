@@ -19,8 +19,13 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="PGWalo" />
     <meta name="format-detection" content="telephone=no" />
-    <link rel="apple-touch-icon" href="/pgwalo-logo.png" />
-    <link rel="icon" type="image/png" href="/pgwalo-logo.png" />
+    <!-- Brand mark favicon: SVG first (crisp at every size), PNG fallbacks
+         for browsers without SVG icon support, and a dedicated 180x180
+         apple-touch-icon for iOS home-screen installs. -->
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/pwa-192x192.png" />
+    <link rel="icon" type="image/png" sizes="512x512" href="/pwa-512x512.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
 
     <!-- Inline splash styles: must paint before Tailwind/JS loads. -->
     <style>

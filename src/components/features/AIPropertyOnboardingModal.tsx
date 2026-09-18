@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
+import { PincodeInput } from '../common/PincodeInput';
 import {
   X,
   Camera,
@@ -107,6 +108,9 @@ export const AIPropertyOnboardingModal: React.FC = () => {
   const [propName, setPropName] = useState('Zenith Elite Co-Living PG');
   const [tagline, setTagline] = useState('Premium high-tech student & executive living near tech parks');
   const [city, setCity] = useState('Bengaluru');
+  const [stateName, setStateName] = useState('Karnataka');
+  const [countryName, setCountryName] = useState('India');
+  const [pincode, setPincode] = useState('560103');
   const [locality, setLocality] = useState('Bellandur Outer Ring Road');
   const [address, setAddress] = useState('Sy 28/2, Green Glen Layout, Bellandur, Bengaluru 560103');
   const [gender, setGender] = useState<GenderPreference>('Unisex');
@@ -175,6 +179,9 @@ export const AIPropertyOnboardingModal: React.FC = () => {
       tagline: aiHeadline || tagline,
       gender,
       city,
+      state: stateName || undefined,
+      country: countryName || 'India',
+      pincode: pincode || undefined,
       locality,
       address,
       lat: 12.926,
@@ -318,6 +325,18 @@ export const AIPropertyOnboardingModal: React.FC = () => {
                   </select>
                 </div>
 
+                {/* Pincode first — it fills city/state/country for the address */}
+                <PincodeInput
+                  label="Property Pincode"
+                  value={pincode}
+                  onPincodeChange={setPincode}
+                  onResolved={({ city: resolvedCity, state: resolvedState, country: resolvedCountry }) => {
+                    if (resolvedCity) setCity(resolvedCity);
+                    if (resolvedState) setStateName(resolvedState);
+                    if (resolvedCountry) setCountryName(resolvedCountry);
+                  }}
+                />
+
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
                     City & Locality *
@@ -325,6 +344,7 @@ export const AIPropertyOnboardingModal: React.FC = () => {
                   <div className="grid grid-cols-2 gap-2">
                     <input
                       type="text"
+                      aria-label="City"
                       value={city}
                       onChange={(e) => setCity(e.target.value)}
                       className="px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm focus:ring-2 focus:ring-blue-600 focus:outline-hidden"
@@ -332,10 +352,40 @@ export const AIPropertyOnboardingModal: React.FC = () => {
                     />
                     <input
                       type="text"
+                      aria-label="Locality"
                       value={locality}
                       onChange={(e) => setLocality(e.target.value)}
                       className="px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm focus:ring-2 focus:ring-blue-600 focus:outline-hidden"
                       placeholder="Locality (e.g. HSR Sector 3)"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                      State
+                    </label>
+                    <input
+                      type="text"
+                      aria-label="State"
+                      value={stateName}
+                      onChange={(e) => setStateName(e.target.value)}
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm focus:ring-2 focus:ring-blue-600 focus:outline-hidden"
+                      placeholder="e.g. Karnataka"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                      Country
+                    </label>
+                    <input
+                      type="text"
+                      aria-label="Country"
+                      value={countryName}
+                      onChange={(e) => setCountryName(e.target.value)}
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm focus:ring-2 focus:ring-blue-600 focus:outline-hidden"
+                      placeholder="India"
                     />
                   </div>
                 </div>

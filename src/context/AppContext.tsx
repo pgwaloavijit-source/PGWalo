@@ -85,6 +85,7 @@ import { uploadListingPhoto } from '../services/media';
 import { localIsoDate } from '../utils/datetime';
 import { CATALOG_OWNER_ID, ownsProperty } from '../utils/ownership';
 import { normalizeAmenities } from '../utils/amenities';
+import { fireEmailEvent } from '../services/emailEvents';
 import {
   INITIAL_PROPERTIES,
   INITIAL_RESIDENTS,
@@ -2376,6 +2377,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const addProperty = (newProp: Omit<Property, 'id'>) => {
+    // The platform desk reviews every new listing; tell them as soon as it lands.
+    fireEmailEvent('admin.listing_review', {
+      to: 'admin',
+      data: {
+        propertyName: newProp.name,
+        ownerName: newProp.ownerName || currentUser?.name,
+        city: newProp.city,
+        locality: newProp.locality,
+        totalBeds: newProp.rooms?.reduce((sum, room) => sum + (room.totalBeds || 0), 0),
+      },
+      dedupeKey: `listing-review-${newProp.name}-${newProp.locality}`,
+    });
     const created: Property = {
       ...newProp,
       id: `prop-${Date.now()}`,
@@ -2558,6 +2571,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         )
       );
       void patchInquiry(targetReq.referenceId || targetReq.id, { status: 'Approved' });
+      fireEmailEvent('visit.scheduled', {
+        to: 'self',
+        data: {
+          propertyName: targetReq.propertyName,
+          visitDate: targetReq.visitDate,
+          visitTimeSlot: targetReq.visitTimeSlot,
+          referenceId: targetReq.referenceId || targetReq.id,
+        },
+        dedupeKey: `visit-approved-${targetReq.id}`,
+      });
       return;
     }
     const requestedBed =
@@ -2737,6 +2760,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         sender: 'Property Owner (Rajesh Sharma)',
       });
 
+      // Allocation confirmation to the incoming resident (verified server-side).
+      fireEmailEvent('booking.approved', {
+        to: 'resident',
+        propertyId: targetReq.propertyId,
+        residentId: newRes?.id || `res-${targetReq.applicantName}`,
+        residentEmail: targetReq.email,
+        data: {
+          propertyName: targetReq.propertyName,
+          roomNumber: assignedRoom,
+          bedNumber: assignedBed,
+          roomType: targetReq.roomType,
+          moveInDate: targetReq.preferredMoveInDate,
+        },
+        dedupeKey: `allocated-${newRes?.id || requestId}-${assignedRoom}-${assignedBed}`,
+      });
+
       addAuditEntry({
         user: currentUser,
         role,
@@ -2758,13 +2797,34 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const cancelBookingRequest = (requestId: string) => {
+    const cancelled = bookingRequests.find((req) => req.id === requestId || req.referenceId === requestId);
     setBookingRequests((prev) =>
       prev.map((req) => (req.id === requestId || req.referenceId === requestId ? { ...req, status: 'Cancelled' } : req))
     );
     void patchInquiry(requestId, { status: 'Cancelled' });
+    fireEmailEvent(cancelled?.type === 'visit' ? 'visit.cancelled' : 'booking.rejected', {
+      to: 'self',
+      data: {
+        propertyName: cancelled?.propertyName,
+        visitDate: cancelled?.visitDate,
+        referenceId: cancelled?.referenceId || cancelled?.id,
+      },
+      dedupeKey: `cancelled-${requestId}`,
+    });
   };
 
   const rescheduleVisit = (requestId: string, newDate: string, newTimeSlot: string) => {
+    const target = bookingRequests.find((req) => req.id === requestId || req.referenceId === requestId);
+    fireEmailEvent('visit.rescheduled', {
+      to: 'self',
+      data: {
+        propertyName: target?.propertyName,
+        visitDate: newDate,
+        visitTimeSlot: newTimeSlot,
+        referenceId: target?.referenceId || requestId,
+      },
+      dedupeKey: `visit-resched-${requestId}-${newDate}-${newTimeSlot}`,
+    });
     setBookingRequests((prev) =>
       prev.map((req) =>
         req.id === requestId
@@ -2975,6 +3035,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       );
     }
 
+    // Payment receipt to the payer (transactional — respects opt-out only loosely).
+    fireEmailEvent('rent.paid', {
+      to: 'self',
+      data: {
+        amount: `₹${amount.toLocaleString()}`,
+        method: paymentMethod,
+        transactionId: txnId,
+        month: targetInvoice?.month,
+        roomNumber: targetInvoice?.roomNumber,
+      },
+      dedupeKey: `rent-paid-${invoiceId}-${txnId}`,
+    });
+
     return generatedReceipt || {
       transactionId: txnId,
       residentName: targetInvoice?.residentName || 'Resident',
@@ -3083,6 +3156,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const d = new Date(noticeDate);
     d.setDate(d.getDate() + 30);
     const expectedCheckout = checkoutDate || d.toISOString().split('T')[0];
+
+    // Owner needs the notice in writing to plan the checkout inspection.
+    const noticeResident = residents.find((r) => r.id === residentId) || currentResident;
+    if (noticeResident?.propertyId) {
+      fireEmailEvent('notice.submitted', {
+        to: 'owner',
+        propertyId: noticeResident.propertyId,
+        data: {
+          residentName: noticeResident.name,
+          propertyName: noticeResident.propertyName,
+          roomNumber: noticeResident.roomNumber,
+          noticeDate,
+          checkoutDate: expectedCheckout,
+          reason,
+        },
+        dedupeKey: `notice-${residentId}-${noticeDate}`,
+      });
+    }
 
     setResidents((prev) =>
       prev.map((r) => {
@@ -3441,6 +3532,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       updatedAt: now,
     };
     setSupportTickets((prev) => [newTicket, ...prev]);
+    // Support desk is emailed for every new ticket (app → PG desk routing).
+    fireEmailEvent('support.ticket_raised', {
+      to: 'admin',
+      data: {
+        requesterName: currentUser.name,
+        ticketType: newTicket.type,
+        title: newTicket.title,
+        description: newTicket.description,
+        referenceId: newTicket.id,
+      },
+      dedupeKey: `support-raised-${newTicket.id}`,
+    });
     if (isProductionApiEnabled() && getAuthToken()) {
       void postSupportTicket(newTicket).then((result) => {
         if (result.ok && result.id && result.id !== newTicket.id) {

@@ -11,6 +11,8 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js worker",
     "lint": "tsc --noEmit",
+    "test:email": "tsx scripts/test-email-provider.ts",
+    "test:e2e": "tsx scripts/test-e2e-flow.ts",
     "deploy": "npm run build && wrangler deploy",
     "d1:create": "wrangler d1 create pgwalo-db",
     "d1:migrate": "wrangler d1 execute pgwalo-db --remote --file=./database/schema.sql",

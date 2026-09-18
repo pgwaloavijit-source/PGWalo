@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { UserAvatar } from '../common/UserAvatar';
+import { ModalFocusScope } from '../common/ModalFocusScope';
 import { MaintenanceTicket } from '../../types';
 import {
   ShieldCheck,
@@ -51,6 +52,7 @@ export const StaffDashboard: React.FC = () => {
   const [logType, setLogType] = useState<'Check-In' | 'Check-Out'>('Check-In');
   const [logNotes, setLogNotes] = useState('');
   const [residentNotice, setResidentNotice] = useState('');
+  const [noticeSent, setNoticeSent] = useState(false);
 
   // Visitor Log state
   const [visitors, setVisitors] = useState<{
@@ -133,6 +135,8 @@ export const StaffDashboard: React.FC = () => {
       sender: `${currentStaff.name} (${currentStaff.role})`,
     });
     setResidentNotice('');
+    setNoticeSent(true);
+    setTimeout(() => setNoticeSent(false), 4000);
   };
 
   if (!currentStaff) {
@@ -223,10 +227,12 @@ export const StaffDashboard: React.FC = () => {
 
       {/* Tabs */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6">
+        <div aria-live="polite" className="sr-only">{noticeSent ? 'Notice sent to residents.' : ''}</div>
         <form onSubmit={handleSendResidentNotice} className="mb-4 bg-white rounded-2xl border border-slate-200 p-4 shadow-2xs flex flex-col sm:flex-row gap-2">
           <input
             value={residentNotice}
             onChange={(e) => setResidentNotice(e.target.value)}
+            aria-label={`Send notice to ${workplace?.name || 'assigned PG'} residents`}
             placeholder={`Send notice to ${workplace?.name || 'assigned PG'} residents`}
             className="flex-1 px-3 py-2 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-blue-500 outline-hidden"
           />
@@ -239,7 +245,11 @@ export const StaffDashboard: React.FC = () => {
             Send to residents
           </button>
         </form>
-        <div className="bg-white rounded-2xl p-1.5 border border-slate-200 shadow-2xs grid grid-cols-2 sm:grid-cols-5 gap-1 mb-6 text-xs font-bold">
+        <div
+          role="tablist"
+          aria-label="Staff sections"
+          className="bg-white rounded-2xl p-1.5 border border-slate-200 shadow-2xs grid grid-cols-2 sm:grid-cols-5 gap-1 mb-6 text-xs font-bold"
+        >
           {[
             { key: 'tasks', label: `Maintenance Tasks (${tickets.length})`, icon: Wrench },
             { key: 'attendance', label: 'Gate Movements & Attendance', icon: Clock },
@@ -252,6 +262,8 @@ export const StaffDashboard: React.FC = () => {
               <button
                 key={tab.key}
                 onClick={() => setActiveTab(tab.key as any)}
+                role="tab"
+                aria-selected={activeTab === tab.key}
                 className={`px-3.5 py-2 rounded-xl flex items-center gap-1.5 whitespace-nowrap transition ${
                   activeTab === tab.key
                     ? 'bg-blue-600 text-white shadow-xs'
@@ -392,6 +404,7 @@ export const StaffDashboard: React.FC = () => {
                       {t.status === 'Reported' && (
                         <button
                           onClick={() => updateTicketStatus(t.id, 'In-Progress', { assignedStaffName: currentStaff?.name || currentUser?.name })}
+                          aria-label={`Start work on: ${t.title}`}
                           className="px-2.5 py-1 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg font-bold text-[11px]"
                         >
                           Start Work
@@ -404,6 +417,7 @@ export const StaffDashboard: React.FC = () => {
                             if (notes === null) return;
                             updateTicketStatus(t.id, 'Resolved', { resolutionNotes: notes.trim() });
                           }}
+                          aria-label={`Mark resolved: ${t.title}`}
                           className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-[11px] shadow-2xs"
                         >
                           Mark Resolved
@@ -496,7 +510,16 @@ export const StaffDashboard: React.FC = () => {
                 {checklist.map((item) => (
                   <div
                     key={item.id}
+                    role="checkbox"
+                    aria-checked={item.done}
+                    tabIndex={0}
                     onClick={() => toggleChecklistItem(item.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === ' ' || e.key === 'Enter') {
+                        e.preventDefault();
+                        toggleChecklistItem(item.id);
+                      }
+                    }}
                     className={`p-3.5 rounded-2xl border transition flex items-center gap-3 cursor-pointer select-none ${
                       item.done
                         ? 'bg-blue-50/40 border-blue-200 text-slate-900'
@@ -504,6 +527,7 @@ export const StaffDashboard: React.FC = () => {
                     }`}
                   >
                     <div
+                      aria-hidden={true}
                       className={`w-5 h-5 rounded-lg flex items-center justify-center border transition ${
                         item.done ? 'bg-blue-600 border-blue-600 text-white' : 'border-slate-300'
                       }`}
@@ -528,10 +552,11 @@ export const StaffDashboard: React.FC = () => {
               <h3 className="font-extrabold text-sm text-slate-900">Issue Visitor Gate Pass</h3>
               <form onSubmit={handleAddVisitor} className="space-y-3 text-xs">
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">
+                  <label htmlFor="visitor-name" className="block text-[11px] font-bold text-slate-500 uppercase mb-1">
                     Visitor Full Name *
                   </label>
                   <input
+                    id="visitor-name"
                     type="text"
                     required
                     placeholder="e.g. Ramesh Verma"
@@ -542,10 +567,11 @@ export const StaffDashboard: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">
+                  <label htmlFor="visitor-resident" className="block text-[11px] font-bold text-slate-500 uppercase mb-1">
                     Meeting Resident
                   </label>
                   <select
+                    id="visitor-resident"
                     value={newVisitorRes}
                     onChange={(e) => setNewVisitorRes(e.target.value)}
                     className="w-full px-3 py-2 border rounded-xl bg-white"
@@ -559,8 +585,9 @@ export const StaffDashboard: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Purpose</label>
+                  <label htmlFor="visitor-purpose" className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Purpose</label>
                   <input
+                    id="visitor-purpose"
                     type="text"
                     placeholder="e.g. Family visit / Project work"
                     value={newVisitorPurpose}
@@ -726,20 +753,26 @@ export const StaffDashboard: React.FC = () => {
       {/* Manual Movement Log Modal */}
       {showLogModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4">
+          <ModalFocusScope labelledBy="log-modal-title">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-blue-100">
             <div className="flex items-center justify-between border-b pb-3 mb-4">
-              <h3 className="font-extrabold text-sm text-slate-900">Log Resident Gate Movement</h3>
-              <button onClick={() => setShowLogModal(false)} className="text-slate-400">
+              <h3 id="log-modal-title" className="font-extrabold text-sm text-slate-900">Log Resident Gate Movement</h3>
+              <button
+                onClick={() => setShowLogModal(false)}
+                aria-label="Close gate log dialog"
+                className="text-slate-400 hover:text-slate-600 font-bold"
+              >
                 ✕
               </button>
             </div>
 
             <form onSubmit={handleManualGateLog} className="space-y-3 text-xs">
               <div>
-                <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">
+                <label htmlFor="log-resident" className="block text-[11px] font-bold text-slate-500 uppercase mb-1">
                   Select Resident
                 </label>
                 <select
+                  id="log-resident"
                   value={logResidentName}
                   onChange={(e) => setLogResidentName(e.target.value)}
                   className="w-full px-3 py-2 border rounded-xl bg-white"
@@ -757,6 +790,7 @@ export const StaffDashboard: React.FC = () => {
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
+                    aria-pressed={logType === 'Check-In'}
                     onClick={() => setLogType('Check-In')}
                     className={`py-2 rounded-xl font-bold border ${
                       logType === 'Check-In' ? 'bg-emerald-50 border-emerald-500 text-emerald-800' : 'border-slate-200'
@@ -766,6 +800,7 @@ export const StaffDashboard: React.FC = () => {
                   </button>
                   <button
                     type="button"
+                    aria-pressed={logType === 'Check-Out'}
                     onClick={() => setLogType('Check-Out')}
                     className={`py-2 rounded-xl font-bold border ${
                       logType === 'Check-Out' ? 'bg-amber-50 border-amber-500 text-amber-800' : 'border-slate-200'
@@ -777,8 +812,9 @@ export const StaffDashboard: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Notes</label>
+                <label htmlFor="log-notes" className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Notes</label>
                 <input
+                  id="log-notes"
                   type="text"
                   placeholder="e.g. Returned from office / Late permission"
                   value={logNotes}
@@ -795,6 +831,7 @@ export const StaffDashboard: React.FC = () => {
               </button>
             </form>
           </div>
+          </ModalFocusScope>
         </div>
       )}
     </div>

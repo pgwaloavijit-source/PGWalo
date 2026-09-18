@@ -14,8 +14,20 @@ export interface Env {
       subject: string;
       html?: string;
       text?: string;
+      replyTo?: string;
     }) => Promise<unknown>;
   };
+  /** cloudflare | resend | none. Defaults to whichever credential is present. */
+  EMAIL_PROVIDER?: string;
+  /** Sender used when the primary fails on quota/auth/availability. */
+  EMAIL_FALLBACK_PROVIDER?: string;
+  EMAIL_FROM?: string;
+  EMAIL_FROM_NAME?: string;
+  EMAIL_REPLY_TO?: string;
+  RESEND_API_KEY?: string;
+  /** Override for the Resend API base (self-hosted proxy / tests). */
+  RESEND_BASE_URL?: string;
+  SUPERADMIN_EMAIL?: string;
   ENVIRONMENT: string;
   DEFAULT_ORGANIZATION_ID: string;
   JWT_SECRET?: string;

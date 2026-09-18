@@ -435,3 +435,126 @@ column, and the e2e suite asserts the assignment survives a round trip.
   API provider (Resend / MailChannels) behind a Worker secret is the alternative that
   needs no DNS change. Until one of the two is in place, every email in the product —
   complaint updates and login OTPs alike — is in-app only.
+
+## Brand mark: one SVG, consumed everywhere
+
+- `public/icon.svg` carries the brand mark (house roof + four-pane window, #1769FF)
+  on a white rounded canvas so the glyph reads on light and dark browser chrome.
+- Raster derivatives regenerated from that same SVG: `apple-touch-icon.png` (180x180),
+  `pwa-192x192.png`, `pwa-512x512.png`, `pwa-maskable-512x512.png`, `pgwalo-logo.png`.
+  `vite.config.ts` already lists those in the PWA manifest, so an installed app picks
+  up the same mark.
+- `index.html` now declares the SVG as the primary favicon with 192/512 PNG fallbacks,
+  and points `apple-touch-icon` at the dedicated 180x180 file. Previously both slots
+  pointed at `/pgwalo-logo.png`, so the tab icon was a scaled-down full logo rather
+  than the mark.
+
+## Pincode → city/state/country autofill: coverage now complete
+
+`PincodeInput` (India Post lookup, debounced, cached in localStorage, with a static
+fallback table) is wired into every address-capturing form:
+
+| Form | Location |
+| --- | --- |
+| Listing wizard step 1 | `owner/listing-steps/Step1PropertyDetails.tsx` |
+| Quick listing wizard | `owner/OwnerListingWizard.tsx` |
+| Owner "add property" modal | `owner/OwnerDashboard.tsx` |
+| AI property onboarding | `features/AIPropertyOnboardingModal.tsx` |
+| Profile completion | `auth/ProfileCompletionModal.tsx` |
+| Account details | `auth/AccountDetailsPage.tsx` |
+
+Two forms were missing it and are now covered: the owner's add-property modal (its
+City control was a hardcoded 4-option select that could not display a resolved city —
+now a datalist-backed input) and the AI onboarding modal (city/address only, no
+state or country at all). Both persist `state`, `country` and `pincode` on the
+property record; the `Property` type already carried those optional fields, they were
+simply never populated.
+
+Verified the lookup path needs no Worker proxy: `api.postalpincode.in` returns
+`Access-Control-Allow-Origin: *`, and a browser-context fetch of 560103 resolved
+{ city: Bangalore, state: Karnataka, country: India }.
+
+## Transactional email engine — provider-agnostic, durable, deployed
+
+`deliverEmail` was a single function that returned `false` the moment no sender
+was bound, so every email in the product silently vanished. It is now backed by
+a real engine:
+
+- **Provider adapter** (`src/worker/email/provider.ts`) auto-detects the sender:
+  the Cloudflare `send_email` binding, then `RESEND_API_KEY`, then `none`
+  (simulate + log). Switching senders is a secret change, not a refactor.
+- **Durable outbox** (`email_outbox` in D1): every message is persisted first,
+  then delivered inline so OTP still lands in seconds. Failures retry at
+  1m / 5m / 15m / 1h / 6h and park as `failed` with the error recorded; the
+  existing 15-minute cron drains what the inline attempt missed.
+- **Idempotency**: a `dedupe_key` unique index means the same lifecycle event
+  can never be emailed twice. Verified in the suite with a repeat send.
+- **Storm + abuse guards**: 30 emails per recipient per 24h, suppression table
+  for hard bounces and complaints, HMAC-signed unsubscribe links, and opt-out
+  that never silences security mail.
+- **32-event catalogue** (`templates.ts`) with one branded HTML + plain-text
+  layout, covering auth, listings, visits, bookings, allocation, rent,
+  agreements, maintenance (including SLA escalation), notice/checkout, staff,
+  KYC, broadcasts and the support/admin desks.
+- **Delivery contract fixed during this work**: `deliverEmail` must report
+  *actually delivered*, not merely queued. Returning `true` while simulating
+  stopped the OTP endpoint from returning its local fallback code, which broke
+  every signup in the regression suite — caught by the suite, then fixed.
+- **Wired call sites**: registration welcome (worker), complaint raised →
+  owner (worker), complaint status → resident (worker, pre-existing),
+  visit booked → owner (worker, pre-existing), plus client events for visit
+  approved/rescheduled/cancelled, booking approval/room allotment, rent
+  receipts, vacating notice → owner, support ticket → desk, and new listing →
+  platform desk (`src/services/emailEvents.ts`).
+- **Endpoints**: `POST /api/notify/event` (recipient resolved server-side from
+  the JWT + DB — never the body), `GET|PUT /api/notifications/preferences`,
+  public `GET /api/email/unsubscribe`, and admin `stats` / `drain` / `test`.
+
+### A real data inconsistency this surfaced
+
+Property-scoped email authorization initially compared organisation ids and
+returned **403 for the genuine owner**. Inspecting D1 showed why: a newly
+published listing can carry an `organization_id` belonging to an *earlier*
+owner (`prop-e2e-1789712642264` → `org-user-1789673166161`) alongside the
+correct `owner_user_id`. Property ownership is now checked first — the
+property's owner, the organisation's owner, or org membership all authorize —
+which is both correct today and tolerant of that legacy attribution.
+
+Suite grew 97 → **110 checks** (self-send, dedupe, owner-scoped send,
+cross-org denial, forged-token rejection, preference persistence, admin-only
+outbox). Green locally and on production. Delivery itself is still
+configuration-pending — see `docs/email-setup.md`; every message is currently
+recorded as `simulated`.
+
+## Sender escape hatch — switchable at runtime, with automatic failover
+
+The provider-agnostic adapter is now an operational safety net rather than a
+design promise:
+
+- **Runtime switching, no deploy.** `EMAIL_PROVIDER` is read per send and a
+  secret overrides the `wrangler.toml` var of the same name, so
+  `wrangler secret put EMAIL_PROVIDER` (value `resend`) moves live traffic
+  immediately while the Cloudflare binding stays in place. `none` forces
+  simulation.
+- **Automatic failover.** `EMAIL_FALLBACK_PROVIDER` defaults to the other
+  configured sender. A quota, throttling, auth or availability failure on the
+  primary is retried on the fallback inside the same send, so a new sending
+  domain hitting its daily-quota ramp degrades instead of dropping mail.
+- **Deliberately narrow.** Content-level errors (bad recipient, hard 4xx) are
+  *not* replayed on the other sender — that would only spend the fallback's
+  reputation on an undeliverable message. Without a usable fallback, the normal
+  outbox backoff still applies.
+- **Provenance is queryable.** The outbox gained a `failover_from` column
+  (added by a guarded `ALTER` so pre-existing tables upgrade), and admin stats
+  report `transport { provider, fallbackProvider, failoverReady, configured[] }`
+  plus `byProvider [{ provider, n, failovers }]`.
+- **Probe before you flip.** `POST /api/admin/email/probe` checks credentials
+  and sending-domain verification without sending mail — for Resend it reports
+  whether the sender domain is `verified`, which is the usual cause of mail that
+  silently never arrives.
+- **Tests.** `npm run test:email` (25 checks, no credentials, no mail) drives the
+  adapter against a stub Resend API: precedence, explicit override, quota/Auth
+  failover delivery, content-error non-failover, probe readiness for
+  verified/pending/absent domains, and inert simulation. Suite 110 → **115**.
+
+Deployed and verified on production: 115/115 e2e and 25/25 adapter checks.

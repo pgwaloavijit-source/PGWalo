@@ -138,6 +138,43 @@ a,
   touch-action: manipulation;
 }
 
+/* ---------------------------------------------------------------
+   Accessibility: visible keyboard focus + skip link
+   The ring uses outline (not box-shadow) so it renders above
+   sibling backgrounds and never changes layout.
+   --------------------------------------------------------------- */
+
+:where(button, a, [role="button"], [tabindex], input, select, textarea):focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+  border-radius: 0.5rem;
+}
+
+.skip-link {
+  position: fixed;
+  top: 0.5rem;
+  left: 0.5rem;
+  z-index: 100;
+  transform: translateY(-200%);
+  background: #0f172a;
+  color: #ffffff;
+  padding: 0.625rem 1rem;
+  border-radius: 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  transition: transform 120ms ease;
+}
+
+.skip-link:focus-visible {
+  transform: translateY(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skip-link {
+    transition: none;
+  }
+}
+
 input,
 select,
 textarea {

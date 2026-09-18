@@ -770,6 +770,113 @@ async function main() {
   const residentAdmin = await api('/api/admin/users', { token: residentToken });
   check('admin API rejects resident callers', residentAdmin.status === 403);
 
+  // ---------- 9. Transactional email engine ----------
+  const prefsRead = await api('/api/notifications/preferences', { token: residentToken });
+  check(
+    'resident can read email preferences',
+    prefsRead.status === 200 && typeof prefsRead.data?.emailEnabled === 'boolean',
+    `status=${prefsRead.status}`
+  );
+  await api('/api/notifications/preferences', { method: 'PUT', token: residentToken, body: { emailEnabled: false } });
+  const prefsOff = await api('/api/notifications/preferences', { token: residentToken });
+  check('email opt-out persists', prefsOff.data?.emailEnabled === false, `got=${prefsOff.data?.emailEnabled}`);
+  // Back on, so the event checks below are not suppressed by our own opt-out.
+  await api('/api/notifications/preferences', { method: 'PUT', token: residentToken, body: { emailEnabled: true } });
+
+  const anonEvent = await api('/api/notify/event', { method: 'POST', body: { event: 'auth.welcome' } });
+  check('email event endpoint rejects anonymous callers', anonEvent.status === 401);
+  const unknownEvent = await api('/api/notify/event', { method: 'POST', token: residentToken, body: { event: 'not.a.real.event' } });
+  check('unknown email event is rejected', unknownEvent.status === 400);
+
+  const welcomeMail = await api('/api/notify/event', {
+    method: 'POST', token: residentToken,
+    body: { event: 'auth.welcome', to: 'self', data: { phone: resident.phone, role: 'resident' } },
+  });
+  check(
+    'resident can queue an email to themselves',
+    welcomeMail.status === 200 && welcomeMail.data?.queued === true,
+    JSON.stringify(welcomeMail.data)
+  );
+
+  const dedupeKey = `e2e-welcome-${stamp}`;
+  await api('/api/notify/event', { method: 'POST', token: residentToken, body: { event: 'auth.welcome', to: 'self', dedupeKey } });
+  const dupeMail = await api('/api/notify/event', { method: 'POST', token: residentToken, body: { event: 'auth.welcome', to: 'self', dedupeKey } });
+  check(
+    'duplicate dedupeKey is never emailed twice',
+    dupeMail.data?.queued === false && dupeMail.data?.reason === 'duplicate',
+    JSON.stringify(dupeMail.data)
+  );
+
+  const missingProperty = await api('/api/notify/event', {
+    method: 'POST', token: ownerToken, body: { event: 'booking.approved', to: 'owner' },
+  });
+  check('owner-targeted email requires a propertyId', missingProperty.status === 400);
+
+  const ownerMail = await api('/api/notify/event', {
+    method: 'POST', token: ownerToken,
+    body: { event: 'booking.approved', to: 'owner', propertyId: listing.id, data: { propertyName: listing.name } },
+  });
+  check(
+    'owner receives property-scoped emails',
+    ownerMail.status === 200 && ownerMail.data?.queued === true,
+    JSON.stringify(ownerMail.data)
+  );
+
+  const mailStranger = await signup('owner', 'E2E Mail Stranger');
+  if (mailStranger.ok) {
+    const crossOrg = await api('/api/notify/event', {
+      method: 'POST', token: mailStranger.token,
+      body: { event: 'booking.approved', to: 'owner', propertyId: listing.id },
+    });
+    check('another org cannot email this property’s owner', crossOrg.status === 403, `status=${crossOrg.status}`);
+  } else {
+    check('another org cannot email this property’s owner', false, `signup failed: ${mailStranger.step}`);
+  }
+
+  const forgedUnsub = await api('/api/email/unsubscribe?token=forged.forged');
+  check('forged unsubscribe token is rejected', forgedUnsub.status === 400, `status=${forgedUnsub.status}`);
+
+  const mailStats = await api('/api/admin/email/stats', { token: adminToken });
+  check(
+    'admin can inspect the email outbox',
+    mailStats.status === 200 && Array.isArray(mailStats.data?.counts),
+    `status=${mailStats.status}`
+  );
+  check(
+    'admin sees which sender is configured',
+    typeof mailStats.data?.transport?.provider === 'string' && typeof mailStats.data?.transport?.from === 'string',
+    JSON.stringify(mailStats.data?.transport)
+  );
+  const residentStats = await api('/api/admin/email/stats', { token: residentToken });
+  check('email outbox is admin-only', residentStats.status === 403, `status=${residentStats.status}`);
+
+  // Escape hatch: sender readiness is inspectable before it is switched to.
+  const probe = await api('/api/admin/email/probe', { method: 'POST', token: adminToken });
+  check(
+    'admin can probe every configured sender',
+    probe.status === 200 && Array.isArray(probe.data?.providers) && probe.data.providers.length >= 2,
+    `status=${probe.status}`
+  );
+  check(
+    'probe reports which sender the next message would use',
+    typeof probe.data?.nextSendUses === 'string' && probe.data?.nextSendUses === probe.data?.transport?.provider,
+    JSON.stringify({ next: probe.data?.nextSendUses, active: probe.data?.transport?.provider })
+  );
+  check(
+    'probe reports whether failover is armed',
+    typeof probe.data?.transport?.failoverReady === 'boolean',
+    JSON.stringify(probe.data?.transport)
+  );
+  const residentProbe = await api('/api/admin/email/probe', { method: 'POST', token: residentToken });
+  check('sender probing is admin-only', residentProbe.status === 403, `status=${residentProbe.status}`);
+
+  const providerBreakdown = (mailStats.data?.byProvider || []) as Array<{ provider: string; n: number }>;
+  check(
+    'outbox reports delivery counts per sender',
+    Array.isArray(providerBreakdown) && providerBreakdown.every((r) => typeof r.provider === 'string'),
+    JSON.stringify(providerBreakdown)
+  );
+
   return finish();
 }
 

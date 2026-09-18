@@ -77,28 +77,49 @@ if [ "$HAS_RECIPIENT" -gt 0 ]; then skipped "notification-recipients.sql"; else 
 if [ "$HAS_MAINT_REQ" -gt 0 ]; then skipped "maintenance-tickets.sql"; else apply_file "maintenance-tickets.sql"; fi
 if [ "$HAS_EVENTS" -gt 0 ]; then skipped "auth-events.sql"; else apply_file "auth-events.sql"; fi
 
-# 3. maintenance_tickets link columns — each ALTER runs only when the column is
-# missing, because a duplicate-column error would abort the remaining batch.
-ensure_maint_column() {
-  local col="$1"
+# 3. Additive columns — each ALTER runs only when the column is missing,
+# because a duplicate-column error would abort the remaining batch.
+ensure_column() {
+  local table="$1"
+  local col="$2"
+  local type="${3:-TEXT}"
   local present
-  present="$(npx wrangler d1 execute "$DB" "$MODE" --json --command "SELECT COUNT(*) AS n FROM pragma_table_info('maintenance_tickets') WHERE name='$col'" 2>/dev/null | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{try{console.log(JSON.parse(s)[0].results[0].n)}catch(e){console.log('0')}})")"
+  present="$(npx wrangler d1 execute "$DB" "$MODE" --json --command "SELECT COUNT(*) AS n FROM pragma_table_info('$table') WHERE name='$col'" 2>/dev/null | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{try{console.log(JSON.parse(s)[0].results[0].n)}catch(e){console.log('0')}})")"
   if [ "$present" = "0" ]; then
-    if npx wrangler d1 execute "$DB" "$MODE" --command "ALTER TABLE maintenance_tickets ADD COLUMN $col TEXT" >/dev/null 2>&1; then
-      echo "  ✓ maintenance_tickets.$col added"
+    if npx wrangler d1 execute "$DB" "$MODE" --command "ALTER TABLE $table ADD COLUMN $col $type" >/dev/null 2>&1; then
+      echo "  ✓ $table.$col added"
     else
-      echo "  ✗ maintenance_tickets.$col could not be added"
+      echo "  ✗ $table.$col could not be added"
     fi
-  else
-    echo "  · maintenance_tickets.$col exists"
+    return 0
   fi
+  echo "  · $table.$col exists"
+  return 1
 }
 
 for COL in organization_id resident_id requester_id property_id property_name updated_at escalated_at photo_url; do
-  ensure_maint_column "$COL"
+  ensure_column "maintenance_tickets" "$COL" "TEXT"
 done
+
+# 4. Publishing plans — the PGWalo number and plan tier live on the property.
+if ensure_column "properties" "pg_number" "INTEGER"; then
+  # Backfill stable numbers for PGs published before numbering existed, oldest
+  # first, so "PGwalo1-" is the first PG ever listed.
+  npx wrangler d1 execute "$DB" "$MODE" --command "UPDATE properties SET pg_number = (SELECT COUNT(*) FROM properties p2 WHERE p2.created_at <= properties.created_at OR (p2.created_at = properties.created_at AND p2.id <= properties.id)) WHERE pg_number IS NULL" >/dev/null 2>&1 \
+    && echo "  ✓ properties.pg_number backfilled" || echo "  ✗ properties.pg_number backfill failed"
+fi
+ensure_column "properties" "plan_tier" "TEXT"
+ensure_column "properties" "plan_expires_at" "TEXT"
+npx wrangler d1 execute "$DB" "$MODE" --command "CREATE UNIQUE INDEX IF NOT EXISTS idx_properties_pg_number ON properties(pg_number)" >/dev/null 2>&1 \
+  && echo "  ✓ idx_properties_pg_number" || echo "  · idx_properties_pg_number skipped"
 
 # Indexes are idempotent.
 apply_file "maintenance-tickets.sql"
+
+# Email engine (outbox, preferences, suppression) — all CREATE IF NOT EXISTS.
+apply_file "email-outbox.sql"
+
+# Publishing plans + payment orders (CREATE IF NOT EXISTS only).
+apply_file "payments.sql"
 
 echo "Done."

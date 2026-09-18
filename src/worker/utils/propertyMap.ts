@@ -1,4 +1,6 @@
 import { normalizeAmenities } from '../../utils/amenities';
+import { pgDisplayName } from '../../utils/pgName';
+import { listingPlan } from '../../domain/pricing';
 
 type ListingRecord = Record<string, unknown>;
 
@@ -35,7 +37,11 @@ export function rowToProperty(row: ListingRecord): ListingRecord {
     id: String(row.id),
     organizationId: String(row.organization_id ?? row.organizationId ?? ''),
     status: row.status || 'Active',
-    name: String(row.name || 'PG'),
+    // Every PG is presented as "PGwalo<number>- <original name>". Applied here
+    // (the one place DB rows become properties) so every API consumer — public
+    // search, landing page, admin console — shows the same name.
+    pgNumber: Number(row.pg_number ?? row.pgNumber) || undefined,
+    name: pgDisplayName(String(row.name || 'PG'), Number(row.pg_number ?? row.pgNumber)),
     tagline: String(row.tagline || ''),
     gender: row.gender || 'Unisex',
     city: String(row.city || ''),
@@ -61,6 +67,10 @@ export function rowToProperty(row: ListingRecord): ListingRecord {
     contactEmail: String(row.contact_email ?? row.contactEmail ?? ''),
     ownerName: String(row.owner_name ?? row.ownerName ?? ''),
     ownerUserId: String(row.owner_user_id ?? row.ownerUserId ?? ''),
+    planTier: listingPlan(String(row.plan_tier ?? row.planTier ?? ''))?.id,
+    planExpiresAt: row.plan_expires_at ? String(row.plan_expires_at) : undefined,
+    // A property is only publicly "paid/live" once a publishing plan is active.
+    listingPaymentStatus: listingPlan(String(row.plan_tier ?? row.planTier ?? '')) ? 'Paid' : 'Pending',
     listingStatus: 'Active',
     floors: Number(row.total_floors ?? row.floors) || undefined,
   };
@@ -102,6 +112,9 @@ export function propertyToRow(property: ListingRecord) {
     contact_email: property.contactEmail || '',
     owner_name: property.ownerName || '',
     owner_user_id: property.ownerUserId || '',
+    pg_number: Number(property.pgNumber) || null,
+    plan_tier: listingPlan(String(property.planTier || ''))?.id || null,
+    plan_expires_at: property.planExpiresAt || null,
     place_label: property.placeLabel || '',
     default_rent_due_day: property.defaultRentDueDay || 7,
     total_floors: property.floors || property.totalFloors || 1,

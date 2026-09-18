@@ -42,6 +42,7 @@ import { OwnerMaintenanceTab } from './OwnerMaintenanceTab';
 import { AIPropertyOnboardingModal } from '../features/AIPropertyOnboardingModal';
 import { VirtualTourModal } from '../features/VirtualTourModal';
 import { createStaffWithWorkers } from '../../services/auth';
+import { PincodeInput } from '../common/PincodeInput';
 import { getAuthToken, isProductionApiEnabled } from '../../services/productionApi';
 import { UserAvatar } from '../common/UserAvatar';
 import { ListingImage } from '../common/ListingImage';
@@ -305,6 +306,9 @@ export const OwnerDashboard: React.FC = () => {
   const [propFormStep, setPropFormStep] = useState(1);
   const [newPropName, setNewPropName] = useState('');
   const [newPropCity, setNewPropCity] = useState('Bengaluru');
+  const [newPropState, setNewPropState] = useState('');
+  const [newPropCountry, setNewPropCountry] = useState('India');
+  const [newPropPincode, setNewPropPincode] = useState('');
   const [newPropLocality, setNewPropLocality] = useState('');
   const [newPropAddress, setNewPropAddress] = useState('');
   const [newPropGender, setNewPropGender] = useState<GenderPreference>('Boys');
@@ -360,6 +364,9 @@ export const OwnerDashboard: React.FC = () => {
       tagline: `Premium ${newPropGender} PG in ${newPropLocality} with food & 24/7 power backup`,
       gender: newPropGender,
       city: newPropCity,
+      state: newPropState || undefined,
+      country: newPropCountry || 'India',
+      pincode: newPropPincode || undefined,
       locality: newPropLocality,
       address: newPropAddress || `${newPropLocality}, ${newPropCity}`,
       lat: 12.92,
@@ -1562,17 +1569,21 @@ export const OwnerDashboard: React.FC = () => {
 
                   <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">City</label>
-                      <select
+                      <label htmlFor="new-prop-city" className="block text-[11px] font-bold text-slate-500 uppercase mb-1">City</label>
+                      <input
+                        id="new-prop-city"
+                        type="text"
+                        list="new-prop-city-options"
                         value={newPropCity}
                         onChange={(e) => setNewPropCity(e.target.value)}
-                        className="w-full px-3 py-2 border rounded-xl bg-white"
-                      >
-                        <option value="Bengaluru">Bengaluru</option>
-                        <option value="Pune">Pune</option>
-                        <option value="Hyderabad">Hyderabad</option>
-                        <option value="Delhi NCR">Delhi NCR</option>
-                      </select>
+                        placeholder="e.g. Bengaluru"
+                        className="w-full px-3 py-2 border rounded-xl"
+                      />
+                      <datalist id="new-prop-city-options">
+                        {['Bengaluru', 'Mumbai', 'Delhi NCR', 'Pune', 'Hyderabad', 'Chennai', 'Kolkata', 'Ahmedabad'].map((c) => (
+                          <option key={c} value={c} />
+                        ))}
+                      </datalist>
                     </div>
                     <div>
                       <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Gender</label>
@@ -1586,6 +1597,43 @@ export const OwnerDashboard: React.FC = () => {
                         <option value="Unisex">Unisex / Co-ed</option>
                       </select>
                     </div>
+                  </div>
+
+                  {/* Pincode drives the address — entering it fills city/state/country */}
+                  <div className="grid grid-cols-2 gap-2">
+                    <PincodeInput
+                      label="Pincode"
+                      value={newPropPincode}
+                      onPincodeChange={setNewPropPincode}
+                      onResolved={({ city, state, country }) => {
+                        if (city) setNewPropCity(city);
+                        if (state) setNewPropState(state);
+                        if (country) setNewPropCountry(country);
+                      }}
+                    />
+                    <div>
+                      <label htmlFor="new-prop-state" className="block text-[11px] font-bold text-slate-500 uppercase mb-1">State</label>
+                      <input
+                        id="new-prop-state"
+                        type="text"
+                        value={newPropState}
+                        onChange={(e) => setNewPropState(e.target.value)}
+                        placeholder="e.g. Karnataka"
+                        className="w-full px-3 py-2 border rounded-xl"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label htmlFor="new-prop-country" className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Country</label>
+                    <input
+                      id="new-prop-country"
+                      type="text"
+                      value={newPropCountry}
+                      onChange={(e) => setNewPropCountry(e.target.value)}
+                      placeholder="India"
+                      className="w-full px-3 py-2 border rounded-xl"
+                    />
                   </div>
 
                   <div>
