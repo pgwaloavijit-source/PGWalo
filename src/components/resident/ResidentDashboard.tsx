@@ -276,7 +276,7 @@ export const ResidentDashboard: React.FC = () => {
   };
 
   const handleQuickApprove = (reqId: string, propertyName: string) => {
-    approveBookingRequest(reqId, '204', 'Bed A');
+    approveBookingRequest(reqId);
     showToast(`Approved! Room 204 (Bed A) allocated at ${propertyName}. All services are now active.`);
     setActiveTab('stay');
   };

@@ -2471,17 +2471,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       void publishListing(ready).then((stored) => (stored ? adoptStoredProperty(stored) : undefined));
     };
     setProperties((prev) => [created, ...prev]);
-    void persist();
-    return created;
 
+    // Every published listing gets one bed row per physical bed. This block
+    // sat below an earlier `return` and never ran — so owner listings had no
+    // beds, and approving a booking could not allocate anything. Rooms like
+    // `room-<ts>-single` are not room numbers; beds are numbered floor-style
+    // from an index so the matrix reads 101-A, 101-B, 201-A, …
     const letters = ['A', 'B', 'C', 'D', 'E', 'F'];
     const generatedBeds: Bed[] = (created.rooms || []).flatMap((room, roomIndex) => {
-      const count = Math.max(room.totalBeds || 0, 1);
+      const count = Math.max(room.totalBeds || room.availableBeds || 1, 1);
+      const roomNumber = String(100 + (roomIndex + 1));
       return Array.from({ length: count }, (_, i) => ({
         id: `bed-${created.id}-${room.id}-${i}`,
-        bedNumber: `${room.id}-${letters[i] || i + 1}`,
+        bedNumber: `${roomNumber}-${letters[i] || i + 1}`,
         roomId: room.id,
-        roomNumber: String(room.id),
+        roomNumber,
         propertyId: created.id,
         floor: roomIndex + 1,
         sharingType: room.type,
@@ -2493,6 +2497,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (generatedBeds.length) {
       setBeds((prev) => [...generatedBeds, ...prev]);
     }
+
+    void persist();
+    return created;
   };
 
   /**
@@ -2627,8 +2634,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const approveBookingRequest = (requestId: string, roomNumber?: string, bedNumber?: string) => {
-    const assignedRoom = roomNumber || '204';
-    const assignedBed = bedNumber || 'Bed A';
+    // Explicit room/bed args win (admin tooling), otherwise allocate the first
+    // genuinely vacant bed matching the requested sharing type. The old
+    // hardcoded '204'/'Bed A' fallback allocated beds that do not exist in the
+    // owner's property, so approval looked like it worked while allocating
+    // nothing.
+    let assignedRoom = roomNumber || '';
+    let assignedBed = bedNumber || '';
 
     let targetReq = bookingRequests.find((r) => r.id === requestId || r.referenceId === requestId);
     if (targetReq?.type === 'visit') {
@@ -2650,19 +2662,76 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       });
       return;
     }
+    const propertyBeds = beds.filter(
+      (bed) => !targetReq?.propertyId || bed.propertyId === targetReq.propertyId
+    );
     const requestedBed =
-      beds.find(
+      (assignedRoom && assignedBed
+        ? propertyBeds.find(
+            (bed) =>
+              bed.roomNumber === assignedRoom &&
+              (bed.bedNumber === assignedBed || bed.bedNumber.endsWith(assignedBed.replace(/^Bed\s*/i, '')))
+          )
+        : undefined) ||
+      (assignedRoom
+        ? propertyBeds.find((bed) => bed.roomNumber === assignedRoom && canBedBeAssigned(bed))
+        : undefined) ||
+      propertyBeds.find(
         (bed) =>
-          bed.roomNumber === assignedRoom &&
-          (bed.bedNumber === assignedBed || bed.bedNumber.endsWith(assignedBed.replace(/^Bed\s*/i, '')))
+          (!targetReq?.roomType || bed.sharingType === targetReq.roomType) && canBedBeAssigned(bed)
       ) ||
-      beds.find((bed) => bed.roomNumber === assignedRoom && canBedBeAssigned(bed)) ||
-      beds.find((bed) => bed.sharingType === targetReq?.roomType && canBedBeAssigned(bed));
+      propertyBeds.find((bed) => canBedBeAssigned(bed));
 
-    if (requestedBed && !canBedBeAssigned(requestedBed)) {
-      logAuditEvent('Blocked Double Allocation', `Bed ${requestedBed.id}`, 'Booking approval attempted on an occupied bed');
+    // Self-healing: listings published before bed generation ran (an early
+    // `return` made it dead code) have no bed rows at all. Create the full bed
+    // inventory from the property's rooms so approval has something real to
+    // allocate instead of a fictional room 204.
+    const targetProperty = properties.find((p) => p.id === targetReq?.propertyId);
+    let allocationBed = requestedBed;
+    if (!allocationBed && targetProperty) {
+      const letters = ['A', 'B', 'C', 'D', 'E', 'F'];
+      const healedBeds: Bed[] = (targetProperty.rooms || []).flatMap((room, roomIndex) => {
+        const count = Math.max(room.totalBeds || room.availableBeds || 1, 1);
+        const rn = String(100 + (roomIndex + 1));
+        return Array.from({ length: count }, (_, i) => ({
+          id: `bed-${targetProperty.id}-${room.id}-${i}`,
+          bedNumber: `${rn}-${letters[i] || i + 1}`,
+          roomId: room.id,
+          roomNumber: rn,
+          propertyId: targetProperty.id,
+          floor: roomIndex + 1,
+          sharingType: room.type,
+          status: 'Available' as const,
+          monthlyRent: room.rentPerMonth,
+          deposit: room.deposit,
+        }));
+      });
+      const existingIds = new Set(beds.map((b) => b.id));
+      const additions = healedBeds.filter((b) => !existingIds.has(b.id));
+      if (additions.length) {
+        setBeds((prev) => [...additions, ...prev]);
+        logAuditEvent('Bed Inventory Generated', targetProperty.name, `Created ${additions.length} beds from room tiers (self-heal for pre-fix listing)`);
+      }
+      allocationBed =
+        healedBeds.find(
+          (bed) => (!targetReq?.roomType || bed.sharingType === targetReq.roomType) && bed.status === 'Available'
+        ) || healedBeds[0];
+    }
+
+    if (!allocationBed) {
+      logAuditEvent('Approval Failed — No Beds', targetReq?.propertyName || targetReq?.propertyId, 'No bed could be allocated: the property has no rooms or beds configured');
+      alert(
+        `Cannot allocate a bed: "${targetReq?.propertyName || 'this property'}" has no beds configured. Add rooms in the listing wizard first.`
+      );
       return;
     }
+    if (!canBedBeAssigned(allocationBed)) {
+      logAuditEvent('Blocked Double Allocation', `Bed ${allocationBed.id}`, 'Booking approval attempted on an occupied bed');
+      alert(`Bed ${allocationBed.bedNumber} in room ${allocationBed.roomNumber} is no longer available. Refresh and try another bed.`);
+      return;
+    }
+    assignedRoom = allocationBed.roomNumber;
+    assignedBed = allocationBed.bedNumber;
 
     setBookingRequests((prev) =>
       prev.map((req) => {
@@ -2671,10 +2740,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           return {
             ...req,
             status: 'Approved',
-            allocatedRoomNumber: requestedBed?.roomNumber || assignedRoom,
-            allocatedBedNumber: requestedBed?.bedNumber || assignedBed,
+            allocatedRoomNumber: allocationBed.roomNumber,
+            allocatedBedNumber: allocationBed.bedNumber,
             residentStatus: 'Pending Move-In',
-            reservedBedId: requestedBed?.id,
+            reservedBedId: allocationBed.id,
             reservationExpiry: req.reservationExpiry || req.preferredMoveInDate,
           };
         }
@@ -2685,8 +2754,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (targetReq) {
       void patchInquiry(targetReq.referenceId || targetReq.id, {
         status: 'Approved',
-        allocatedRoomNumber: requestedBed?.roomNumber || assignedRoom,
-        allocatedBedNumber: requestedBed?.bedNumber || assignedBed,
+        allocatedRoomNumber: allocationBed.roomNumber,
+        allocatedBedNumber: allocationBed.bedNumber,
       });
       const existingRes = residents.find(
         (r) =>
@@ -2704,11 +2773,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         status: 'Pending Move-In',
         propertyId: targetReq.propertyId,
         propertyName: targetReq.propertyName,
-        roomNumber: requestedBed?.roomNumber || assignedRoom,
-        roomType: targetReq.roomType || 'Double',
-        bedNumber: requestedBed?.bedNumber || assignedBed,
-        monthlyRent: requestedBed?.monthlyRent || (targetReq.roomType === 'Single' ? 14000 : targetReq.roomType === 'Double' ? 9500 : 7800),
-        depositAmount: requestedBed?.deposit || 15000,
+        roomNumber: allocationBed.roomNumber,
+        roomType: targetReq.roomType || allocationBed.sharingType || 'Double',
+        bedNumber: allocationBed.bedNumber,
+        monthlyRent: allocationBed.monthlyRent || (targetReq.roomType === 'Single' ? 14000 : targetReq.roomType === 'Double' ? 9500 : 7800),
+        depositAmount: allocationBed.deposit || 15000,
         moveInDate: targetReq.preferredMoveInDate || new Date().toISOString().split('T')[0],
         rentStatus: 'Pending',
         rentDueDate: '07th Every Month',
@@ -2718,35 +2787,43 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         agreementState: 'Pending',
         previousDues: 0,
         advanceBalance: 0,
-        outstandingBalance: requestedBed?.monthlyRent || (targetReq.roomType === 'Single' ? 14000 : targetReq.roomType === 'Double' ? 9500 : 7800),
+        outstandingBalance: allocationBed.monthlyRent || (targetReq.roomType === 'Single' ? 14000 : targetReq.roomType === 'Double' ? 9500 : 7800),
         notes: targetReq.message || 'Approved from online application',
       };
       const property = properties.find((p) => p.id === targetReq?.propertyId);
       const newAgreement = buildOwnerSentAgreement(newRes, targetReq, property);
 
-      // Also mark the allocated Bed as Occupied
+      // Mark the allocated bed Reserved for this resident. (The old code
+      // matched by room number string against a hardcoded room here and also
+      // reserved `requestedBed` below — two writes racing on one bed.)
       setBeds((prev) =>
         prev.map((b) =>
-          b.roomNumber === assignedRoom && b.bedNumber === assignedBed
-            ? { ...b, status: 'Occupied', currentTenantId: newRes.id, currentTenantName: newRes.name }
+          b.id === allocationBed.id
+            ? {
+                ...b,
+                status: 'Reserved',
+                currentTenantId: newRes.id,
+                currentTenantName: newRes.name,
+                reservedForResidentId: newRes.id,
+                reservationExpiry: targetReq.preferredMoveInDate,
+              }
             : b
         )
       );
 
       // Record Stay
       const todayStr = new Date().toISOString().split('T')[0];
-      const allocatedBed = beds.find((b) => b.bedNumber === assignedBed);
       const newStay: Stay = {
         id: `stay-${Date.now()}`,
         organizationId: newRes.organizationId || DEFAULT_ORGANIZATION_ID,
         residentId: newRes.id,
         propertyId: newRes.propertyId,
-        roomId: allocatedBed?.roomId,
+        roomId: allocationBed.roomId,
         // D1 declares room_number / bed_id / bed_number / monthly_rent_at_start
         // NOT NULL, so the stay row was rejected and never reached the DB.
-        roomNumber: newRes.roomNumber,
-        bedId: allocatedBed?.id,
-        bedNumber: newRes.bedNumber,
+        roomNumber: allocationBed.roomNumber,
+        bedId: allocationBed.id,
+        bedNumber: allocationBed.bedNumber,
         startDate: newRes.moveInDate || todayStr,
         monthlyRentAtStart: newRes.monthlyRent,
         status: 'Current',
@@ -2763,37 +2840,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       });
       setAgreements((prev) => [newAgreement, ...prev.filter((agreement) => agreement.residentId !== newRes.id)]);
 
-      if (requestedBed) {
-        setBeds((prev) =>
-          prev.map((bed) =>
-            bed.id === requestedBed.id
-              ? {
-                  ...bed,
-                  status: 'Reserved',
-                  currentTenantId: newRes.id,
-                  currentTenantName: newRes.name,
-                  reservedForResidentId: newRes.id,
-                  reservationExpiry: targetReq?.preferredMoveInDate,
-                }
-              : bed
-          )
-        );
-        setStays((prev) => [
-          {
-            id: `stay-${newRes.id}-reserved`,
-            organizationId: newRes.organizationId || DEFAULT_ORGANIZATION_ID,
-            residentId: newRes.id,
-            propertyId: newRes.propertyId,
-            roomId: requestedBed.roomId,
-            roomNumber: requestedBed.roomNumber,
-            bedId: requestedBed.id,
-            bedNumber: requestedBed.bedNumber,
-            startDate: newRes.moveInDate,
-            monthlyRentAtStart: newRes.monthlyRent,
-            status: 'Reserved',
-          },
-          ...prev.filter((stay) => stay.residentId !== newRes.id || stay.status !== 'Reserved'),
-        ]);
+      // The single reservation write above covers the bed; the rent plan still
+      // needs creating for the new resident.
+      {
         setRentPlans((prev) => [
           {
             id: `rent-plan-${newRes.id}`,
@@ -2814,7 +2863,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           ...currentUser,
           propertyId: targetReq.propertyId,
           propertyName: targetReq.propertyName,
-          roomNumber: requestedBed?.roomNumber || assignedRoom,
+          roomNumber: allocationBed.roomNumber,
         };
         setCurrentUser(updatedUser);
       }
@@ -2850,7 +2899,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         entityType: 'BookingRequest',
         entityId: requestId,
         previousValue: targetReq,
-        newValue: { residentId: newRes.id, bedId: requestedBed?.id, status: 'Pending Move-In' },
+        newValue: { residentId: newRes.id, bedId: allocationBed.id, status: 'Pending Move-In' },
         propertyId: targetReq.propertyId,
       });
     }

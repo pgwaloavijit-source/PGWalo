@@ -532,7 +532,7 @@ const AdminBody: React.FC<{
                     type="button"
                     disabled={conflict}
                     className="px-3 py-1.5 rounded-xl bg-emerald-600 text-white text-xs font-bold disabled:opacity-40"
-                    onClick={() => approveBookingRequest(req.id, pgBeds[0]?.roomNumber, pgBeds[0]?.bedNumber)}
+                    onClick={() => approveBookingRequest(req.id)}
                   >
                     Approve
                   </button>

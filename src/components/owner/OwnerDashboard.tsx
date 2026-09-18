@@ -854,7 +854,7 @@ export const OwnerDashboard: React.FC = () => {
                           <div className="flex items-center gap-2">
                             <button
                               id={`approve-booking-${req.id}`}
-                              onClick={() => approveBookingRequest(req.id, '204', 'Bed A')}
+                              onClick={() => approveBookingRequest(req.id)}
                               className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition flex items-center gap-1 shadow-2xs"
                             >
                               <CheckCircle2 className="w-3.5 h-3.5" />
