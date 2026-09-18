@@ -90,7 +90,7 @@ export const normalizeAmenityId = (value: string) => {
 };
 
 export const normalizeAmenities = (ids: string[] = []) => {
-  const allowed = new Set(AMENITIES.map((amenity) => amenity.id));
+  const allowed = new Set<string>(AMENITIES.map((amenity) => amenity.id));
   return Array.from(new Set(ids.map(normalizeAmenityId).filter((id) => allowed.has(id))));
 };
 
