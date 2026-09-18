@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { localIsoDate } from '../../utils/datetime';
 import { PaymentReceipt, BookingRequest, Agreement } from '../../types';
@@ -36,6 +36,7 @@ import {
 import { downloadInvoicePdf, downloadReceiptPdf } from '../../utils/pdfDocuments';
 import { DigitalAgreementModal } from '../features/DigitalAgreementModal';
 import { uploadComplaintPhoto } from '../../services/media';
+import { fetchMyAgreements } from '../../services/agreements';
 import { ModalFocusScope } from '../common/ModalFocusScope';
 
 export const ResidentDashboard: React.FC = () => {
@@ -67,17 +68,54 @@ export const ResidentDashboard: React.FC = () => {
     initiateNoticePeriod,
     checkoutSettlements,
     agreements,
+    mergeAgreements,
   } = useApp();
 
-  // Determine if this user has an approved, active room allocation
   const isAllocated = Boolean(currentResident && currentResident.roomNumber);
-  const [activeAgreement, setActiveAgreement] = useState<Agreement | null>(null);
-
   // Filter requests belonging to this user
   const today = localIsoDate();
   const userEmail = currentUser?.email?.toLowerCase();
   const userPhone = currentUser?.phone?.replace(/\D/g, '');
   const userName = currentUser?.name?.toLowerCase();
+  // Track by id and derive the object from the live collection, so the open
+  // modal re-renders the moment the signature lands (local or polled).
+  const [activeAgreementId, setActiveAgreementId] = useState<string | null>(null);
+  const activeAgreement = activeAgreementId ? agreements.find((a) => a.id === activeAgreementId) || null : null;
+
+  // The tenant's agreement, targeted precisely: their own resident-scoped or
+  // email-matched agreement — never just agreements[0], which could be
+  // another resident's document.
+  const myAgreement = React.useMemo<Agreement | null>(() => {
+    const mine = agreements.filter(
+      (a) =>
+        (currentResident && a.residentId === currentResident.id) ||
+        (userEmail && a.tenantEmail?.toLowerCase() === userEmail) ||
+        (currentResident?.email && a.tenantEmail?.toLowerCase() === currentResident.email.toLowerCase())
+    );
+    if (mine.length === 0) return null;
+    return (
+      mine.find((a) => !a.tenantSigned && a.status !== 'Active') ||
+      mine.find((a) => a.tenantSigned) ||
+      mine[0]
+    );
+  }, [agreements, currentResident, userEmail]);
+
+  // Poll the server for the tenant's own agreements so a newly sent or newly
+  // countersigned document lands without a full reload.
+  useEffect(() => {
+    if (!currentUser) return;
+    let cancelled = false;
+    const poll = async () => {
+      const fresh = await fetchMyAgreements();
+      if (!cancelled && fresh.length > 0) mergeAgreements(fresh);
+    };
+    void poll();
+    const timer = window.setInterval(poll, 20000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [currentUser?.id]);
 
   const myRequests = bookingRequests.filter((r) => {
     if (!currentUser) return false;
@@ -334,9 +372,17 @@ export const ResidentDashboard: React.FC = () => {
 
             <div>
               <div className="flex items-center gap-2 flex-wrap">
-                {agreements.length > 0 && (
-                  <button onClick={() => setActiveAgreement(agreements[0])} className="px-3.5 py-2 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold transition flex items-center gap-1.5 border border-indigo-200">
-                    <FileText className="w-3.5 h-3.5" /> Agreement
+                {myAgreement && (
+                  <button
+                    onClick={() => setActiveAgreementId(myAgreement.id)}
+                    className={`px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 border ${
+                      myAgreement.tenantSigned
+                        ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-emerald-200'
+                        : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border-indigo-200 animate-pulse'
+                    }`}
+                  >
+                    <FileText className="w-3.5 h-3.5" />
+                    {myAgreement.tenantSigned ? 'Agreement Signed' : 'Agreement — Sign Now'}
                   </button>
                 )}
                 <h1 className="text-xl font-black text-slate-900">
@@ -365,7 +411,7 @@ export const ResidentDashboard: React.FC = () => {
                 )}
               </div>
               {activeAgreement && (
-                <DigitalAgreementModal agreement={activeAgreement} onClose={() => setActiveAgreement(null)} />
+                <DigitalAgreementModal agreement={activeAgreement} onClose={() => setActiveAgreementId(null)} />
               )}
 
               <p className="text-xs text-slate-500 mt-0.5 flex items-center gap-2">
@@ -420,7 +466,7 @@ export const ResidentDashboard: React.FC = () => {
       <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 pt-4 sm:pt-6 flex gap-3 lg:gap-6 items-start">
         <nav
           aria-label="Resident sections"
-          className="sticky top-20 z-10 shrink-0 w-[4.85rem] sm:w-56 lg:w-64 max-h-[calc(100dvh-7rem)] overflow-y-auto rounded-3xl bg-white border border-slate-200 shadow-2xs p-1.5 sm:p-2"
+          className="sticky top-20 z-10 shrink-0 w-[4.85rem] sm:w-56 lg:w-64 rounded-3xl bg-white border border-slate-200 shadow-2xs p-1.5 sm:p-2"
         >
           {(
             [

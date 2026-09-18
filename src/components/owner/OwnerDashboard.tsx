@@ -656,7 +656,7 @@ export const OwnerDashboard: React.FC = () => {
       <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 pt-4 sm:pt-6 flex gap-3 lg:gap-6 items-start">
         <nav
           aria-label="Owner sections"
-          className="sticky top-20 z-10 shrink-0 w-[4.85rem] sm:w-56 lg:w-64 max-h-[calc(100dvh-7rem)] overflow-y-auto rounded-3xl bg-white border border-slate-200 shadow-2xs p-1.5 sm:p-2"
+          className="sticky top-20 z-10 shrink-0 w-[4.85rem] sm:w-56 lg:w-64 rounded-3xl bg-white border border-slate-200 shadow-2xs p-1.5 sm:p-2"
         >
           {[
             { key: 'overview', label: 'Overview', icon: TrendingUp, count: 0 },

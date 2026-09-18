@@ -86,6 +86,7 @@ import { localIsoDate } from '../utils/datetime';
 import { CATALOG_OWNER_ID, ownsProperty } from '../utils/ownership';
 import { normalizeAmenities } from '../utils/amenities';
 import { fireEmailEvent } from '../services/emailEvents';
+import { fetchMyAgreements, signMyAgreement } from '../services/agreements';
 import { clearLastAuthUser } from '../services/authAnalytics';
 import { capturePayTargetFromUrl } from '../utils/payLink';
 import { dashboardTabForRole } from '../utils/roles';
@@ -228,6 +229,7 @@ interface AppContextType {
   addDepositDeduction: (depositId: string, deduction: { category: 'Damage' | 'Unpaid Rent' | 'Electricity' | 'Other'; amount: number; reason: string }) => void;
   settleDepositRefund: (depositId: string, transactionId: string) => void;
   agreements: RentAgreement[];
+  mergeAgreements: (incoming: RentAgreement[]) => void;
   signAgreement: (agreementId: string, asRole: 'owner' | 'tenant') => void;
   visitorPasses: VisitorPass[];
   addVisitorPass: (pass: Omit<VisitorPass, 'id' | 'status'>) => void;
@@ -795,7 +797,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (snapshot.checkouts) setCheckouts(snapshot.checkouts);
         if (snapshot.checkoutSettlements?.length) setCheckoutSettlements(snapshot.checkoutSettlements);
         if (snapshot.auditLogs) setAuditLogs(snapshot.auditLogs);
-        if (snapshot.rent_agreements) setAgreements(snapshot.rent_agreements);
+        if (snapshot.rent_agreements) {
+          // Keep any signatures captured on this device that the server
+          // snapshot may not reflect yet, so a signature never flips back.
+          setAgreements((prev) => {
+            const byId = new Map(snapshot.rent_agreements.map((a: RentAgreement) => [a.id, a]));
+            for (const a of prev) {
+              if (byId.has(a.id)) {
+                const server = byId.get(a.id)!;
+                byId.set(a.id, {
+                  ...server,
+                  tenantSigned: server.tenantSigned || a.tenantSigned,
+                  ownerSigned: server.ownerSigned || a.ownerSigned,
+                  tenantSignatureDate: server.tenantSignatureDate || a.tenantSignatureDate,
+                  ownerSignatureDate: server.ownerSignatureDate || a.ownerSignatureDate,
+                });
+              } else {
+                byId.set(a.id, a);
+              }
+            }
+            return Array.from(byId.values());
+          });
+        }
         if (snapshot.broadcast_notifications) {
           // Server rows have no read memory — apply this account's stored read
           // ids so the bell badge reflects what the user has already seen.
@@ -1799,22 +1822,60 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     logAuditEvent('Deposit Refund Settled', `Deposit ID: ${depositId}`, `Settled via Txn: ${transactionId}`);
   };
 
+  // Signature-preserving merge: polled/server rows update locals, but a
+  // signature captured on this device is never lost to a stale server row.
+  const mergeAgreements = (incoming: RentAgreement[]) => {
+    if (!incoming.length) return;
+    setAgreements((prev) => {
+      const byId = new Map<string, RentAgreement>(prev.map((a) => [a.id, a]));
+      for (const fresh of incoming) {
+        const existing = byId.get(fresh.id);
+        byId.set(
+          fresh.id,
+          existing
+            ? {
+                ...fresh,
+                tenantSigned: fresh.tenantSigned || existing.tenantSigned,
+                ownerSigned: fresh.ownerSigned || existing.ownerSigned,
+                tenantSignatureDate: fresh.tenantSignatureDate || existing.tenantSignatureDate,
+                ownerSignatureDate: fresh.ownerSignatureDate || existing.ownerSignatureDate,
+              }
+            : fresh
+        );
+      }
+      return Array.from(byId.values());
+    });
+  };
+
   const signAgreement = (agreementId: string, asRole: 'owner' | 'tenant') => {
+    const ownerSigned = asRole === 'owner' ? true : undefined;
+    const tenantSigned = asRole === 'tenant' ? true : undefined;
     setAgreements((prev) =>
       prev.map((agr) => {
         if (agr.id !== agreementId) return agr;
-        const ownerSigned = asRole === 'owner' ? true : agr.ownerSigned;
-        const tenantSigned = asRole === 'tenant' ? true : agr.tenantSigned;
-        const isBoth = ownerSigned && tenantSigned;
+        const nextOwner = ownerSigned ?? agr.ownerSigned;
+        const nextTenant = tenantSigned ?? agr.tenantSigned;
+        const isBoth = nextOwner && nextTenant;
         return {
           ...agr,
-          ownerSigned,
-          tenantSigned,
-          status: isBoth ? 'Active' : 'Verified',
+          ownerSigned: nextOwner,
+          tenantSigned: nextTenant,
+          status: isBoth ? 'Active' : nextTenant ? 'Tenant Signed' : agr.status,
           signedDate: isBoth ? new Date().toISOString().split('T')[0] : agr.signedDate,
+          tenantSignatureDate:
+            tenantSigned && !agr.tenantSignatureDate ? new Date().toISOString() : agr.tenantSignatureDate,
         };
       })
     );
+
+    // A tenant signature must outlive whichever dashboard's debounced
+    // whole-collection sync runs next, so it is written to its own endpoint
+    // (owner-scoped JWT check server-side) instead of relying on the push.
+    if (asRole === 'tenant') {
+      void signMyAgreement(agreementId).then((result) => {
+        if (!result.ok) console.warn(`[agreement] tenant signature on ${agreementId} could not be persisted server-side`);
+      });
+    }
     logAuditEvent('Digital Agreement Signed', `Agreement ${agreementId}`, `Signed by ${asRole}`);
   };
 
@@ -2874,6 +2935,34 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         category: 'Event',
         target: 'All Residents',
         sender: 'Property Owner (Rajesh Sharma)',
+        recipientId: newRes.id,
+      });
+
+      // The agreement exists but the tenant was never TOLD — no notification,
+      // no email — so it sat unread. Both go out now, personal to the tenant.
+      addBroadcast({
+        title: 'Your tenancy agreement is ready to sign',
+        message: `Agreement ${newAgreement.agreementNumber} for ${newRes.propertyName} (Room ${newRes.roomNumber}, ${newRes.bedNumber}) is awaiting your signature. Open the Agreement button on your dashboard to review and sign.`,
+        category: 'Event',
+        target: 'All Residents',
+        sender: `${currentUser?.name || 'Owner'} (Owner)`,
+        propertyId: newRes.propertyId,
+        propertyName: newRes.propertyName,
+        recipientId: newRes.id,
+      });
+      fireEmailEvent('agreement.sent', {
+        to: 'resident',
+        propertyId: newRes.propertyId,
+        residentId: newRes.id,
+        residentEmail: newRes.email,
+        data: {
+          propertyName: newRes.propertyName,
+          roomNumber: newRes.roomNumber,
+          monthlyRent: `\u20B9${newRes.monthlyRent.toLocaleString('en-IN')}`,
+          startDate: newAgreement.startDate,
+          endDate: newAgreement.endDate,
+        },
+        dedupeKey: `agreement-sent-${newAgreement.id}`,
       });
 
       // Allocation confirmation to the incoming resident (verified server-side).
@@ -3894,6 +3983,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         addDepositDeduction,
         settleDepositRefund,
         agreements,
+        mergeAgreements,
         signAgreement,
         visitorPasses,
         addVisitorPass,
