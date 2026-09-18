@@ -27,6 +27,12 @@ export interface Env {
   RESEND_API_KEY?: string;
   /** Override for the Resend API base (self-hosted proxy / tests). */
   RESEND_BASE_URL?: string;
+  // ---- payments ----------------------------------------------------------
+  /** Razorpay live/test key id. Both halves are required to enable the gateway. */
+  RAZORPAY_KEY_ID?: string;
+  RAZORPAY_KEY_SECRET?: string;
+  /** Optional: enables verified gateway webhooks (recommended in production). */
+  RAZORPAY_WEBHOOK_SECRET?: string;
   SUPERADMIN_EMAIL?: string;
   ENVIRONMENT: string;
   DEFAULT_ORGANIZATION_ID: string;

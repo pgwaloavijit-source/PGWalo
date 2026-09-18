@@ -86,6 +86,9 @@ import { localIsoDate } from '../utils/datetime';
 import { CATALOG_OWNER_ID, ownsProperty } from '../utils/ownership';
 import { normalizeAmenities } from '../utils/amenities';
 import { fireEmailEvent } from '../services/emailEvents';
+import { clearLastAuthUser } from '../services/authAnalytics';
+import { capturePayTargetFromUrl } from '../utils/payLink';
+import { dashboardTabForRole } from '../utils/roles';
 import {
   INITIAL_PROPERTIES,
   INITIAL_RESIDENTS,
@@ -166,6 +169,12 @@ interface AppContextType {
   openPublicCatalog: () => void;
   shellIntent: string | null;
   clearShellIntent: () => void;
+  /**
+   * Send the signed-in account to its own dashboard. Used right after sign-in
+   * and sign-up so an owner never lands on the public page wondering whether
+   * the login worked.
+   */
+  openRoleDashboard: (role?: UserRole) => void;
   register: (accountData: {
     name: string;
     email: string;
@@ -251,7 +260,8 @@ interface AppContextType {
   setVirtualTourRoom: (room: string) => void;
 
   // Actions
-  addProperty: (property: Omit<Property, 'id'>) => void;
+  /** Returns the created property (with its generated id) to the caller. */
+  addProperty: (property: Omit<Property, 'id'>) => Property;
   updateProperty: (propertyId: string, updates: Partial<Property>) => void;
   addBookingRequest: (request: Omit<BookingRequest, 'id' | 'status' | 'requestDate'>) => void;
   approveBookingRequest: (requestId: string, roomNumber?: string, bedNumber?: string) => void;
@@ -327,6 +337,34 @@ const STORAGE_KEYS = {
   NOTICES: 'pgwalo_notices',
   CHECKOUTS: 'pgwalo_checkouts',
 };
+
+/**
+ * Sign-out hygiene.
+ *
+ * `logout()` drops this flag and reloads the page. The purge below runs at
+ * module load — before any state initializer reads localStorage — so the page
+ * that comes back after a sign-out has no memory of the previous account: no
+ * cached dashboard rows, no half-filled form, no "welcome back, <someone>".
+ */
+const SIGNED_OUT_FLAG = 'pgwalo_signed_out';
+
+function purgeSessionCachesOnBoot(): void {
+  try {
+    if (localStorage.getItem(SIGNED_OUT_FLAG) !== '1') return;
+    Object.keys(localStorage)
+      .filter((key) => key.startsWith('pgwalo_'))
+      .forEach((key) => localStorage.removeItem(key));
+    sessionStorage.clear();
+  } catch {
+    /* storage can be unavailable (private mode) — nothing to purge then */
+  }
+}
+
+purgeSessionCachesOnBoot();
+
+// An emailed payment link arrives as `/pay/<orderId>`: stash the order and
+// normalise the URL before React mounts, so the SPA route stays clean.
+capturePayTargetFromUrl();
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [role, setRoleState] = useState<UserRole>(() => {
@@ -706,6 +744,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [shellIntent, setShellIntent] = useState<string | null>(null);
   const openPublicCatalog = () => setShellIntent('search');
   const clearShellIntent = () => setShellIntent(null);
+
+  const openRoleDashboard = (accountRole?: UserRole) => {
+    const tab = dashboardTabForRole(accountRole || currentUser?.role);
+    if (tab !== 'landing') setShellIntent(tab);
+  };
   const [productionHydrated, setProductionHydrated] = useState(!isProductionApiEnabled());
 
   // Active entities
@@ -948,7 +991,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         !p.id.startsWith('demo-')
     );
     mine.forEach((p) => {
-      void publishListing(p);
+      void publishListing(p).then((stored) => (stored ? adoptStoredProperty(stored) : undefined));
     });
   }, [currentUser?.id, properties.length]);
 
@@ -2371,9 +2414,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     
     setCurrentUser(null);
     setRoleState('public');
-    localStorage.removeItem(STORAGE_KEYS.CURRENT_USER);
-    localStorage.removeItem(STORAGE_KEYS.ROLE);
     clearAuthToken(); // Clear JWT token for Cloudflare Workers
+    // Remembering the previous account across a sign-out is the stale-data bug
+    // users hit as "welcome back, <someone else>" on the sign-in screen.
+    clearLastAuthUser();
+    try {
+      localStorage.removeItem(STORAGE_KEYS.CURRENT_USER);
+      localStorage.removeItem(STORAGE_KEYS.ROLE);
+      // Marked before reloading: the next boot purges every cached collection,
+      // so nothing the signed-out account saw can render on the fresh page.
+      localStorage.setItem(SIGNED_OUT_FLAG, '1');
+    } catch {
+      /* storage unavailable — the reload below still clears all in-memory state */
+    }
+    // A full navigation, not a state reset: every module-level value, form field
+    // and lazily loaded dashboard is rebuilt from scratch.
+    if (typeof window !== 'undefined') window.location.replace('/');
   };
 
   const addProperty = (newProp: Omit<Property, 'id'>) => {
@@ -2415,10 +2471,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const galleryImages = await Promise.all((created.galleryImages || []).map((u) => uploadIfNeeded(u)));
       const ready = { ...created, coverImage, galleryImages: galleryImages.filter(Boolean) };
       setProperties((prev) => prev.map((p) => (p.id === created.id ? ready : p)));
-      void publishListing(ready);
+      void publishListing(ready).then((stored) => (stored ? adoptStoredProperty(stored) : undefined));
     };
     setProperties((prev) => [created, ...prev]);
     void persist();
+    return created;
 
     const letters = ['A', 'B', 'C', 'D', 'E', 'F'];
     const generatedBeds: Bed[] = (created.rooms || []).flatMap((room, roomIndex) => {
@@ -2441,6 +2498,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  /**
+   * The server is the authority for the PGWalo number and the display name it
+   * produces (`PGwalo1- Mohan Boys PG`). Adopting the stored row keeps the
+   * owner's own view identical to what the public catalog shows.
+   */
+  const adoptStoredProperty = (stored: Property) => {
+    setProperties((prev) =>
+      prev.map((property) => (property.id === stored.id ? { ...property, ...stored } : property))
+    );
+  };
+
   const updateProperty = (propertyId: string, updates: Partial<Property>) => {
     let updated: Property | null = null;
     setProperties((prev) =>
@@ -2457,8 +2525,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return updated;
       })
     );
-    if (updated && updated.listingStatus === 'Active') {
-      void publishListing(updated);
+    if (updated) {
+      // Every property reaches the server: a pending one so the owner can pay
+      // for it from any device, a live one so edits are reflected publicly.
+      void publishListing(updated).then((stored) => (stored ? adoptStoredProperty(stored) : undefined));
     }
     if (
       updated &&
@@ -3732,6 +3802,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         openPublicCatalog,
         shellIntent,
         clearShellIntent,
+        openRoleDashboard,
         register,
         logout,
         profileModalOpen,

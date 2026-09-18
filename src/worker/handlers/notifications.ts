@@ -1,12 +1,16 @@
 import { Env, User } from '../types';
 import { authMiddleware } from '../middleware/auth';
 import { rowToBroadcastNotification } from '../utils/rowMap';
+import { addCorsHeaders } from '../utils/cors';
 
 function json(data: unknown, status = 200) {
-  return new Response(JSON.stringify(data), {
+  // Without the shared CORS wrapper this endpoint is unreadable from any other
+  // origin than the app's own domain — the inbox silently stayed empty in local
+  // development and for any API-subdomain client.
+  return addCorsHeaders(new Response(JSON.stringify(data), {
     status,
     headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
-  });
+  }));
 }
 
 /**

@@ -4,6 +4,7 @@ import { useApp } from '../../context/AppContext';
 import { defaultVisitDate, defaultVisitSlot, availableVisitSlots, localIsoDate, VisitSlotId } from '../../utils/datetime';
 import { visitedPropertyIds, activeBookingForProperty } from '../../utils/userBookings';
 import { ListingImage } from '../common/ListingImage';
+import { PlanBadge } from '../common/PlanBadge';
 import { osmEmbedUrl } from '../../services/geo';
 import { amenityLabel, normalizeAmenities } from '../../utils/amenities';
 import {
@@ -254,6 +255,7 @@ export const PGDetailModal: React.FC<{
                 Verified Campus
               </span>
             )}
+            <PlanBadge plan={property.planTier} />
             <span className="text-xs font-medium text-slate-500 hidden sm:inline">
               • {property.pincode || property.locality}, {property.city}
             </span>
@@ -324,6 +326,11 @@ export const PGDetailModal: React.FC<{
               <h1 className="text-2xl sm:text-3xl font-black text-slate-900 leading-tight">
                 {property.name}
               </h1>
+              {property.pgNumber ? (
+                <p className="mt-1 text-[11px] font-bold uppercase tracking-wider text-blue-600">
+                  PGWalo #{property.pgNumber}
+                </p>
+              ) : null}
               <div className="flex items-center gap-2 text-xs text-slate-500 mt-1">
                 <MapPin className="w-4 h-4 text-blue-600 shrink-0" />
                 <span>{property.pincode || property.locality}, {property.city}</span>

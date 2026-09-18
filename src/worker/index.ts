@@ -12,6 +12,8 @@ import { listingsHandler } from './handlers/listings';
 import { inquiriesHandler } from './handlers/inquiries';
 import { adminHandler } from './handlers/admin';
 import { supportTicketsHandler } from './handlers/supportTickets';
+import { paymentsHandler } from './handlers/payments';
+import { statsHandler } from './handlers/stats';
 import { maintenanceTicketsHandler } from './handlers/maintenanceTickets';
 import { eventsHandler } from './handlers/events';
 import { notificationsHandler } from './handlers/notifications';
@@ -43,6 +45,11 @@ export default {
       // Health check
       if (path === '/api/health') {
         return healthHandler(env);
+      }
+
+      // Public platform numbers for the home page (live D1 counts).
+      if (path === '/api/stats') {
+        return statsHandler(env);
       }
 
       // Authentication endpoints (no auth middleware required)
@@ -104,6 +111,11 @@ export default {
 
       if (path.startsWith('/api/admin')) {
         return adminHandler(request, env);
+      }
+
+      // Owner publishing plans: order, verify, resume and the gateway webhook.
+      if (path.startsWith('/api/payments')) {
+        return paymentsHandler(request, env);
       }
 
       // Bootstrap endpoints (auth middleware applied)

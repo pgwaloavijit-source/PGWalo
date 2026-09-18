@@ -259,7 +259,7 @@ export const ProfileCompletionModal: React.FC = () => {
           </div>
         </div>
 
-        <div className="px-5 pb-6">
+        <div className="px-5 pb-6 space-y-2">
           <button
             type="submit"
             disabled={saving}
@@ -267,6 +267,16 @@ export const ProfileCompletionModal: React.FC = () => {
           >
             <Shield className="w-4 h-4" />
             {saving ? 'Saving…' : 'Save and continue'}
+          </button>
+          {/* Completing KYC can never become a locked door: the account is
+              already created, so "later" must still reach the dashboard. */}
+          <button
+            type="button"
+            onClick={() => setProfileModalOpen(false)}
+            disabled={saving}
+            className="w-full py-2.5 rounded-2xl text-xs font-bold text-slate-500 hover:text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+          >
+            I&apos;ll do this later
           </button>
         </div>
       </form>

@@ -31,6 +31,8 @@ function sseHeaders(request: Request): Headers {
     'X-Accel-Buffering': 'no',
   });
   headers.set('Access-Control-Allow-Origin', resolveCorsOrigin(request, 'production'));
+  headers.set('Access-Control-Allow-Headers', 'Authorization, Content-Type, x-organization-id, x-user-id');
+  headers.set('Vary', 'Origin');
   return headers;
 }
 

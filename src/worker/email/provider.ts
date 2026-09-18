@@ -20,6 +20,13 @@ import type { Env } from '../types';
  */
 export type ProviderName = 'cloudflare' | 'resend' | 'none';
 
+export interface EmailAttachment {
+  filename: string;
+  /** Base64 payload (no data: prefix). */
+  content: string;
+  contentType?: string;
+}
+
 export interface OutboundMessage {
   to: string;
   toName?: string;
@@ -27,6 +34,13 @@ export interface OutboundMessage {
   html: string;
   text: string;
   replyTo?: string;
+  /**
+   * Attachments are supported by the Resend transport and by the Cloudflare
+   * send_email binding where the account's plan allows it. A transport that
+   * cannot carry one still delivers the message body — an invoice email must
+   * never be lost just because its PDF could not travel with it.
+   */
+  attachments?: EmailAttachment[];
 }
 
 export interface SendResult {
@@ -126,6 +140,7 @@ async function sendWith(
         html: msg.html,
         text: msg.text,
         replyTo,
+        ...(msg.attachments?.length ? { attachments: msg.attachments } : {}),
       } as Parameters<NonNullable<Env['EMAIL']>['send']>[0]);
       const id = typeof result === 'string' ? result : (result as { messageId?: string } | null)?.messageId;
       return { ok: true, provider, id };
@@ -146,6 +161,15 @@ async function sendWith(
           html: msg.html,
           text: msg.text,
           reply_to: replyTo,
+          ...(msg.attachments?.length
+            ? {
+                attachments: msg.attachments.map((a) => ({
+                  filename: a.filename,
+                  content: a.content,
+                  content_type: a.contentType || 'application/pdf',
+                })),
+              }
+            : {}),
         }),
       });
       const payload = await res.json().catch(() => ({})) as { id?: string; message?: string; error?: { message?: string } };

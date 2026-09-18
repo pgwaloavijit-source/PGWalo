@@ -173,7 +173,8 @@ export async function emailHandler(request: Request, env: Env, ctx: WaitUntilCon
     if (auth.role !== 'admin' && auth.role !== 'superadmin') return json({ error: 'Forbidden' }, 403);
 
     if (path === '/api/admin/email/stats' && request.method === 'GET') {
-      const stats = await emailStats(env);
+      const to = new URL(request.url).searchParams.get('to') || undefined;
+      const stats = await emailStats(env, { to });
       return json({ success: true, transport: emailTransportSummary(env), ...stats });
     }
     if (path === '/api/admin/email/drain' && request.method === 'POST') {

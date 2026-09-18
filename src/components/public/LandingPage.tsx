@@ -21,6 +21,8 @@ import {
 } from 'lucide-react';
 import { visitedPropertyIds, bookedPropertyIds } from '../../utils/userBookings';
 import { ListingImage } from '../common/ListingImage';
+import { PlanBadge } from '../common/PlanBadge';
+import { fetchPlatformStats, PlatformStats } from '../../services/stats';
 import { GenderPreference, PublicSearchCriteria, Property } from '../../types';
 import { fetchPublicListings } from '../../services/listings';
 import { amenityLabel, normalizeAmenities } from '../../utils/amenities';
@@ -49,6 +51,8 @@ export const LandingPage: React.FC<{
   const [specificSearch, setSpecificSearch] = useState(false);
   const [expandedAmenities, setExpandedAmenities] = useState<string | null>(null);
   const [cardAmenityLimit, setCardAmenityLimit] = useState(8);
+ // The trust counters are live D1 counts, never hard-coded marketing numbers.
+  const [stats, setStats] = useState<PlatformStats | null>(null);
   const locationInputRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -56,6 +60,11 @@ export const LandingPage: React.FC<{
     fetchPublicListings()
       .then((remote) => {
         if (!cancelled && remote.length) setRemoteListings(remote);
+      })
+      .catch(() => undefined);
+    fetchPlatformStats()
+      .then((live) => {
+        if (!cancelled && live) setStats(live);
       })
       .catch(() => undefined);
     return () => {
@@ -283,7 +292,7 @@ export const LandingPage: React.FC<{
             <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-300 via-sky-200 to-indigo-300">
               Verified PGs
             </span>{' '}
-            Near Your Office
+            Near You
           </h1>
 
           <p className="mt-4 text-sm sm:text-base text-slate-300 max-w-2xl mx-auto leading-relaxed font-normal">
@@ -441,25 +450,41 @@ export const LandingPage: React.FC<{
             </div>
           </div>
 
-          {/* Key Trust Counters */}
+          {/* Key Trust Counters — every figure is a live count from the database */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-10 max-w-4xl mx-auto pt-6 border-t border-slate-800/80 text-white">
             <div className="p-2">
-              <p className="text-2xl sm:text-3xl font-extrabold text-white">450+</p>
+              <p className="text-2xl sm:text-3xl font-extrabold text-white">
+                {stats ? stats.verifiedPgs.toLocaleString('en-IN') : catalog.length.toLocaleString('en-IN')}
+              </p>
               <p className="text-xs text-slate-400 font-medium mt-0.5">Verified PGs</p>
             </div>
             <div className="p-2">
-              <p className="text-2xl sm:text-3xl font-extrabold text-white">12,000+</p>
+              <p className="text-2xl sm:text-3xl font-extrabold text-white">
+                {stats ? stats.happyResidents.toLocaleString('en-IN') : '—'}
+              </p>
               <p className="text-xs text-slate-400 font-medium mt-0.5">Happy Residents</p>
             </div>
             <div className="p-2">
-              <p className="text-2xl sm:text-3xl font-extrabold text-white">Zero</p>
+              <p className="text-2xl sm:text-3xl font-extrabold text-white">
+                {(stats?.brokerageFeePct ?? 0) === 0 ? 'Zero' : `${stats?.brokerageFeePct}%`}
+              </p>
               <p className="text-xs text-slate-400 font-medium mt-0.5">Brokerage Fee</p>
             </div>
             <div className="p-2">
-              <p className="text-2xl sm:text-3xl font-extrabold text-white">4.8 / 5</p>
+              <p className="text-2xl sm:text-3xl font-extrabold text-white">
+                {stats && stats.averageRating > 0 ? `${stats.averageRating.toFixed(1)} / 5` : 'New'}
+              </p>
               <p className="text-xs text-slate-400 font-medium mt-0.5">Average Resident Score</p>
             </div>
           </div>
+          {stats && (
+            <p className="mt-4 text-[11px] text-slate-500">
+              Live from PGWalo: {stats.totalListings.toLocaleString('en-IN')} live PG
+              {stats.totalListings === 1 ? '' : 's'} across {stats.cities.toLocaleString('en-IN')}{' '}
+              {stats.cities === 1 ? 'city' : 'cities'}
+              {stats.ratedListings > 0 ? ` · ${stats.ratedListings} rated` : ''}
+            </p>
+          )}
         </div>
       </section>
 
@@ -528,6 +553,7 @@ export const LandingPage: React.FC<{
                           Applied
                         </span>
                       )}
+                      <PlanBadge plan={pg.planTier} compact />
                     </div>
                     <div className="absolute bottom-3 right-3 px-2 py-1 rounded-lg bg-slate-900/80 backdrop-blur-xs text-white text-xs font-bold flex items-center gap-1">
                       <Star className="w-3 h-3 fill-amber-400 text-amber-400" />

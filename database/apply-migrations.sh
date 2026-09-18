@@ -110,7 +110,10 @@ if ensure_column "properties" "pg_number" "INTEGER"; then
 fi
 ensure_column "properties" "plan_tier" "TEXT"
 ensure_column "properties" "plan_expires_at" "TEXT"
-npx wrangler d1 execute "$DB" "$MODE" --command "CREATE UNIQUE INDEX IF NOT EXISTS idx_properties_pg_number ON properties(pg_number)" >/dev/null 2>&1 \
+# Deliberately NOT unique: a re-publish replaces the whole row, and a UNIQUE
+# collision would delete the colliding PG. Uniqueness is enforced by the
+# assignment in POST /api/listings, which never reuses a number.
+npx wrangler d1 execute "$DB" "$MODE" --command "CREATE INDEX IF NOT EXISTS idx_properties_pg_number ON properties(pg_number)" >/dev/null 2>&1 \
   && echo "  ✓ idx_properties_pg_number" || echo "  · idx_properties_pg_number skipped"
 
 # Indexes are idempotent.

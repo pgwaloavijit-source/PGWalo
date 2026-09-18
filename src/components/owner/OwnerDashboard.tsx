@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Property, Resident, GenderPreference, RoomSharingType, OwnerListingData, RoomOption, StaffMember } from '../../types';
 import { INITIAL_AMENITIES } from '../../mockData';
@@ -47,6 +47,10 @@ import { getAuthToken, isProductionApiEnabled } from '../../services/productionA
 import { UserAvatar } from '../common/UserAvatar';
 import { ListingImage } from '../common/ListingImage';
 import { OwnerListingWizard } from './OwnerListingWizard';
+import { PublishPlanModal, PayTarget } from './PublishPlanModal';
+import { PlanBadge } from '../common/PlanBadge';
+import { fetchListingOrder } from '../../services/payments';
+import { takePendingPayOrder } from '../../utils/payLink';
 import { useOwnerScope } from '../../utils/ownership';
 import { AMENITIES, amenityLabel, normalizeAmenities } from '../../utils/amenities';
 
@@ -111,6 +115,24 @@ export const OwnerDashboard: React.FC = () => {
   const [showTourModal, setShowTourModal] = useState(false);
   const [showListingWizard, setShowListingWizard] = useState(false);
   const [editingProperty, setEditingProperty] = useState<Property | null>(null);
+  // The property waiting for a publishing plan ("Pay & publish").
+  const [payTarget, setPayTarget] = useState<PayTarget | null>(null);
+  const [resumeOrderId, setResumeOrderId] = useState<string | undefined>(undefined);
+
+  // An emailed payment link (`/pay/<orderId>`) resumes that exact order — same
+  // plan, same amount — as soon as the owner is signed in and looking at their
+  // dashboard, however long the link waited.
+  useEffect(() => {
+    const pending = takePendingPayOrder();
+    if (!pending) return;
+    void (async () => {
+      const res = await fetchListingOrder(pending);
+      const order = res.data?.order;
+      if (!res.ok || !order) return;
+      setResumeOrderId(pending);
+      setPayTarget({ propertyId: order.propertyId, propertyName: order.propertyName || 'Your PG' });
+    })();
+  }, []);
 
   // Convert listing data to Property object
   const convertListingToProperty = (listingData: OwnerListingData): Omit<Property, 'id'> => {
@@ -178,7 +200,8 @@ export const OwnerDashboard: React.FC = () => {
     return {
       organizationId: currentUser?.organizationId || `org-${currentUser?.id || 'owner'}`,
       ownerUserId: currentUser?.id,
-      status: 'Active',
+      // A listing is only public once its publishing plan is paid for.
+      status: listingData.listingStatus === 'Published' ? 'Active' : 'Payment Pending',
       name: step1?.propertyName || 'New PG',
       tagline: step1?.propertyDescription || '',
       gender: step1?.genderOccupancy === 'Boys' ? 'Boys' :
@@ -217,7 +240,6 @@ export const OwnerDashboard: React.FC = () => {
       ownerName: step6?.fullName || currentUser?.name || 'Owner',
       ownerProfileSlug: (step6?.fullName || currentUser?.name || 'owner').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, ''),
       listingPaymentStatus: listingData.listingStatus === 'Published' ? 'Paid' : 'Pending',
-      listingFeeAmount: 999,
       publishedAt: listingData.listingStatus === 'Published' ? new Date().toISOString() : undefined,
       listingStatus: listingData.listingStatus === 'Published' ? 'Active' : 'Payment Pending',
       floors: (step2?.rooms || []).length,
@@ -945,25 +967,18 @@ export const OwnerDashboard: React.FC = () => {
                     PGWalo is 0% commission. Rent, tax, security deposit and utilities remain between tenant and owner.
                   </div>
                   <div className="flex items-center justify-end gap-2">
-                    {(prop.listingPaymentStatus === 'Pending' || prop.listingStatus === 'Payment Pending') && (
+                    {(prop.listingPaymentStatus === 'Pending' || prop.listingStatus === 'Payment Pending') ? (
                       <button
                         type="button"
-                        onClick={() => {
-                          updateProperty(prop.id, {
-                            listingPaymentStatus: 'Paid',
-                            listingStatus: 'Active',
-                            listingFeeAmount: prop.listingFeeAmount || 999,
-                            publishedAt: new Date().toISOString(),
-                          });
-                          setReminderToast(`${prop.name} is paid and published.`);
-                          setTimeout(() => setReminderToast(null), 3500);
-                        }}
+                        onClick={() => { setResumeOrderId(undefined); setPayTarget({ propertyId: prop.id, propertyName: prop.name }); }}
                         className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold flex items-center gap-1"
                       >
                         <CreditCard className="w-3.5 h-3.5" />
-                        Pay & publish
+                        Pay &amp; publish
                       </button>
-                    )}
+                    ) : prop.planTier ? (
+                      <PlanBadge plan={prop.planTier} compact />
+                    ) : null}
                     <button
                       type="button"
                       onClick={() => {
@@ -1952,6 +1967,34 @@ export const OwnerDashboard: React.FC = () => {
           </div>
         </div>
       )}
+      {/* Publishing plans + payment checkout ("Pay & publish") */}
+      {payTarget && (
+        <PublishPlanModal
+          // A fresh target or order starts a fresh checkout (never the previous
+          // attempt's success/failure panel).
+          key={`${payTarget.propertyId}:${resumeOrderId || 'new'}`}
+          target={payTarget}
+          currentUser={currentUser}
+          initialOrderId={resumeOrderId}
+          onClose={() => {
+            setPayTarget(null);
+            setResumeOrderId(undefined);
+          }}
+          onPublished={(order) => {
+            updateProperty(order.propertyId, {
+              listingPaymentStatus: 'Paid',
+              listingStatus: 'Active',
+              planTier: (order.planId as Property['planTier']) || undefined,
+              publishedAt: new Date().toISOString(),
+            });
+            setReminderToast(
+              `${order.propertyName || payTarget.propertyName} is live on the ${String(order.planId).toUpperCase()} plan.`
+            );
+            setTimeout(() => setReminderToast(null), 6000);
+          }}
+        />
+      )}
+
       {/* AI Onboarding Modal */}
       {showAIOnboarding && (
         <AIPropertyOnboardingModal onClose={() => setShowAIOnboarding(false)} />
@@ -1973,13 +2016,20 @@ export const OwnerDashboard: React.FC = () => {
             setShowListingWizard(false);
             setEditingProperty(null);
           }}
-            onComplete={(listingData) => {
+            onComplete={(listingData, opts) => {
             try {
-              const newProperty = convertListingToProperty(listingData);
+              const built = convertListingToProperty(listingData);
+              // Editing a live PG must not un-publish it.
+              const wasLive = editingProperty?.listingStatus === 'Active';
+              const newProperty = wasLive
+                ? { ...built, status: 'Active' as const, listingStatus: 'Active' as const, listingPaymentStatus: 'Paid' as const }
+                : built;
+              let saved: Property;
               if (editingProperty) {
+                saved = { ...editingProperty, ...newProperty, id: editingProperty.id };
                 updateProperty(editingProperty.id, newProperty);
               } else {
-                addProperty(newProperty);
+                saved = addProperty(newProperty);
               }
               setShowListingWizard(false);
               setEditingProperty(null);
@@ -1987,9 +2037,14 @@ export const OwnerDashboard: React.FC = () => {
               setReminderToast(
                 newProperty.listingPaymentStatus === 'Paid'
                   ? `${newProperty.name} is live on your account.`
-                  : `${newProperty.name} is saved. Pay & publish when ready.`
+                  : `${newProperty.name} is saved. Choose a plan to publish it.`
               );
               setTimeout(() => setReminderToast(null), 4000);
+              // "Pay & publish" hands straight over to the pricing page.
+              if (opts?.payNow && !wasLive) {
+                setResumeOrderId(undefined);
+                setPayTarget({ propertyId: saved.id, propertyName: saved.name });
+              }
             } catch (error) {
               console.error('Failed to save listing', error);
               setShowListingWizard(false);

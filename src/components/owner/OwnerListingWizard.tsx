@@ -34,7 +34,11 @@ import {
 } from '../../types';
 
 interface OwnerListingWizardProps {
-  onComplete?: (listingData: OwnerListingData) => void;
+  /**
+   * `payNow` is true when the owner pressed "Pay & publish": the listing is
+   * saved first, then the caller opens the pricing page for it.
+   */
+  onComplete?: (listingData: OwnerListingData, opts?: { payNow?: boolean }) => void;
   onCancel?: () => void;
   initialData?: Partial<OwnerListingData>;
 }
@@ -262,10 +266,12 @@ const OwnerListingWizard: React.FC<OwnerListingWizardProps> = ({ onComplete, onC
         setStep1(nextStep1);
       }
     }
+    // Publishing is a paid action: save the listing as pending, then hand over
+    // to the pricing page. The listing goes live when the payment completes.
     onComplete?.({
-      ...buildListing('Published'),
+      ...buildListing('Payment Pending'),
       step1: nextStep1,
-    });
+    }, { payNow: true });
   };
 
   const savePendingPayment = () => {
@@ -273,7 +279,7 @@ const OwnerListingWizard: React.FC<OwnerListingWizardProps> = ({ onComplete, onC
       setStep(!step1Valid ? 1 : 2);
       return;
     }
-    onComplete?.(buildListing('Payment Pending'));
+    onComplete?.(buildListing('Payment Pending'), { payNow: false });
   };
 
   const titles = ['Property', 'Rooms', 'Extras', 'Publish'];
@@ -696,8 +702,8 @@ const OwnerListingWizard: React.FC<OwnerListingWizardProps> = ({ onComplete, onC
                       <CreditCard className="w-4 h-4 text-blue-700" />
                       Owner publishing payment
                     </div>
-                    <p className="mt-1 text-blue-800">Pay the listing fee to publish publicly. You can save now and pay later from your property card.</p>
-                    <p className="mt-2 font-black">Listing fee: Rs 999</p>
+                    <p className="mt-1 text-blue-800">Choose a publishing plan on the next screen. Your PG goes live the moment the payment succeeds.</p>
+                    <p className="mt-2 font-black">Plans: Lite Rs 499 · Air Rs 999 · Ocean Rs 1,999</p>
                   </div>
                 </>
               )}

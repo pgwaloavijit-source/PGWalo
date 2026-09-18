@@ -61,7 +61,13 @@ export interface Organization {
   createdAt: string;
 }
 
-export type PropertyStatus = 'Setup In Progress' | 'Active' | 'Restricted' | 'Archived';
+export type PropertyStatus =
+  | 'Setup In Progress'
+  /** Created by the wizard, waiting for the owner's publishing payment. */
+  | 'Payment Pending'
+  | 'Active'
+  | 'Restricted'
+  | 'Archived';
 
 export interface PropertyModuleSettings {
   foodManagement: boolean;
@@ -257,6 +263,11 @@ export interface Property {
   ownerName: string;
   ownerUserId?: string;
   ownerProfileSlug?: string;
+  /** Durable PGWalo number shown as `PGwalo<number>- <name>` (assigned once). */
+  pgNumber?: number;
+  /** Paid publishing plan: lite | air | ocean. Absent on legacy listings. */
+  planTier?: 'lite' | 'air' | 'ocean';
+  planExpiresAt?: string;
   listingPaymentStatus?: 'Pending' | 'Paid' | 'Failed';
   listingFeeAmount?: number;
   publishedAt?: string;

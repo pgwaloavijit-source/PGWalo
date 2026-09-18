@@ -67,10 +67,15 @@ export const Navbar: React.FC<NavbarProps> = ({
 
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const accountMenuRef = useRef<HTMLDivElement>(null);
+  // The signed-out header carries exactly one control; everything a visitor
+  // needs (download the app, log in, join) lives inside this panel.
+  const [publicMenuOpen, setPublicMenuOpen] = useState(false);
+  const publicMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const onDoc = (e: MouseEvent) => {
       if (!accountMenuRef.current?.contains(e.target as Node)) setAccountMenuOpen(false);
+      if (!publicMenuRef.current?.contains(e.target as Node)) setPublicMenuOpen(false);
     };
     document.addEventListener('mousedown', onDoc);
     return () => document.removeEventListener('mousedown', onDoc);
@@ -87,12 +92,15 @@ export const Navbar: React.FC<NavbarProps> = ({
   };
 
   const handleLogout = () => {
-    logout();
-    setRole('public');
-    setCurrentTab('landing');
+    // `logout()` clears the session and reloads the page; the state resets below
+    // only matter for the instant before the navigation lands.
     setMobileMenuOpen(false);
     setShowNotifications(false);
     setAccountMenuOpen(false);
+    setPublicMenuOpen(false);
+    logout();
+    setRole('public');
+    setCurrentTab('landing');
   };
 
   const getRoleLabel = (r: string) => {
@@ -161,7 +169,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
             {/* Right Action Section */}
             <div className="flex items-center gap-2.5 sm:gap-3">
-              <PWAInstallButton />
+              {currentUser && <PWAInstallButton />}
               {currentUser && (
                 <button
                   onClick={() => setCurrentTab('support')}
@@ -172,50 +180,73 @@ export const Navbar: React.FC<NavbarProps> = ({
               )}
               {!currentUser ? (
                 /* ================= PUBLIC (UNAUTHENTICATED) HEADER =================
-                   Contains strictly:
-                   - Logo & Platform Name (on the left)
-                   - Login
-                   - Join Us
-                   - Mobile hamburger toggle
+                   Exactly one control: the menu. Every visitor action — download
+                   the app, log in, join as an Owner or a Tenant — lives inside
+                   the panel it opens, so nothing competes with the brand.
                 */
-                <>
+                <div className="relative" ref={publicMenuRef}>
                   <button
-                    id="nav-search-link-btn"
-                    onClick={() => setCurrentTab('search')}
-                    className="hidden md:inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-600 hover:text-blue-600 rounded-xl transition min-h-[40px]"
+                    id="nav-main-menu-btn"
+                    onClick={() => setPublicMenuOpen((open) => !open)}
+                    aria-expanded={publicMenuOpen}
+                    aria-haspopup="menu"
+                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 active:scale-98 text-white text-xs font-bold transition-all shadow-xs min-h-[44px]"
                   >
-                    <Search className="w-3.5 h-3.5" />
-                    <span>Find PGs</span>
+                    {publicMenuOpen ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
+                    <span>{publicMenuOpen ? 'Close' : 'Menu'}</span>
                   </button>
 
-                  <button
-                    id="nav-login-btn"
-                    onClick={() => openAuthModal('login')}
-                    className="px-4 py-2 rounded-xl border border-slate-300 hover:border-blue-600 text-slate-700 hover:text-blue-600 text-xs font-bold transition-all shadow-2xs min-h-[40px] flex items-center gap-1.5 active:scale-98"
-                  >
-                    <LogIn className="w-3.5 h-3.5" />
-                    <span>Login</span>
-                  </button>
+                  {publicMenuOpen && (
+                    <div
+                      role="menu"
+                      className="fixed sm:absolute right-3 sm:right-0 top-16 sm:top-auto sm:mt-2 w-[calc(100vw-1.5rem)] sm:w-72 rounded-2xl bg-white p-2 shadow-2xl border border-slate-200 z-50 overflow-hidden"
+                    >
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => { setPublicMenuOpen(false); setCurrentTab('search'); }}
+                        className="w-full flex items-center gap-3 px-3 py-3 rounded-xl text-left text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                      >
+                        <Search className="w-4 h-4 text-blue-600" />
+                        Find PGs near you
+                      </button>
 
-                  <button
-                    id="nav-join-us-btn"
-                    onClick={() => openAuthModal('register')}
-                    className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 active:scale-98 text-white text-xs font-bold transition-all shadow-xs min-h-[40px] flex items-center gap-1.5"
-                  >
-                    <UserPlus className="w-3.5 h-3.5" />
-                    <span>Join Us</span>
-                  </button>
+                      <div className="px-3 py-2" onClick={() => setPublicMenuOpen(false)}>
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2">
+                          Download the app
+                        </p>
+                        <PWAInstallButton />
+                      </div>
 
-                  {/* Mobile Menu Button */}
-                  <button
-                    id="mobile-menu-toggle-btn"
-                    onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-                    className="md:hidden p-2 rounded-xl text-slate-700 hover:bg-slate-100 min-w-[44px] min-h-[44px] flex items-center justify-center transition active:scale-95"
-                    aria-label={mobileMenuOpen ? 'Close Menu' : 'Open Navigation Menu'}
-                  >
-                    {mobileMenuOpen ? <X className="w-5 h-5 text-slate-900" /> : <Menu className="w-5 h-5" />}
-                  </button>
-                </>
+                      <div className="h-px bg-slate-100 my-1" />
+
+                      <button
+                        id="nav-login-btn"
+                        type="button"
+                        role="menuitem"
+                        onClick={() => { setPublicMenuOpen(false); openAuthModal('login'); }}
+                        className="w-full flex items-center gap-3 px-3 py-3 rounded-xl text-left text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                      >
+                        <LogIn className="w-4 h-4 text-blue-600" />
+                        Login
+                      </button>
+
+                      <button
+                        id="nav-join-us-btn"
+                        type="button"
+                        role="menuitem"
+                        onClick={() => { setPublicMenuOpen(false); openAuthModal('register'); }}
+                        className="w-full flex items-center gap-3 px-3 py-3 rounded-xl text-left text-sm font-bold text-white bg-blue-600 hover:bg-blue-700"
+                      >
+                        <UserPlus className="w-4 h-4" />
+                        Join us
+                      </button>
+                      <p className="px-3 pt-2 pb-1 text-[11px] text-slate-400 leading-relaxed">
+                        Join as an Owner or as a Tenant — nothing else.
+                      </p>
+                    </div>
+                  )}
+                </div>
               ) : (
                 /* ================= AUTHENTICATED HEADER =================
                    Contains strictly:

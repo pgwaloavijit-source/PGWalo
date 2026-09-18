@@ -69,9 +69,11 @@ export function rowToProperty(row: ListingRecord): ListingRecord {
     ownerUserId: String(row.owner_user_id ?? row.ownerUserId ?? ''),
     planTier: listingPlan(String(row.plan_tier ?? row.planTier ?? ''))?.id,
     planExpiresAt: row.plan_expires_at ? String(row.plan_expires_at) : undefined,
-    // A property is only publicly "paid/live" once a publishing plan is active.
-    listingPaymentStatus: listingPlan(String(row.plan_tier ?? row.planTier ?? '')) ? 'Paid' : 'Pending',
-    listingStatus: 'Active',
+    // `status` is the durable publish state: a listing created by the wizard is
+    // 'Payment Pending' until a publishing plan is paid for, and only 'Active'
+    // listings are served to the public catalog.
+    listingStatus: String(row.status || 'Active') === 'Payment Pending' ? 'Payment Pending' : 'Active',
+    listingPaymentStatus: String(row.status || 'Active') === 'Payment Pending' ? 'Pending' : 'Paid',
     floors: Number(row.total_floors ?? row.floors) || undefined,
   };
 }

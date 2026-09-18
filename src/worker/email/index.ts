@@ -5,6 +5,7 @@ import {
   emailTransportSummary,
   probeProvider,
   type ProviderName,
+  type EmailAttachment,
 } from './provider';
 import {
   drainOutbox,
@@ -15,6 +16,7 @@ import {
 import { renderEvent, type EmailContent } from './templates';
 
 export { ensureEmailTables, drainOutbox, emailStats, getPreferences, setPreferences, suppressEmail, verifyUnsubscribeToken, unsubscribeToken } from './outbox';
+export type { EmailAttachment } from './provider';
 export {
   activeProvider,
   fallbackProvider,
@@ -45,7 +47,19 @@ export interface WaitUntilContext {
  */
 export async function sendTransactional(
   env: Env,
-  msg: { to: string; toName?: string; subject: string; html: string; text: string; category: string; security?: boolean; replyTo?: string; dedupeKey?: string; ctx?: WaitUntilContext }
+  msg: {
+    to: string;
+    toName?: string;
+    subject: string;
+    html: string;
+    text: string;
+    category: string;
+    security?: boolean;
+    replyTo?: string;
+    dedupeKey?: string;
+    attachments?: EmailAttachment[];
+    ctx?: WaitUntilContext;
+  }
 ): Promise<boolean> {
   const result = await enqueueEmail(env, msg);
   if (!result.queued) return result.reason === 'duplicate';
@@ -72,6 +86,8 @@ export interface NotifyContext {
   entityId?: string;
   data?: Record<string, unknown>;
   dedupeKey?: string;
+  /** e.g. the invoice PDF for a successful payment. */
+  attachments?: EmailAttachment[];
   ctx?: WaitUntilContext;
 }
 
@@ -107,6 +123,7 @@ export async function notifyEvent(
     orgId: ctx.orgId,
     propertyId: ctx.propertyId,
     entityId: ctx.entityId,
+    attachments: ctx.attachments,
     payload: { event, ...(ctx.data || {}) },
   });
 

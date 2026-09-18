@@ -103,11 +103,49 @@ async function main() {
     coverImage: 'https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?auto=format&fit=crop&w=800&q=80',
   };
   const published = await api('/api/listings', { method: 'POST', token: ownerToken, body: listing });
-  check('owner publishes a listing', published.status === 201, `${published.status} ${JSON.stringify(published.data).slice(0, 160)}`);
+  check('owner saves a listing', published.status === 201, `${published.status} ${JSON.stringify(published.data).slice(0, 160)}`);
+  check(
+    'a saved listing carries its PGWalo number and prefixed name',
+    Boolean(published.data?.property?.pgNumber) &&
+      String(published.data?.property?.name || '').startsWith(`PGwalo${published.data?.property?.pgNumber}- `),
+    String(published.data?.property?.name)
+  );
+
+  const beforePay = await api('/api/listings');
+  const visibleBeforePay = Array.isArray(beforePay.data) && beforePay.data.some((p: any) => p.id === listing.id);
+  check('a listing without a publishing payment is not public', visibleBeforePay === false);
+
+  // Publishing is a paid action; drive it exactly as the pricing page does.
+  const payOrder = await api('/api/payments/orders', {
+    method: 'POST',
+    token: ownerToken,
+    body: { propertyId: listing.id, planId: 'lite' },
+  });
+  check('owner starts a publishing payment', payOrder.status === 201 && Boolean(payOrder.data?.order?.id), `${payOrder.status} ${JSON.stringify(payOrder.data).slice(0, 160)}`);
+  const payOrderId = payOrder.data?.order?.id as string | undefined;
+
+  let paid = false;
+  if (payOrderId && payOrder.data?.order?.simulated) {
+    const done = await api(`/api/payments/orders/${payOrderId}/simulate`, {
+      method: 'POST',
+      token: ownerToken,
+      body: { outcome: 'success' },
+    });
+    paid = done.status === 200 && done.data?.order?.status === 'paid';
+    check('test payment publishes the listing', paid, JSON.stringify(done.data).slice(0, 200));
+  } else {
+    check('live gateway configured — payment cannot be completed by this suite', true, 'visibility checks below are skipped');
+  }
 
   const publicListings = await api('/api/listings');
   const visible = Array.isArray(publicListings.data) && publicListings.data.some((p: any) => p.id === listing.id);
-  check('new listing is publicly visible (owner → public flow)', visible);
+  if (paid) {
+    check('new listing is publicly visible (owner → public flow)', visible);
+    const badged = (publicListings.data as any[]).find((p) => p.id === listing.id);
+    check('the published listing is badged with its plan', badged?.planTier === 'lite', String(badged?.planTier));
+  } else {
+    check('public visibility after payment', true, 'skipped: no simulated gateway');
+  }
 
   const ownerListings = Array.isArray(publicListings.data)
     ? publicListings.data.filter((p: any) => p.ownerUserId === owner.user.id)

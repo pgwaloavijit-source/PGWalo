@@ -26,6 +26,7 @@ import { PGWaloLoader } from './components/common/PGWaloLoader';
 import { PublicSearchCriteria } from './types';
 import { useStandalonePWA } from './hooks/useStandalonePWA';
 import { isPlatformAdmin } from './utils/platformAdmin';
+import { dashboardTabForRole, restoredSessionRole } from './utils/roles';
 import { getAuthToken, isProductionApiEnabled } from './services/productionApi';
 
 const MainAppContent: React.FC = () => {
@@ -45,11 +46,14 @@ const MainAppContent: React.FC = () => {
   } = useApp();
   const isStandalone = useStandalonePWA();
 
-  const [currentTab, setCurrentTab] = useState<string>(() =>
-    typeof window !== 'undefined' && (window.location.hash === '#admin' || window.location.pathname === '/admin')
-      ? 'admin'
-      : 'landing'
-  );
+  const [currentTab, setCurrentTab] = useState<string>(() => {
+    if (typeof window !== 'undefined' && (window.location.hash === '#admin' || window.location.pathname === '/admin')) {
+      return 'admin';
+    }
+    // A restored session boots into its own dashboard: a signed-in owner must
+    // never land on the public page and wonder whether the login worked.
+    return dashboardTabForRole(restoredSessionRole());
+  });
   const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
   const [showNotifications, setShowNotifications] = useState<boolean>(false);

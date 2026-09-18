@@ -1,5 +1,5 @@
 import { Env } from '../types';
-import { activeProvider, sendViaProvider } from './provider';
+import { activeProvider, sendViaProvider, type EmailAttachment } from './provider';
 
 /**
  * Durable outbox.
@@ -27,6 +27,7 @@ export interface EnqueueInput {
   propertyId?: string;
   entityId?: string;
   payload?: unknown;
+  attachments?: EmailAttachment[];
 }
 
 export interface EnqueueResult {
@@ -56,6 +57,7 @@ export async function ensureEmailTables(env: Env): Promise<void> {
       property_id TEXT,
       entity_id TEXT,
       payload TEXT,
+      attachments TEXT,
       status TEXT NOT NULL DEFAULT 'queued',
       attempts INTEGER NOT NULL DEFAULT 0,
       last_error TEXT,
@@ -89,8 +91,13 @@ export async function ensureEmailTables(env: Env): Promise<void> {
   // Failover provenance is added separately so an already-created outbox table
   // (any environment predating it) still gains the column.
   const cols = await env.DB.prepare('PRAGMA table_info(email_outbox)').all<{ name: string }>();
-  if (!(cols.results || []).some((c) => c.name === 'failover_from')) {
+  const columnNames = (cols.results || []).map((c) => c.name);
+  if (!columnNames.includes('failover_from')) {
     await env.DB.prepare('ALTER TABLE email_outbox ADD COLUMN failover_from TEXT').run();
+  }
+  // Invoice PDFs travel as attachments; pre-existing outboxes gain the column.
+  if (!columnNames.includes('attachments')) {
+    await env.DB.prepare('ALTER TABLE email_outbox ADD COLUMN attachments TEXT').run();
   }
 
   tablesReady = true;
@@ -184,8 +191,8 @@ export async function enqueueEmail(env: Env, input: EnqueueInput): Promise<Enque
     await env.DB.prepare(
       `INSERT INTO email_outbox
         (id, dedupe_key, to_email, to_name, subject, html, text, reply_to, category,
-         org_id, property_id, entity_id, payload, status, attempts, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', 0, ?, ?)`
+         org_id, property_id, entity_id, payload, attachments, status, attempts, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', 0, ?, ?)`
     ).bind(
       id,
       input.dedupeKey || null,
@@ -200,6 +207,7 @@ export async function enqueueEmail(env: Env, input: EnqueueInput): Promise<Enque
       input.propertyId || null,
       input.entityId || null,
       input.payload ? JSON.stringify(input.payload) : null,
+      input.attachments?.length ? JSON.stringify(input.attachments) : null,
       ts,
       ts
     ).run();
@@ -222,6 +230,17 @@ interface OutboxRow {
   text: string;
   reply_to: string | null;
   attempts: number;
+  attachments: string | null;
+}
+
+function parseAttachments(raw: string | null): EmailAttachment[] | undefined {
+  if (!raw) return undefined;
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) && parsed.length ? (parsed as EmailAttachment[]) : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -231,7 +250,7 @@ interface OutboxRow {
 export async function drainOutbox(env: Env, limit = 10): Promise<{ sent: number; failed: number; simulated: number }> {
   await ensureEmailTables(env);
   const due = await env.DB.prepare(
-    `SELECT id, to_email, to_name, subject, html, text, reply_to, attempts
+    `SELECT id, to_email, to_name, subject, html, text, reply_to, attempts, attachments
        FROM email_outbox
       WHERE status = 'queued' AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
       ORDER BY created_at ASC
@@ -250,6 +269,7 @@ export async function drainOutbox(env: Env, limit = 10): Promise<{ sent: number;
       html: row.html,
       text: row.text,
       replyTo: row.reply_to || undefined,
+      attachments: parseAttachments(row.attachments),
     });
     const ts = nowIso();
 
@@ -295,7 +315,12 @@ export async function drainOutbox(env: Env, limit = 10): Promise<{ sent: number;
   return { sent, failed, simulated };
 }
 
-export async function emailStats(env: Env) {
+/**
+ * Outbox summary for the admin console. `filter.to` answers the support
+ * question "did that invoice actually go out, and with the PDF?" without
+ * having to read the whole table.
+ */
+export async function emailStats(env: Env, filter?: { to?: string }) {
   await ensureEmailTables(env);
   const counts = await env.DB.prepare(
     'SELECT status, COUNT(*) AS n FROM email_outbox GROUP BY status'
@@ -309,12 +334,22 @@ export async function emailStats(env: Env) {
       WHERE status IN ('sent', 'simulated')
       GROUP BY provider`
   ).all<{ provider: string; n: number; failovers: number }>();
-  const recent = await env.DB.prepare(
-    `SELECT id, to_email, subject, category, status, attempts, last_error, created_at, sent_at
-       FROM email_outbox ORDER BY created_at DESC LIMIT 25`
-  ).all();
+  // `payload` (the event name and its data) and `attachments` are included so an
+  // operator can answer "what did we actually send, and what was attached?"
+  // without reading the full HTML body.
+  const columns = `id, to_email, subject, category, status, attempts, last_error, created_at, sent_at,
+       attachments, payload, entity_id, provider, provider_message_id, failover_from`;
+  const to = String(filter?.to || '').trim().toLowerCase();
+  const recent = to
+    ? await env.DB.prepare(
+        `SELECT ${columns} FROM email_outbox WHERE LOWER(to_email) = ? ORDER BY created_at DESC LIMIT 25`
+      ).bind(to).all()
+    : await env.DB.prepare(
+        `SELECT ${columns} FROM email_outbox ORDER BY created_at DESC LIMIT 25`
+      ).all();
   return {
     provider: activeProvider(env),
+    recipient: to || undefined,
     counts: counts.results || [],
     byProvider: byProvider.results || [],
     recent: recent.results || [],

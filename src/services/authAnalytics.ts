@@ -37,6 +37,20 @@ export function saveLastAuthUser(email: string, name: string, path: AuthPath) {
   localStorage.setItem(LAST_USER_KEY, JSON.stringify({ email, name, path, at: Date.now() }));
 }
 
+/**
+ * Sign-out must not leave the previous account's identity on the sign-in
+ * screen — "Welcome back, <someone else>" is exactly the stale-data bug this
+ * removes.
+ */
+export function clearLastAuthUser(): void {
+  try {
+    localStorage.removeItem(LAST_USER_KEY);
+    sessionStorage.removeItem(SESSION_KEY);
+  } catch {
+    /* storage can be unavailable in private mode — nothing to clear then */
+  }
+}
+
 export function getLastAuthUser(): { email: string; name: string; path: AuthPath } | null {
   try {
     const raw = localStorage.getItem(LAST_USER_KEY);

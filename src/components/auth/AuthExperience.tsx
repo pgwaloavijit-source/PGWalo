@@ -8,63 +8,48 @@ import {
   trackAuthEvent,
   getLastAuthUser,
   saveLastAuthUser,
+  clearLastAuthUser,
   AuthPath,
   AuthOpenMeta,
 } from '../../services/authAnalytics';
 import {
-  X, ArrowLeft, Search, Home, Building2, ShieldCheck,
-  CheckCircle2, AlertCircle, Sparkles, LogIn,
+  X, ArrowLeft, Home, Building2, ShieldCheck,
+  CheckCircle2, AlertCircle, Sparkles, LogIn, KeyRound,
 } from 'lucide-react';
 
-type Step = 'path' | 'login' | 'signup' | 'otp' | 'pin';
+/**
+ * Sign-in and sign-up.
+ *
+ * Two account types exist, and only two: an **Owner** (lists and runs PGs) and
+ * a **Tenant** (the product word for `resident`). There is no "public" account —
+ * an anonymous visitor browses without one — and no role picker on sign-in,
+ * because the account already knows what it is: the user types their mobile
+ * *or* their email plus their PIN and the server answers with the role.
+ */
 
-const PATH_CONFIG: Record<AuthPath, {
+type Step = 'choose' | 'login' | 'signup' | 'otp' | 'pin';
+type AccountKind = 'owner' | 'tenant';
+
+const ACCOUNT_KINDS: Record<AccountKind, {
   label: string;
   sub: string;
   icon: React.ElementType;
   role: UserRole;
   gradient: string;
-  signupFields: ('name' | 'phone' | 'email' | 'invite')[];
 }> = {
-  explorer: {
-    label: 'Find a PG',
-    sub: 'Browse & book — no brokerage',
-    icon: Search,
-    role: 'public',
-    gradient: 'from-sky-500 to-blue-600',
-    signupFields: ['name', 'phone', 'email'],
-  },
-  resident: {
-    label: 'Resident',
-    sub: 'Pay rent, raise requests',
-    icon: Home,
-    role: 'resident',
-    gradient: 'from-emerald-500 to-teal-600',
-    signupFields: ['name', 'phone', 'email'],
-  },
   owner: {
-    label: 'PG Owner',
-    sub: 'List & manage properties',
+    label: 'As a PG Owner',
+    sub: 'List your PG, manage beds, rent and tenants',
     icon: Building2,
     role: 'owner',
-    gradient: 'from-violet-500 to-indigo-600',
-    signupFields: ['name', 'phone', 'email'],
+    gradient: 'from-blue-600 to-indigo-700',
   },
-  staff: {
-    label: 'Staff',
-    sub: 'Use the mobile + PIN from your owner',
-    icon: ShieldCheck,
-    role: 'staff',
-    gradient: 'from-amber-500 to-orange-600',
-    signupFields: ['name', 'phone', 'email'],
-  },
-  superadmin: {
-    label: 'Super Admin',
-    sub: 'Company control center',
-    icon: ShieldCheck,
-    role: 'superadmin',
-    gradient: 'from-slate-700 to-slate-950',
-    signupFields: [],
+  tenant: {
+    label: 'As a Tenant',
+    sub: 'Find a PG, book a visit, pay rent online',
+    icon: Home,
+    role: 'resident',
+    gradient: 'from-emerald-500 to-teal-700',
   },
 };
 
@@ -72,26 +57,31 @@ const INTENT_MSG: Record<string, string> = {
   book_pg: 'Sign in to confirm your booking',
   visit_pg: 'Sign in to schedule your visit',
   save_pg: 'Save this PG to your shortlist',
-  owner_list: 'Create your owner account to list',
-  staff_join: 'Enter your staff invite to join',
+  owner_list: 'Create your owner account to list your PG',
+  staff_join: 'Use the mobile and PIN your owner shared',
   alerts: 'Get alerts on new PGs near you',
   dashboard: 'Access your dashboard',
   general: 'Quick sign-in to continue',
 };
 
-function roleToPath(role?: UserRole): AuthPath {
-  if (role === 'owner') return 'owner';
-  if (role === 'staff' || role === 'warden') return 'staff';
-  if (role === 'resident') return 'resident';
-  if (role === 'superadmin') return 'superadmin';
-  return 'explorer';
-}
+const identifierToField = (identifier: string) =>
+  identifier.includes('@') ? { email: identifier.trim() } : { phone: identifier.trim() };
 
-const PinPad: React.FC<{ value: string; onChange: (v: string) => void; length?: number }> = ({
-  value, onChange, length = 6,
-}) => {
-  const add = (d: string) => { if (value.length < length) onChange(value + d); };
-  const del = () => onChange(value.slice(0, -1));
+const isEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+const isMobile = (value: string) => /^[6-9]\d{9}$/.test(value.replace(/\D/g, ''));
+
+// ---------------------------------------------------------------------------
+// Small building blocks
+// ---------------------------------------------------------------------------
+
+const PinPad: React.FC<{
+  value: string;
+  /** Functional updates: a fast double-tap must not drop a digit. */
+  onChange: React.Dispatch<React.SetStateAction<string>>;
+  length?: number;
+}> = ({ value, onChange, length = 6 }) => {
+  const add = (d: string) => onChange((prev) => (prev.length < length ? prev + d : prev));
+  const del = () => onChange((prev) => prev.slice(0, -1));
 
   return (
     <div className="space-y-4">
@@ -124,60 +114,112 @@ const PinPad: React.FC<{ value: string; onChange: (v: string) => void; length?: 
   );
 };
 
+const PinField: React.FC<{
+  value: string;
+  onChange: (v: string) => void;
+  label: string;
+  autoFocus?: boolean;
+}> = ({ value, onChange, label, autoFocus }) => (
+  <div>
+    <label className="text-xs font-bold text-slate-600">{label}</label>
+    <div className="relative mt-1">
+      <KeyRound className="absolute left-3 top-3.5 w-4 h-4 text-slate-400" />
+      <input
+        type="password"
+        inputMode="numeric"
+        autoComplete="current-password"
+        autoFocus={autoFocus}
+        placeholder="6-digit PIN"
+        value={value}
+        onChange={(e) => onChange(e.target.value.replace(/\D/g, '').slice(0, 6))}
+        className="w-full pl-9 pr-3 py-3.5 rounded-2xl border border-slate-200 text-lg tracking-[0.4em] focus:outline-none focus:ring-2 focus:ring-blue-500"
+      />
+    </div>
+  </div>
+);
+
+// ---------------------------------------------------------------------------
+
 export const AuthExperience: React.FC = () => {
   const {
     authModalOpen, setAuthModalOpen, authModalMode, setAuthModalMode,
     authInitialRole, authMeta, applyApiSession, login, register,
-    setRoleState, runPendingAuthAction,
+    setRoleState, runPendingAuthAction, openRoleDashboard, pendingAction,
   } = useApp();
 
   const useCloud = isProductionApiEnabled();
-  const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
+  const isMobileViewport = typeof window !== 'undefined' && window.innerWidth < 768;
 
-  const [step, setStep] = useState<Step>('path');
-  const [path, setPath] = useState<AuthPath>('explorer');
+  const [step, setStep] = useState<Step>('choose');
+  const [kind, setKind] = useState<AccountKind>('tenant');
+  const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
-  const [name, setName] = useState('');
+  const [identifier, setIdentifier] = useState('');
+  const [pin, setPin] = useState('');
   const [otpId, setOtpId] = useState('');
   const [verificationId, setVerificationId] = useState('');
   const [otpHint, setOtpHint] = useState('');
-  const [pin, setPin] = useState('');
   const [passwordText, setPasswordText] = useState('');
   const [adminMode, setAdminMode] = useState<'pin' | 'password'>('password');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
 
+  const isAdminPath = authMeta.path === 'superadmin';
+
   const meta: AuthOpenMeta = {
     mode: authModalMode,
-    path,
+    path: authMeta.path,
     intent: authMeta.intent,
     propertyId: authMeta.propertyId,
     source: authMeta.source,
-    role: PATH_CONFIG[path].role,
+    role: isAdminPath ? 'superadmin' : ACCOUNT_KINDS[kind].role,
   };
 
   const reset = useCallback(() => {
-    setStep('path');
+    setStep('choose');
     setPin('');
     setPasswordText('');
+    setOtpId('');
+    setVerificationId('');
+    setOtpHint('');
     setError(null);
     setSuccess(false);
   }, []);
 
   useEffect(() => {
     if (!authModalOpen) return;
-    const p = authMeta.path || roleToPath(authInitialRole);
-    setPath(p);
-    setStep(authModalMode === 'register' || authMeta.path ? (authModalMode === 'register' ? 'signup' : 'login') : 'path');
-    trackAuthEvent('modal_opened', { ...meta, path: p, mode: authModalMode });
-    const last = getLastAuthUser();
-    if (last && authModalMode === 'login' && !authMeta.path) {
-      setPhone(last.email.includes('@') ? '' : last.email);
-      setEmail(last.email.includes('@') ? last.email : '');
-      setPath(last.path);
+
+    // The Super Admin console is a platform surface, not a customer account.
+    if (authMeta.path === 'superadmin') {
+      setStep('login');
+      trackAuthEvent('modal_opened', { ...meta, path: 'superadmin', mode: authModalMode });
+      return;
     }
+
+    // An explicit owner/tenant entry point (e.g. "List your PG", or booking
+    // from a PG page) skips the chooser; a plain "Join us" always shows the two
+    // account types. Deliberately keyed on the entry point and not on the last
+    // role used on this device, which used to skip the chooser by accident.
+    const impliedKind: AccountKind | null =
+      authMeta.path === 'owner' ? 'owner' : authMeta.path ? 'tenant' : null;
+
+    if (authModalMode === 'register') {
+      if (impliedKind) {
+        setKind(impliedKind);
+        setStep('signup');
+      } else {
+        setStep('choose');
+      }
+    } else {
+      if (impliedKind) setKind(impliedKind);
+      setStep('login');
+      const last = getLastAuthUser();
+      if (last && !identifier) setIdentifier(last.email || '');
+    }
+    trackAuthEvent('modal_opened', { ...meta, mode: authModalMode });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authModalOpen, authModalMode, authInitialRole, authMeta.path]);
 
   const close = () => {
@@ -186,24 +228,30 @@ export const AuthExperience: React.FC = () => {
     reset();
   };
 
-  const finishAuth = (user: { id: string; role: UserRole; name?: string; email?: string; phone?: string; isProfileCompleted?: boolean; staffRole?: string; organizationId?: string }) => {
+  const finishAuth = (user: {
+    id: string; role: UserRole; name?: string; email?: string; phone?: string;
+    isProfileCompleted?: boolean; staffRole?: string; organizationId?: string;
+  }, path: AuthPath) => {
     setSuccess(true);
     if (useCloud) {
       applyApiSession(user);
       saveLastAuthUser(user.phone || user.email || '', user.name || '', path);
     }
     setRoleState(user.role);
+    // Land on the account's own dashboard. A pending booking or visit keeps the
+    // user where they were so they can see that confirmation instead.
+    if (!pendingAction) openRoleDashboard(user.role);
   };
 
   const requestOtp = async () => {
     if (!name.trim()) { setError('Enter your name'); return; }
-    if (!/^[6-9]\d{9}$/.test(phone)) { setError('Enter a valid 10-digit mobile'); return; }
-    if (!email.includes('@')) { setError('Email is required so we can send a verification code'); return; }
+    if (!isMobile(phone)) { setError('Enter a valid 10-digit mobile number'); return; }
+    if (!isEmail(email)) { setError('Enter a valid email so we can send your verification code'); return; }
     setLoading(true);
     setError(null);
     try {
       const res = await sendAuthOtp(email, phone, 'signup');
-      if (!res.success) { setError(res.error || 'Could not send code'); return; }
+      if (!res.success) { setError(res.error || 'Could not send the code'); return; }
       setOtpId(res.otpId);
       setOtpHint(res.fallbackCode ? `Code: ${res.fallbackCode}` : res.message || '');
       setStep('otp');
@@ -213,7 +261,7 @@ export const AuthExperience: React.FC = () => {
   };
 
   const confirmOtp = async () => {
-    if (pin.length < 6) { setError('Enter the 6-digit email code'); return; }
+    if (pin.length < 6) { setError('Enter the 6-digit code we sent you'); return; }
     setLoading(true);
     setError(null);
     try {
@@ -227,69 +275,78 @@ export const AuthExperience: React.FC = () => {
     }
   };
 
-  const submitLogin = async () => {
-    const isAdminPath = path === 'superadmin';
-    const credential = isAdminPath ? (passwordText || pin) : pin;
-    if (!isAdminPath && pin.length < 6) { setError('Enter your 6-digit PIN'); return; }
-    if (isAdminPath && !passwordText && pin.length < 6) { setError('Enter Super Admin PIN or password'); return; }
+  const submitSignup = async () => {
+    if (pin.length < 6) { setError('Choose a 6-digit PIN'); return; }
+    if (!verificationId) { setError('Verify the email code first'); return; }
     setLoading(true);
     setError(null);
+    const role = ACCOUNT_KINDS[kind].role;
     try {
-      const id = isAdminPath
-        ? { email: email || phone, phone: phone || email }
-        : phone.length >= 10 ? { phone } : { email };
-      const apiRes = await loginWithWorkers(id, credential, meta);
-      if (apiRes.success && apiRes.user) {
-        if (!isPlatformAdmin(apiRes.user.role) && isAdminPath) {
-          setError('This account is not a Super Admin.');
-          return;
-        }
-        finishAuth(apiRes.user);
+      if (useCloud) {
+        const res = await registerWithWorkers(
+          { name: name.trim(), phone, email: email.trim(), role, password: pin, verificationId },
+          meta
+        );
+        if (!res.success || !res.user) { setError(res.error || 'Could not create your account'); return; }
+        finishAuth(res.user, kind);
         return;
       }
-      if (isAdminPath && (apiRes.error === 'Network error during login' || apiRes.error?.includes('Network'))) {
-        const res = login(email || phone, credential, 'superadmin');
-        if (!res.success) { setError(res.message || 'Sign in failed'); return; }
-        return;
-      }
-      if (useCloud || isAdminPath) {
-        setError(apiRes.error || 'Sign in failed');
-        return;
-      }
-      const res = login(email || phone, credential, PATH_CONFIG[path].role);
-      if (!res.success) { setError(res.message || 'Sign in failed'); return; }
+      const res = register({ name, email, phone, role, password: pin });
+      if (!res.success) { setError(res.message || 'Could not create your account'); return; }
       setAuthModalOpen(false);
+      openRoleDashboard(role);
       runPendingAuthAction();
     } finally {
       setLoading(false);
     }
   };
 
-  const submitSignup = async () => {
-    if (pin.length < 6) { setError('Choose a 6-digit login PIN'); return; }
-    if (!verificationId) { setError('Verify the email code first'); return; }
+  const submitLogin = async () => {
+    const credential = isAdminPath ? (passwordText || pin) : pin;
+    if (isAdminPath && !passwordText && pin.length < 6) { setError('Enter the Super Admin password or PIN'); return; }
+    if (!isAdminPath && pin.length < 6) { setError('Enter your 6-digit PIN'); return; }
+    if (isAdminPath && !passwordText && !identifier.trim()) { setError('Enter the Super Admin phone'); return; }
     setLoading(true);
     setError(null);
     try {
-      if (useCloud) {
-        const res = await registerWithWorkers({
-          name: name.trim(),
-          phone,
-          email,
-          role: PATH_CONFIG[path].role,
-          password: pin,
-          verificationId,
-        }, meta);
-        if (!res.success || !res.user) { setError(res.error || 'Signup failed'); return; }
-        finishAuth(res.user);
-      } else {
-        const res = register({
-          name, email, phone,
-          role: PATH_CONFIG[path].role, password: pin,
-        });
-        if (!res.success) { setError(res.message || 'Signup failed'); return; }
-        setAuthModalOpen(false);
+      if (isAdminPath) {
+        const id = identifier.includes('@')
+          ? { email: identifier, phone: identifier }
+          : { phone: identifier, email: identifier };
+        const apiRes = await loginWithWorkers(id, credential, meta);
+        if (!apiRes.success || !apiRes.user) { setError(apiRes.error || 'Sign in failed'); return; }
+        if (!isPlatformAdmin(apiRes.user.role)) { setError('This account is not a Super Admin.'); return; }
+        finishAuth(apiRes.user, 'superadmin');
+        return;
       }
+
+      const value = identifier.trim();
+      if (!value) { setError('Enter your mobile number or email'); return; }
+      if (!isEmail(value) && !isMobile(value)) {
+        setError('Enter the 10-digit mobile number or the email on your account');
+        return;
+      }
+
+      if (useCloud) {
+        const apiRes = await loginWithWorkers(identifierToField(value), pin, meta);
+        if (!apiRes.success || !apiRes.user) {
+          setError(
+            apiRes.error === 'Invalid credentials'
+              ? 'Wrong PIN, or no account matches that mobile / email.'
+              : apiRes.error || 'Sign in failed'
+          );
+          return;
+        }
+        finishAuth(apiRes.user, apiRes.user.role === 'owner' ? 'owner' : 'resident');
+        return;
+      }
+
+      // Demo mode (no API configured) understands email accounts only.
+      const res = login(value, pin, undefined);
+      if (!res.success) { setError(res.message || 'Sign in failed'); return; }
+      setAuthModalOpen(false);
+      if (!pendingAction) openRoleDashboard(res.user?.role);
+      runPendingAuthAction();
     } finally {
       setLoading(false);
     }
@@ -303,22 +360,34 @@ export const AuthExperience: React.FC = () => {
 
   if (!authModalOpen) return null;
 
-  const cfg = PATH_CONFIG[path];
   const intentMsg = INTENT_MSG[authMeta.intent || 'general'] || INTENT_MSG.general;
-  const shell = isMobile
+  const cfg = ACCOUNT_KINDS[kind];
+  const heading =
+    step === 'choose' ? 'Join PGWalo'
+      : step === 'login' ? (isAdminPath ? 'Super Admin sign in' : 'Welcome back')
+        : step === 'otp' ? 'Verify your email'
+          : step === 'pin' ? 'Set your login PIN'
+            : `Join as ${kind === 'owner' ? 'an Owner' : 'a Tenant'}`;
+
+  const shell = isMobileViewport
     ? 'fixed inset-0 z-50 flex flex-col bg-white'
     : 'fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm';
 
   return (
     <div className={shell} role="dialog" aria-modal="true">
       <div className={`relative flex flex-col bg-white overflow-hidden ${
-        isMobile ? 'h-full w-full' : 'w-full max-w-md rounded-3xl shadow-2xl max-h-[90vh]'
+        isMobileViewport ? 'h-full w-full' : 'w-full max-w-md rounded-3xl shadow-2xl max-h-[90vh]'
       }`}>
         {/* Header */}
-        <div className={`bg-gradient-to-r ${cfg.gradient} text-white px-5 pt-safe pb-5 shrink-0`}>
+        <div className={`bg-gradient-to-r ${isAdminPath ? 'from-slate-700 to-slate-950' : cfg.gradient} text-white px-5 pt-safe pb-5 shrink-0`}>
           <div className="flex items-center justify-between pt-4">
-            {step !== 'path' ? (
-              <button type="button" onClick={() => setStep(step === 'pin' ? 'otp' : step === 'otp' ? 'signup' : 'path')} className="p-2 -ml-2 rounded-full hover:bg-white/10">
+            {step !== 'choose' && !isAdminPath ? (
+              <button
+                type="button"
+                onClick={() => setStep(step === 'pin' ? 'otp' : step === 'otp' ? 'signup' : 'choose')}
+                className="p-2 -ml-2 rounded-full hover:bg-white/10"
+                aria-label="Back"
+              >
                 <ArrowLeft className="w-5 h-5" />
               </button>
             ) : <div className="w-9" />}
@@ -331,18 +400,26 @@ export const AuthExperience: React.FC = () => {
               <Sparkles className="w-3.5 h-3.5" /> {intentMsg}
             </p>
           )}
-          <h2 className="text-xl font-bold mt-2">
-            {step === 'path' ? 'Continue as…' : step === 'login' ? 'Welcome back' : step === 'otp' ? 'Verify email' : step === 'pin' ? 'Set your login PIN' : `Join as ${cfg.label}`}
-          </h2>
+          <h2 className="text-xl font-bold mt-2">{heading}</h2>
           <p className="text-white/80 text-sm mt-0.5">
-            {step === 'path' ? 'One tap — we’ll show only what you need' : cfg.sub}
+            {step === 'choose'
+              ? 'Two accounts only — owners and tenants.'
+              : isAdminPath
+                ? 'Platform administrator access'
+                : step === 'signup'
+                  ? cfg.sub
+                  : step === 'login'
+                    ? 'Mobile or email · 6-digit PIN'
+                    : step === 'otp'
+                      ? `Code sent to ${email}`
+                      : 'Use it to sign in quickly next time'}
           </p>
         </div>
 
         <div className="flex-1 overflow-y-auto px-5 py-5">
           {error && (
             <div className="mb-4 p-3 rounded-xl bg-rose-50 border border-rose-100 text-rose-700 text-xs flex gap-2">
-              <AlertCircle className="w-4 h-4 shrink-0" /> {error}
+              <AlertCircle className="w-4 h-4 shrink-0" /> <span>{error}</span>
             </div>
           )}
           {success && (
@@ -351,202 +428,230 @@ export const AuthExperience: React.FC = () => {
             </div>
           )}
 
-          {/* Step: Path picker */}
-          {step === 'path' && (
-            <div className="grid grid-cols-2 gap-3">
-              {(['explorer', 'resident', 'owner'] as AuthPath[]).map((key) => {
-                const c = PATH_CONFIG[key];
-                const Icon = c.icon;
+          {/* ---- 1. Who is joining: Owner or Tenant, nothing else ---- */}
+          {step === 'choose' && (
+            <div className="space-y-3">
+              {(Object.keys(ACCOUNT_KINDS) as AccountKind[]).map((id) => {
+                const option = ACCOUNT_KINDS[id];
+                const Icon = option.icon;
                 return (
                   <button
-                    key={key}
+                    key={id}
                     type="button"
                     onClick={() => {
-                      setPath(key);
-                      trackAuthEvent('path_selected', { ...meta, path: key });
-                      setStep(authModalMode === 'register' ? 'signup' : 'login');
+                      setKind(id);
+                      setError(null);
+                      trackAuthEvent('path_selected', { ...meta, path: id === 'owner' ? 'owner' : 'resident' });
+                      setStep('signup');
                     }}
-                    className="p-4 rounded-2xl border-2 border-slate-100 hover:border-blue-200 hover:bg-blue-50/50 text-left transition active:scale-[0.98] min-h-[100px]"
+                    className="w-full p-4 rounded-2xl border-2 border-slate-100 hover:border-blue-200 hover:bg-blue-50/50 text-left transition active:scale-[0.99] flex items-start gap-3"
                   >
-                    <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${c.gradient} flex items-center justify-center mb-2`}>
+                    <div className={`w-11 h-11 rounded-xl bg-gradient-to-br ${option.gradient} flex items-center justify-center shrink-0`}>
                       <Icon className="w-5 h-5 text-white" />
                     </div>
-                    <p className="font-bold text-slate-900 text-sm">{c.label}</p>
-                    <p className="text-[11px] text-slate-500 mt-0.5">{c.sub}</p>
+                    <div className="min-w-0">
+                      <p className="font-bold text-slate-900 text-sm">{option.label}</p>
+                      <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">{option.sub}</p>
+                    </div>
                   </button>
                 );
               })}
-            </div>
-          )}
-
-          {/* Step: Login */}
-          {step === 'login' && (
-            <div className="space-y-4">
-              {getLastAuthUser() && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    const l = getLastAuthUser()!;
-                    setEmail(l.email.includes('@') ? l.email : '');
-                    setPath(l.path);
-                  }}
-                  className="w-full p-3 rounded-2xl bg-blue-50 border border-blue-100 text-left text-sm font-semibold text-blue-800"
-                >
-                  Welcome back, {getLastAuthUser()?.name} 👋
-                </button>
-              )}
-              {path === 'superadmin' ? (
-                <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-2 p-1 rounded-2xl bg-slate-100">
-                    <button type="button" onClick={() => setAdminMode('password')} className={`py-2 rounded-xl text-xs font-bold ${adminMode === 'password' ? 'bg-white shadow text-slate-900' : 'text-slate-500'}`}>Username</button>
-                    <button type="button" onClick={() => setAdminMode('pin')} className={`py-2 rounded-xl text-xs font-bold ${adminMode === 'pin' ? 'bg-white shadow text-slate-900' : 'text-slate-500'}`}>Phone + PIN</button>
-                  </div>
-                  {adminMode === 'password' ? (
-                    <>
-                      <div>
-                        <label className="text-xs font-bold text-slate-600">Username</label>
-                        <input
-                          type="text"
-                          autoComplete="username"
-                          placeholder="Super Admin username"
-                          value={email}
-                          onChange={(e) => setEmail(e.target.value)}
-                          className="mt-1 w-full px-4 py-3.5 rounded-2xl border border-slate-200 text-base tracking-wide focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-xs font-bold text-slate-600">Password</label>
-                        <input
-                          type="password"
-                          autoComplete="current-password"
-                          value={passwordText}
-                          onChange={(e) => setPasswordText(e.target.value)}
-                          className="mt-1 w-full px-4 py-3.5 rounded-2xl border border-slate-200 text-base focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        />
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <div>
-                        <label className="text-xs font-bold text-slate-600">Phone</label>
-                        <input
-                          type="tel"
-                          inputMode="numeric"
-                          placeholder="Registered admin phone"
-                          value={phone}
-                          onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
-                          className="mt-1 w-full px-4 py-3.5 rounded-2xl border border-slate-200 text-lg tracking-wide focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-xs font-bold text-slate-600 mb-2 block">6-digit PIN</label>
-                        <PinPad value={pin} onChange={setPin} />
-                      </div>
-                    </>
-                  )}
-                </div>
-              ) : (
-                <div>
-                  <label className="text-xs font-bold text-slate-600">Mobile number</label>
-                  <input
-                    type="tel"
-                    inputMode="numeric"
-                    placeholder="10-digit mobile"
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
-                    className="mt-1 w-full px-4 py-3.5 rounded-2xl border border-slate-200 text-lg tracking-wide focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-              )}
-              {path !== 'superadmin' && path === 'owner' && (
-                <div>
-                  <label className="text-xs font-bold text-slate-600">Or email</label>
-                  <input
-                    type="email"
-                    placeholder="owner@email.com"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className="mt-1 w-full px-4 py-3 rounded-2xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-              )}
-              {path !== 'superadmin' && (
-                <div>
-                  <label className="text-xs font-bold text-slate-600 mb-2 block">6-digit PIN</label>
-                  <PinPad value={pin} onChange={setPin} />
-                </div>
-              )}
               <button
                 type="button"
-                disabled={loading || (path === 'superadmin'
-                  ? (adminMode === 'password' ? !passwordText : pin.length < 6)
-                  : pin.length < 6)}
-                onClick={submitLogin}
-                className="w-full py-4 rounded-2xl bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold flex items-center justify-center gap-2"
+                onClick={() => { setStep('login'); setError(null); }}
+                className="w-full pt-2 text-sm font-bold text-blue-600"
               >
-                <LogIn className="w-4 h-4" /> {loading ? 'Signing in…' : 'Sign in'}
-              </button>
-              {path !== 'superadmin' && (
-                <>
-              <p className="text-[11px] text-center text-slate-500">Staff: use the mobile + PIN your owner shared.</p>
-              <button type="button" onClick={() => { setAuthModalMode('register'); setStep('signup'); setPin(''); }} className="w-full text-sm text-blue-600 font-semibold">
-                New here? Create account
-              </button>
-                </>
-              )}
-            </div>
-          )}
-
-          {/* Step: Signup fields */}
-          {step === 'signup' && path !== 'superadmin' && (
-            <div className="space-y-3">
-              <input placeholder="Your name" value={name} onChange={(e) => setName(e.target.value)}
-                className="w-full px-4 py-3.5 rounded-2xl border border-slate-200 text-base focus:ring-2 focus:ring-blue-500 outline-none" />
-              <input type="tel" inputMode="numeric" placeholder="Mobile number" value={phone}
-                onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
-                className="w-full px-4 py-3.5 rounded-2xl border border-slate-200 text-lg focus:ring-2 focus:ring-blue-500 outline-none" />
-              {cfg.signupFields.includes('email') && (
-                <input type="email" placeholder="Email (we send a verification code here)" value={email} onChange={(e) => setEmail(e.target.value)}
-                  className="w-full px-4 py-3 rounded-2xl border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none" />
-              )}
-              <button type="button" onClick={requestOtp} disabled={loading} className="w-full py-4 rounded-2xl bg-blue-600 text-white font-bold">
-                {loading ? 'Sending code…' : 'Send verification code'}
-              </button>
-              <button type="button" onClick={() => { setAuthModalMode('login'); setStep('login'); }} className="w-full text-sm text-slate-500">
                 Already have an account? Sign in
               </button>
             </div>
           )}
 
+          {/* ---- 2. Sign in ---- */}
+          {step === 'login' && (
+            <div className="space-y-4">
+              {isAdminPath ? (
+                <>
+                  <div className="grid grid-cols-2 gap-2 p-1 rounded-2xl bg-slate-100">
+                    <button type="button" onClick={() => setAdminMode('password')} className={`py-2 rounded-xl text-xs font-bold ${adminMode === 'password' ? 'bg-white shadow text-slate-900' : 'text-slate-500'}`}>Username</button>
+                    <button type="button" onClick={() => setAdminMode('pin')} className={`py-2 rounded-xl text-xs font-bold ${adminMode === 'pin' ? 'bg-white shadow text-slate-900' : 'text-slate-500'}`}>Phone + PIN</button>
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold text-slate-600">
+                      {adminMode === 'password' ? 'Username' : 'Phone'}
+                    </label>
+                    <input
+                      type="text"
+                      autoComplete="username"
+                      placeholder={adminMode === 'password' ? 'Super Admin username' : 'Registered admin phone'}
+                      value={identifier}
+                      onChange={(e) => setIdentifier(e.target.value)}
+                      className="mt-1 w-full px-4 py-3.5 rounded-2xl border border-slate-200 text-base focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  {adminMode === 'password' ? (
+                    <div>
+                      <label className="text-xs font-bold text-slate-600">Password</label>
+                      <input
+                        type="password"
+                        autoComplete="current-password"
+                        value={passwordText}
+                        onChange={(e) => setPasswordText(e.target.value)}
+                        className="mt-1 w-full px-4 py-3.5 rounded-2xl border border-slate-200 text-base focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                  ) : (
+                    <PinField label="6-digit PIN" value={pin} onChange={setPin} />
+                  )}
+                </>
+              ) : (
+                <>
+                  <div>
+                    <label className="text-xs font-bold text-slate-600">Mobile number or email</label>
+                    <input
+                      type="text"
+                      autoComplete="username"
+                      inputMode="email"
+                      placeholder="98765 43210 or you@email.com"
+                      value={identifier}
+                      onChange={(e) => setIdentifier(e.target.value)}
+                      className="mt-1 w-full px-4 py-3.5 rounded-2xl border border-slate-200 text-base focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <PinField label="6-digit PIN" value={pin} onChange={setPin} />
+                  <p className="text-[11px] text-slate-500">
+                    Staff and wardens sign in here too, with the mobile and PIN your owner shared.
+                  </p>
+                </>
+              )}
+
+              <button
+                type="button"
+                disabled={loading || (!isAdminPath && pin.length < 6) || (isAdminPath && adminMode === 'password' ? !passwordText : pin.length < 6)}
+                onClick={submitLogin}
+                className="w-full py-4 rounded-2xl bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold flex items-center justify-center gap-2"
+              >
+                <LogIn className="w-4 h-4" /> {loading ? 'Signing in…' : 'Sign in'}
+              </button>
+
+              {!isAdminPath && (
+                <div className="space-y-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => { setAuthModalMode('register'); setStep('choose'); setPin(''); setError(null); }}
+                    className="w-full text-sm text-blue-600 font-semibold"
+                  >
+                    New here? Join as an Owner or a Tenant
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      clearLastAuthUser();
+                      setIdentifier('');
+                      setPin('');
+                    }}
+                    className="w-full text-[11px] text-slate-400 hover:text-slate-600"
+                  >
+                    Not you? Clear this device
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ---- 3. Signup details ---- */}
+          {step === 'signup' && !isAdminPath && (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 p-3 rounded-2xl bg-slate-50 border border-slate-200">
+                {React.createElement(cfg.icon, { className: 'w-4 h-4 text-blue-600' })}
+                <span className="text-xs font-bold text-slate-700">{cfg.label}</span>
+                <button
+                  type="button"
+                  onClick={() => setStep('choose')}
+                  className="ml-auto text-[11px] font-bold text-blue-600"
+                >
+                  Change
+                </button>
+              </div>
+              <input
+                placeholder="Your name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="w-full px-4 py-3.5 rounded-2xl border border-slate-200 text-base focus:ring-2 focus:ring-blue-500 outline-none"
+              />
+              <input
+                type="tel"
+                inputMode="numeric"
+                placeholder="10-digit mobile number"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                className="w-full px-4 py-3.5 rounded-2xl border border-slate-200 text-lg focus:ring-2 focus:ring-blue-500 outline-none"
+              />
+              <input
+                type="email"
+                placeholder="Email (we send a verification code here)"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full px-4 py-3 rounded-2xl border border-slate-200 focus:ring-2 focus:ring-blue-500 outline-none"
+              />
+              <button
+                type="button"
+                onClick={requestOtp}
+                disabled={loading}
+                className="w-full py-4 rounded-2xl bg-blue-600 text-white font-bold disabled:opacity-60"
+              >
+                {loading ? 'Sending code…' : 'Send verification code'}
+              </button>
+              <button
+                type="button"
+                onClick={() => { setAuthModalMode('login'); setStep('login'); setError(null); }}
+                className="w-full text-sm text-slate-500"
+              >
+                Already have an account? Sign in
+              </button>
+            </div>
+          )}
+
+          {/* ---- 4. Email OTP ---- */}
           {step === 'otp' && (
             <div className="space-y-4">
               <p className="text-sm text-slate-600 text-center">Enter the 6-digit code sent to {email}</p>
               {otpHint && <p className="text-xs text-center text-blue-700 bg-blue-50 rounded-xl p-2">{otpHint}</p>}
               <PinPad value={pin} onChange={setPin} />
-              <button type="button" disabled={loading || pin.length < 6} onClick={confirmOtp}
-                className="w-full py-4 rounded-2xl bg-blue-600 text-white font-bold disabled:opacity-50">
+              <button
+                type="button"
+                disabled={loading || pin.length < 6}
+                onClick={confirmOtp}
+                className="w-full py-4 rounded-2xl bg-blue-600 text-white font-bold disabled:opacity-50"
+              >
                 {loading ? 'Checking…' : 'Verify code'}
               </button>
             </div>
           )}
 
+          {/* ---- 5. Choose the PIN ---- */}
           {step === 'pin' && (
             <div className="space-y-4">
-              <p className="text-sm text-slate-600 text-center">Choose a 6-digit PIN — use it to sign in quickly</p>
-              <PinPad value={pin} onChange={setPin} />
-              <button type="button" disabled={loading || pin.length < 6} onClick={submitSignup}
-                className="w-full py-4 rounded-2xl bg-blue-600 text-white font-bold disabled:opacity-50">
-                {loading ? 'Creating account…' : 'Create account'}
+              <p className="text-sm text-slate-600 text-center">
+                Choose a 6-digit PIN — you will use it to sign in, so keep it memorable.
+              </p>
+              <PinField label="New 6-digit PIN" value={pin} onChange={setPin} autoFocus />
+              <button
+                type="button"
+                disabled={loading || pin.length < 6}
+                onClick={submitSignup}
+                className="w-full py-4 rounded-2xl bg-blue-600 text-white font-bold disabled:opacity-50"
+              >
+                {loading ? 'Creating account…' : `Create ${kind === 'owner' ? 'owner' : 'tenant'} account`}
               </button>
             </div>
           )}
         </div>
 
-        {/* Footer: guest + switch */}
-        {step === 'path' && path === 'explorer' && (
+        {/* Footer: browsing needs no account */}
+        {step === 'choose' && (
           <div className="px-5 pb-safe pb-5 shrink-0 border-t border-slate-100 pt-3">
             <button type="button" onClick={guestContinue} className="w-full py-3 text-sm font-semibold text-slate-500 hover:text-slate-800">
-              Continue as guest — no sign-up needed
+              Continue as a guest — browse without an account
             </button>
           </div>
         )}

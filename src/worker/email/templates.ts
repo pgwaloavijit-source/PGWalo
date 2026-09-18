@@ -435,6 +435,43 @@ export const EVENTS: Record<string, EventDef> = {
     rows: (d) => rows([['Property', d.propertyName], ['Owner', d.ownerName], ['City', d.city], ['Locality', d.locality], ['Beds', d.totalBeds]]),
     cta: (d) => ({ label: 'Review listing', url: `${app(d)}/admin` }),
   },
+
+  // ---- owner publishing payments -----------------------------------------
+  // Money mail can never be opted out of, and both variants carry the number
+  // and the property so the owner can reconcile them without signing in.
+  'listing.payment_success': {
+    category: 'listing', security: true,
+    subject: (d) => `Payment received — ${str(d.propertyName)} is live`,
+    title: () => 'Your PG is published',
+    intro: () =>
+      'Thank you — your payment is confirmed and your listing is live. The tax invoice is attached as a PDF.',
+    rows: (d) => rows([
+      ['Property', d.propertyName],
+      ['Plan', d.planName],
+      ['Amount paid', d.amount],
+      ['Invoice', d.invoiceNumber],
+      ['Payment ID', d.paymentId],
+      ['Valid till', d.validTill],
+    ]),
+    cta: (d) => ({ label: 'View your listing', url: `${app(d)}/owner` }),
+    footnote: () => 'Keep this invoice for your records. Renewal is due at the end of the plan period.',
+  },
+  'listing.payment_failed': {
+    category: 'listing', security: true,
+    subject: (d) => `Payment could not be completed — ${str(d.propertyName)}`,
+    title: () => 'Your payment did not go through',
+    intro: (d) =>
+      `No money has been taken. Your listing is saved and still waiting — complete the payment of ${str(d.amount)} with the secure link below and it goes live immediately.`,
+    rows: (d) => rows([
+      ['Property', d.propertyName],
+      ['Plan', d.planName],
+      ['Amount due', d.amount],
+      ['Reason', d.reason],
+      ['Link valid till', d.validTill],
+    ]),
+    cta: (d) => ({ label: 'Complete payment', url: str(d.paymentLink) || `${app(d)}/owner` }),
+    footnote: () => 'The link is created for your account only. Nothing is charged until you approve the payment.',
+  },
 };
 
 /** Render any declared event. Returns null for an unknown event name. */
