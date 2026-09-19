@@ -19,12 +19,15 @@ fi
 
 # Create local D1 database and apply schema
 echo "🗄️ Setting up local D1 database..."
-wrangler d1 execute pgnest-db --local --file=./database/schema.sql
+wrangler d1 execute pgwalo-db --local --file=./database/schema.sql
 
 # Generate and apply test data
 echo "📊 Populating test data..."
 npx tsx database/migrate-data.ts > database/data-migration.sql
-wrangler d1 execute pgnest-db --local --file=./database/data-migration.sql
+wrangler d1 execute pgwalo-db --local --file=./database/data-migration.sql
+
+# Create local Worker secrets template without overwriting existing secrets.
+if [ ! -f .dev.vars ]; then cp .dev.vars.example .dev.vars; fi
 
 # Create .env file for local development
 echo "⚙️ Setting up environment variables..."

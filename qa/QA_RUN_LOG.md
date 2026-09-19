@@ -15,3 +15,5 @@
 | 2026-09-19 | `npm run build:worker` | PASS | Worker typecheck verified |
 | 2026-09-19 | live HTTP smoke | PASS/PARTIAL | `/api/health`, `/api/listings`, `/api/payments/plans` 200; protected routes 401 |
 | 2026-09-19 | `npx wrangler whoami` / deploy auth | BLOCKED | Cloudflare API 9109 invalid access token |
+| 2026-09-19 | fresh local Worker on `8791` + `npm run test:e2e` | PASS | 126/126 role/data-interchange assertions |
+| 2026-09-19 | local setup review | FIXED | Added JWT secret template and corrected stale `pgnest-db` references |

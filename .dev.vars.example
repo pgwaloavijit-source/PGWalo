@@ -1,3 +1,6 @@
 SUPERADMIN_USERNAME=PGWalo.Avijit
 SUPERADMIN_PASSWORD=change-me-locally
+SUPERADMIN_PHONE=+919876543210
+SUPERADMIN_PIN=change-me-locally
+JWT_SECRET=change-me-locally
 # Copy to .dev.vars (gitignored) for local wrangler dev

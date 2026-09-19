@@ -19,12 +19,15 @@ if not exist "node_modules" (
 
 REM Create local D1 database and apply schema
 echo 🗄️ Setting up local D1 database...
-call wrangler d1 execute pgnest-db --local --file=./database/schema.sql
+call wrangler d1 execute pgwalo-db --local --file=./database/schema.sql
 
 REM Generate and apply test data
 echo 📊 Populating test data...
 call npx tsx database/migrate-data.ts > database/data-migration.sql
-call wrangler d1 execute pgnest-db --local --file=./database/data-migration.sql
+call wrangler d1 execute pgwalo-db --local --file=./database/data-migration.sql
+
+REM Create local Worker secrets template without overwriting existing secrets
+if not exist ".dev.vars" copy /Y ".dev.vars.example" ".dev.vars" >nul
 
 REM Create .env file for local development
 echo ⚙️ Setting up environment variables...
