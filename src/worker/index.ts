@@ -147,7 +147,7 @@ export default {
       // Market-ready domain endpoints: visits, reservations, payment intents,
       // expenses, inspections, compliance, KYC, verified reviews, imports,
       // analytics and the payment webhook.
-      if (path === '/api/market/webhooks/razorpay') {
+      if (path === '/api/market/webhooks/cashfree') {
         return marketWebhookHandler(request, env);
       }
       if (path.startsWith('/api/market/')) {

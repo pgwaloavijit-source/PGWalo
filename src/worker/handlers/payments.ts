@@ -7,11 +7,37 @@ import { LISTING_PLANS, listingPlan, formatInr, formatInrExact } from '../../dom
 import { pgDisplayName } from '../../utils/pgName';
 import {
   activePaymentProvider,
+  cashfreeBase,
   createGatewayOrder,
+  paymentsConfigured,
   paymentTransportSummary,
-  verifyCheckoutSignature,
   verifyWebhookSignature,
 } from '../payments/provider';
+
+/**
+ * Server-side confirmation for Cashfree: poll the order's payments and require
+ * at least one SUCCESS. The client never carries a signature to verify.
+ */
+async function verifyCashfreeOrderPaid(env: Env, cfOrderId: string): Promise<boolean> {
+  if (!paymentsConfigured(env)) return false;
+  try {
+    const resp = await fetch(
+      `${cashfreeBase(env)}/pg/orders/${encodeURIComponent(cfOrderId)}/payments`,
+      {
+        headers: {
+          'x-client-id': env.CASHFREE_APP_ID || '',
+          'x-client-secret': env.CASHFREE_SECRET_KEY || '',
+          'x-api-version': '2023-08-01',
+        },
+      }
+    );
+    if (!resp.ok) return false;
+    const list = (await resp.json().catch(() => [])) as { payment_status?: string }[];
+    return Array.isArray(list) && list.some((p) => String(p.payment_status || '').toUpperCase() === 'SUCCESS');
+  } catch {
+    return false;
+  }
+}
 import { invoiceFileName, invoicePdfBase64 } from '../payments/invoicePdf';
 
 /**
@@ -286,21 +312,25 @@ export async function paymentsHandler(request: Request, env: Env): Promise<Respo
   // ---- gateway webhook (signature-verified, no JWT) -----------------------
   if (path === '/api/payments/webhook' && request.method === 'POST') {
     const raw = await request.text();
-    const signature = request.headers.get('x-razorpay-signature') || '';
+    const signature = request.headers.get('x-webhook-signature') || '';
     const signatureOk =
-      Boolean(env.RAZORPAY_WEBHOOK_SECRET) && (await verifyWebhookSignature(env, raw, signature));
+      Boolean(env.CASHFREE_WEBHOOK_SECRET) && (await verifyWebhookSignature(env, raw, signature));
 
+    // Cashfree webhook payload: { type: "PAYMENT_SUCCESS"|..., data: { order: {...}, payment: {...} } }
     let payload: {
-      event?: string;
-      payload?: { payment?: { entity?: { id?: string; order_id?: string; error_description?: string } } };
+      type?: string;
+      data?: {
+        order?: { order_id?: string };
+        payment?: { cf_payment_id?: number | string; payment_status?: string; payment_message?: string };
+      };
     } = {};
     try {
       payload = JSON.parse(raw);
     } catch {
       payload = {};
     }
-    const payment = payload?.payload?.payment?.entity;
-    const orderId = payment?.order_id || '';
+    const cfOrderId = payload?.data?.order?.order_id || '';
+    const paymentStatus = String(payload?.data?.payment?.payment_status || '');
 
     try {
       await env.DB.prepare(
@@ -308,10 +338,10 @@ export async function paymentsHandler(request: Request, env: Env): Promise<Respo
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)`
       ).bind(
         `pe-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        'razorpay',
-        payload?.event || 'unknown',
-        payment?.id || null,
-        orderId || null,
+        'cashfree',
+        payload?.type || 'unknown',
+        payload?.data?.payment?.cf_payment_id != null ? String(payload.data.payment.cf_payment_id) : null,
+        cfOrderId || null,
         signatureOk ? 1 : 0,
         raw.slice(0, 4000),
         nowIso()
@@ -324,14 +354,16 @@ export async function paymentsHandler(request: Request, env: Env): Promise<Respo
     // retries, but it can never change an order.
     if (!signatureOk) return json({ error: 'Invalid signature' }, 400);
 
-    if (orderId) {
+    if (cfOrderId) {
       const order = await env.DB.prepare(
         'SELECT * FROM listing_payments WHERE provider_order_id = ? ORDER BY created_at DESC LIMIT 1'
-      ).bind(orderId).first<OrderRow>();
+      ).bind(cfOrderId).first<OrderRow>();
       if (order) {
-        const failed = /failed|cancelled/i.test(payload?.event || '');
-        if (failed) await failOrder(env, order, payment?.error_description || payload.event || 'Payment failed');
-        else await fulfilOrder(env, order, { paymentId: payment?.id, provider: 'razorpay' });
+        const failed = /FAILED|CANCELLED|USER_DROPPED|EXPIRED/i.test(payload?.type || '') || /FAILED|CANCELLED/i.test(paymentStatus);
+        if (failed) await failOrder(env, order, payload?.data?.payment?.payment_message || payload.type || 'Payment failed');
+        else if (/SUCCESS|PAID/i.test(payload?.type || '') || paymentStatus === 'SUCCESS') {
+          await fulfilOrder(env, order, { paymentId: payload?.data?.payment?.cf_payment_id != null ? String(payload.data.payment.cf_payment_id) : undefined, provider: 'cashfree' });
+        }
       }
     }
     return json({ ok: true });
@@ -457,7 +489,7 @@ export async function paymentsHandler(request: Request, env: Env): Promise<Respo
         status: order.status,
         provider: order.provider,
         providerOrderId: order.provider_order_id,
-        keyId: env.RAZORPAY_KEY_ID || null,
+        keyId: env.CASHFREE_APP_ID || null,
         paymentLink: order.payment_link,
         invoiceNumber: order.invoice_number,
         failureReason: order.failure_reason,
@@ -480,7 +512,7 @@ export async function paymentsHandler(request: Request, env: Env): Promise<Respo
       return json({ success: true, alreadyPaid: true, order: { id: order.id, status: 'paid', invoiceNumber: order.invoice_number } });
     }
 
-    let body: { razorpay_payment_id?: string; razorpay_order_id?: string; razorpay_signature?: string; reason?: string; outcome?: string } = {};
+    let body: { cf_payment_id?: string; order_id?: string; reason?: string; outcome?: string } = {};
     try {
       body = await request.json();
     } catch {
@@ -510,21 +542,18 @@ export async function paymentsHandler(request: Request, env: Env): Promise<Respo
       return json({ success: true, order: { id: failed.id, status: 'failed', paymentLink: failed.payment_link } });
     }
 
-    // action === 'verify'
-    const gatewayOrderId = body.razorpay_order_id || order.provider_order_id || '';
+    // action === 'verify' — for Cashfree the client never carries a signature;
+    // confirmation comes from the verified webhook or a server-side status poll.
     if (activePaymentProvider(env) !== 'none') {
-      const signatureOk = await verifyCheckoutSignature(env, {
-        orderId: gatewayOrderId,
-        paymentId: body.razorpay_payment_id || '',
-        signature: body.razorpay_signature || '',
-      });
-      if (!signatureOk) {
-        await failOrder(env, order, 'Payment signature could not be verified');
+      const gatewayOrderId = order.provider_order_id || '';
+      const confirmed = gatewayOrderId ? await verifyCashfreeOrderPaid(env, gatewayOrderId) : false;
+      if (!confirmed) {
+        await failOrder(env, order, 'Payment could not be confirmed with the gateway');
         return json({ error: 'Payment could not be verified. No money was taken.' }, 400);
       }
     }
     const paid = await fulfilOrder(env, order, {
-      paymentId: body.razorpay_payment_id || `sim_pay_${order.id}`,
+      paymentId: body.cf_payment_id || `sim_pay_${order.id}`,
       provider: order.provider,
     });
     return json({

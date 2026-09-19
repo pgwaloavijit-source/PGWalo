@@ -1,7 +1,7 @@
 /**
  * Market-ready domain handler (spec §35) — visits, reservations, payment
  * intents, expenses, inspections, compliance, KYC, verified reviews,
- * imports, reminders, analytics and the Razorpay webhook.
+ * imports, reminders, analytics and the Cashfree webhook.
  *
  * Every protected mutation authenticates, scopes to the caller's
  * organization, validates state transitions, and writes an audit event.
@@ -334,37 +334,49 @@ async function createPaymentIntent(env: Env, orgId: string | null, user: User, r
   }
   if (!(body.amount > 0)) return json({ error: 'Amount must be positive' }, 400);
 
-  const gatewayReady = Boolean(env.RAZORPAY_KEY_ID && env.RAZORPAY_KEY_SECRET);
+  const gatewayReady = Boolean(env.CASHFREE_APP_ID && env.CASHFREE_SECRET_KEY);
   const id = mkId('pi');
   let providerOrderId: string | null = null;
   let paymentLink: string | null = null;
   let provider = 'none';
 
-  if (gatewayReady && body.purpose === 'token') {
-    // Real Razorpay order via REST API (staff-side creation, not client redirect trust).
+  if (gatewayReady) {
+    // Cashfree payment link (hosted UPI/cards page) — created server-side;
+    // confirmation only ever arrives via the verified webhook.
     try {
-      const auth = btoa(`${env.RAZORPAY_KEY_ID}:${env.RAZORPAY_KEY_SECRET}`);
-      const resp = await fetch('https://api.razorpay.com/v1/orders', {
+      const base = String(env.CASHFREE_APP_ID || '').toUpperCase().startsWith('TEST')
+        ? 'https://sandbox.cashfree.com' : 'https://api.cashfree.com';
+      const cfOrderId = id.replace(/[^a-zA-Z0-9_-]/g, '-').slice(0, 45);
+      const resp = await fetch(`${base}/pg/orders`, {
         method: 'POST',
         headers: {
-          'Authorization': `Basic ${auth}`,
+          'x-client-id': env.CASHFREE_APP_ID || '',
+          'x-client-secret': env.CASHFREE_SECRET_KEY || '',
+          'x-api-version': '2023-08-01',
+          'x-idempotency-key': cfOrderId,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          amount: Math.round(body.amount * 100),
-          currency: 'INR',
-          receipt: id,
-          notes: { purpose: body.purpose, reference: body.referenceId || '' },
+          order_id: cfOrderId,
+          order_amount: Math.round(body.amount * 100) / 100,
+          order_currency: 'INR',
+          customer_details: {
+            customer_id: body.residentId || body.leadId || 'pgwalo-payer',
+            customer_phone: body.payerPhone.replace(/\D/g, '').slice(-10) || '9999999999',
+            customer_name: body.payerName,
+          },
+          order_note: `PGWalo ${body.purpose}${body.referenceId ? ` ref ${body.referenceId}` : ''}`,
+          order_tags: { purpose: body.purpose, reference: body.referenceId || '' },
         }),
       });
       if (resp.ok) {
-        const order = await resp.json() as { id?: string; short_url?: string };
-        providerOrderId = order.id || null;
-        paymentLink = order.short_url || null;
-        provider = 'razorpay';
+        const order = await resp.json() as { order_id?: string; payment_link?: string };
+        providerOrderId = order.order_id || null;
+        paymentLink = order.payment_link || null;
+        provider = 'cashfree';
       }
     } catch (error) {
-      console.error('razorpay order creation failed', error);
+      console.error('cashfree order creation failed', error);
     }
   }
 
@@ -395,7 +407,7 @@ async function reconcilePaymentIntent(env: Env, orgId: string | null, user: User
     return json({ error: 'A paid intent cannot be un-paid. Record a refund instead.' }, 422);
   }
   // Gateway money is confirmed by webhook only, never by client assert.
-  if (body?.status === 'paid' && String(row.provider) === 'razorpay') {
+  if (body?.status === 'paid' && String(row.provider) === 'cashfree') {
     return json({ error: 'Gateway payments can only be confirmed by webhook verification, not manually.' }, 422);
   }
 
@@ -460,60 +472,69 @@ async function settleRentIntent(env: Env, intent: Row): Promise<void> {
 
 // ------------------------------------------------------------------ webhook ---
 
-async function verifyRazorpaySignature(env: Env, rawBody: string, signature: string): Promise<boolean> {
-  const secret = env.RAZORPAY_WEBHOOK_SECRET;
+async function verifyCashfreeSignature(env: Env, rawBody: string, signature: string): Promise<boolean> {
+  const secret = env.CASHFREE_WEBHOOK_SECRET;
   if (!secret) return false;
   const key = await crypto.subtle.importKey(
     'raw', new TextEncoder().encode(secret),
     { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'],
   );
   const mac = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(rawBody));
-  const expected = Array.from(new Uint8Array(mac))
-    .map((b) => b.toString(16).padStart(2, '0')).join('');
-  return expected === signature;
+  // Cashfree signs with base64, not hex.
+  const expected = btoa(String.fromCharCode(...new Uint8Array(mac)));
+  if (expected.length !== signature.length) return false;
+  let diff = 0;
+  for (let i = 0; i < expected.length; i += 1) diff |= expected.charCodeAt(i) ^ signature.charCodeAt(i);
+  return diff === 0;
 }
 
 export async function marketWebhookHandler(request: Request, env: Env): Promise<Response> {
   if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
   const raw = await request.text();
-  const signature = request.headers.get('x-razorpay-signature') || '';
-  const signatureOk = await verifyRazorpaySignature(env, raw, signature);
+  const signature = request.headers.get('x-webhook-signature') || '';
+  const signatureOk = await verifyCashfreeSignature(env, raw, signature);
 
+  // Cashfree payload: { type: "PAYMENT_SUCCESS"|..., data: { order, payment } }
   let payload: {
-    event?: string;
-    payload?: { payment?: { entity?: { id?: string; order_id?: string; error_description?: string } } };
+    type?: string;
+    data?: {
+      order?: { order_id?: string };
+      payment?: { cf_payment_id?: number | string; payment_status?: string; payment_message?: string };
+    };
   } = {};
   try { payload = JSON.parse(raw); } catch { /* keep empty */ }
-  const payment = payload?.payload?.payment?.entity;
-  const orderId = payment?.order_id || '';
+  const cfOrderId = payload?.data?.order?.order_id || '';
+  const paymentStatus = String(payload?.data?.payment?.payment_status || '');
 
   // Store every event (spec §16: gateway event storage) before any decision.
   const eventId = mkId('pge');
   try {
     await env.DB.prepare(
       `INSERT INTO payment_gateway_events (id, intent_id, provider, event_type, payload, signature_valid, processed, created_at)
-       VALUES (?, (SELECT id FROM payment_intents WHERE provider_order_id = ? ORDER BY created_at DESC LIMIT 1), 'razorpay', ?, ?, ?, 0, ?)`
-    ).bind(eventId, orderId, payload?.event || 'unknown', raw.slice(0, 4000), signatureOk ? 1 : 0, nowIso()).run();
+       VALUES (?, (SELECT id FROM payment_intents WHERE provider_order_id = ? ORDER BY created_at DESC LIMIT 1), 'cashfree', ?, ?, ?, 0, ?)`
+    ).bind(eventId, cfOrderId, payload?.type || 'unknown', raw.slice(0, 4000), signatureOk ? 1 : 0, nowIso()).run();
   } catch (error) {
     console.error('gateway event log failed', error);
   }
 
   if (!signatureOk) return json({ error: 'Invalid signature' }, 400);
-  if (!orderId) return json({ ok: true, note: 'no order reference' });
+  if (!cfOrderId) return json({ ok: true, note: 'no order reference' });
 
   const intent = await env.DB.prepare(
     'SELECT * FROM payment_intents WHERE provider_order_id = ? ORDER BY created_at DESC LIMIT 1'
-  ).bind(orderId).first<Row>();
+  ).bind(cfOrderId).first<Row>();
   if (!intent) return json({ ok: true, note: 'unknown order' });
 
   // Idempotency: a paid intent is never re-processed (spec §16).
   if (String(intent.status) === 'paid') return json({ ok: true, note: 'already processed' });
 
-  const failed = /failed|cancelled/i.test(payload?.event || '');
-  const newStatus = failed ? 'failed' : 'paid';
+  const failed = /FAILED|CANCELLED|USER_DROPPED|EXPIRED/i.test(payload?.type || '') || /FAILED|CANCELLED/i.test(paymentStatus);
+  const success = /SUCCESS|PAID/i.test(payload?.type || '') || paymentStatus === 'SUCCESS';
+  const newStatus = failed ? 'failed' : success ? 'paid' : String(intent.status);
+  if (newStatus === String(intent.status)) return json({ ok: true, note: 'no status change' });
   await env.DB.prepare(
     `UPDATE payment_intents SET status = ?, paid_at = CASE WHEN ? = 'paid' THEN ? ELSE paid_at END, provider_payment_id = ?, updated_at = ? WHERE id = ?`
-  ).bind(newStatus, newStatus, nowIso(), payment?.id || null, nowIso(), String(intent.id)).run();
+  ).bind(newStatus, newStatus, nowIso(), payload?.data?.payment?.cf_payment_id != null ? String(payload.data.payment.cf_payment_id) : null, nowIso(), String(intent.id)).run();
 
   // Bridge: a paid token intent confirms the reservation hold (spec §14).
   if (newStatus === 'paid' && String(intent.purpose) === 'token' && intent.reference_id) {

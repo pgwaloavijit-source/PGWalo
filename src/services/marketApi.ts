@@ -282,7 +282,7 @@ export interface ReconcilePatch {
   status: 'paid' | 'failed' | 'cancelled';
   utr?: string;
   receiptNumber?: string;
-  provider?: 'razorpay' | 'none';
+  provider?: 'cashfree' | 'none';
 }
 
 export const reconcilePaymentIntent = (id: string, patch: ReconcilePatch): Promise<{ ok: true }> => {
@@ -293,7 +293,7 @@ export const reconcilePaymentIntent = (id: string, patch: ReconcilePatch): Promi
       if (intent.status === 'paid' && patch.status !== 'paid') {
         throw new Error('A paid intent cannot be un-paid. Record a refund instead.');
       }
-      if (patch.status === 'paid' && intent.provider === 'razorpay') {
+      if (patch.status === 'paid' && intent.provider === 'cashfree') {
         throw new Error('Gateway payments can only be confirmed by webhook verification, not manually.');
       }
       intent.status = patch.status;

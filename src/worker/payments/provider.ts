@@ -8,41 +8,47 @@ import type { Env } from '../types';
  * credentials exist — so the whole pricing → payment → badge → invoice flow is
  * exercised in development and staging without touching a real gateway.
  *
- * Razorpay is the live transport (UPI, cards, netbanking — India-first):
+ * Cashfree is the live transport (UPI-first, cards, netbanking — India-first):
  *
- *   npx wrangler secret put RAZORPAY_KEY_ID
- *   npx wrangler secret put RAZORPAY_KEY_SECRET
- *   npx wrangler secret put RAZORPAY_WEBHOOK_SECRET   # optional but recommended
+ *   npx wrangler secret put CASHFREE_APP_ID
+ *   npx wrangler secret put CASHFREE_SECRET_KEY
+ *   npx wrangler secret put CASHFREE_WEBHOOK_SECRET   # required for webhooks
+ *
+ * A TEST-prefixed app id targets the Cashfree sandbox automatically.
  *
  * A "payment link" in this product is always OUR OWN resumable URL
- * (`/pay/<orderId>`), never a gateway-hosted page. That means the same link can
- * be emailed, keep working after a failed attempt, and be re-opened months
- * later — and it can be produced in simulation mode too.
+ * (`/pay/<orderId>`), never a gateway-hosted page — except for the market
+ * intents (token/rent/deposit), which open Cashfree's hosted page directly
+ * from the generated link. Both confirmations arrive via verified webhook.
  */
 
-export type PaymentProvider = 'razorpay' | 'none';
+export type PaymentProvider = 'cashfree' | 'none';
 
-const RAZORPAY_API = 'https://api.razorpay.com/v1';
+const CASHFREE_API = 'https://api.cashfree.com';
+/** Latest stable API version header required on every Cashfree call. */
+const CASHFREE_API_VERSION = '2023-08-01';
 
 export function paymentsConfigured(env: Env): boolean {
-  return Boolean(env.RAZORPAY_KEY_ID && env.RAZORPAY_KEY_SECRET);
+  return Boolean(env.CASHFREE_APP_ID && env.CASHFREE_SECRET_KEY);
 }
 
 /** The transport the very next order would use. */
 export function activePaymentProvider(env: Env): PaymentProvider {
-  return paymentsConfigured(env) ? 'razorpay' : 'none';
+  return paymentsConfigured(env) ? 'cashfree' : 'none';
 }
 
-function authHeader(env: Env): string {
-  const raw = `${env.RAZORPAY_KEY_ID || ''}:${env.RAZORPAY_KEY_SECRET || ''}`;
-  return `Basic ${btoa(raw)}`;
+/** Sandbox when the app id carries the TEST prefix, production otherwise. */
+export function cashfreeBase(env: Env): string {
+  return String(env.CASHFREE_APP_ID || '').toUpperCase().startsWith('TEST')
+    ? 'https://sandbox.cashfree.com'
+    : CASHFREE_API;
 }
 
 function hex(buffer: ArrayBuffer): string {
   return Array.from(new Uint8Array(buffer), (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-async function hmacSha256Hex(secret: string, message: string): Promise<string> {
+async function hmacSha256Base64(secret: string, message: string): Promise<string> {
   const key = await crypto.subtle.importKey(
     'raw',
     new TextEncoder().encode(secret),
@@ -51,7 +57,7 @@ async function hmacSha256Hex(secret: string, message: string): Promise<string> {
     ['sign']
   );
   const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(message));
-  return hex(sig);
+  return btoa(String.fromCharCode(...new Uint8Array(sig)));
 }
 
 /** Constant-time-ish compare, so a wrong signature can't be guessed byte-by-byte. */
@@ -66,6 +72,8 @@ export interface CreatedOrder {
   ok: boolean;
   provider: PaymentProvider;
   orderId?: string;
+  /** Hosted payment page when the gateway provides one (Cashfree link/orders). */
+  hostedPaymentLink?: string;
   /** Amount actually charged, in paise, as the gateway sees it. */
   amountPaise?: number;
   keyId?: string;
@@ -90,58 +98,65 @@ export async function createGatewayOrder(
   }
 
   try {
-    const response = await fetch(`${RAZORPAY_API}/orders`, {
+    const response = await fetch(`${cashfreeBase(env)}/pg/orders`, {
       method: 'POST',
       headers: {
-        Authorization: authHeader(env),
+        'x-client-id': env.CASHFREE_APP_ID || '',
+        'x-client-secret': env.CASHFREE_SECRET_KEY || '',
+        'x-api-version': CASHFREE_API_VERSION,
+        'x-idempotency-key': input.localOrderId,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        amount: amountPaise,
-        currency: 'INR',
-        receipt: input.localOrderId.slice(0, 40),
-        notes: input.notes,
+        // Alphanumeric + underscore/hyphen only, 3-45 chars, unique per order.
+        order_id: input.localOrderId.replace(/[^a-zA-Z0-9_-]/g, '-').slice(0, 45),
+        order_amount: Math.round((amountPaise / 100) * 100) / 100,
+        order_currency: 'INR',
+        customer_details: {
+          // Required by Cashfree; safe placeholder when unknown.
+          customer_id: input.notes.ownerUserId || 'pgwalo-customer',
+          customer_phone: '9999999999',
+        },
+        order_meta: { return_url: `https://pgwalo.com/pay/${input.localOrderId}?cf={order_id}` },
+        order_note: `PGWalo order ${input.localOrderId}`,
+        order_tags: input.notes,
       }),
     });
     const payload = (await response.json().catch(() => ({}))) as {
-      id?: string;
-      amount?: number;
-      error?: { description?: string };
+      order_id?: string;
+      order_amount?: number;
+      payment_link?: string;
+      type?: string;
+      message?: string;
     };
-    if (!response.ok || !payload.id) {
+    if (!response.ok || !payload.order_id) {
       return {
         ok: false,
         provider,
-        error: payload?.error?.description || `gateway order failed (HTTP ${response.status})`,
+        error: payload?.message || `gateway order failed (HTTP ${response.status})`,
       };
     }
     return {
       ok: true,
       provider,
-      orderId: payload.id,
-      amountPaise: payload.amount || amountPaise,
-      keyId: env.RAZORPAY_KEY_ID,
+      orderId: payload.order_id,
+      hostedPaymentLink: payload.payment_link || undefined,
+      amountPaise: Math.round((payload.order_amount || amountPaise / 100) * 100),
     };
   } catch (error) {
     return { ok: false, provider, error: error instanceof Error ? error.message : 'gateway unreachable' };
   }
 }
 
-/** Razorpay checkout callback: HMAC(order_id|payment_id, key_secret). */
-export async function verifyCheckoutSignature(
-  env: Env,
-  input: { orderId: string; paymentId: string; signature: string }
-): Promise<boolean> {
-  if (!env.RAZORPAY_KEY_SECRET) return false;
-  const expected = await hmacSha256Hex(env.RAZORPAY_KEY_SECRET, `${input.orderId}|${input.paymentId}`);
-  return safeEqual(expected, String(input.signature || ''));
-}
-
-/** Webhook: HMAC(rawBody, webhook_secret) against x-razorpay-signature. */
+/**
+ * Webhook verification: HMAC-SHA256 base64 of the raw body against the
+ * webhook secret, compared with the `x-webhook-signature` header
+ * (Cashfree contract). A body that does not verify can never change an order.
+ */
 export async function verifyWebhookSignature(env: Env, rawBody: string, signature: string): Promise<boolean> {
-  const secret = env.RAZORPAY_WEBHOOK_SECRET;
+  const secret = env.CASHFREE_WEBHOOK_SECRET;
   if (!secret) return false;
-  const expected = await hmacSha256Hex(secret, rawBody);
+  const expected = await hmacSha256Base64(secret, rawBody);
   return safeEqual(expected, String(signature || ''));
 }
 
@@ -150,8 +165,8 @@ export function paymentTransportSummary(env: Env) {
   return {
     provider: activePaymentProvider(env),
     configured: paymentsConfigured(env),
-    keyId: env.RAZORPAY_KEY_ID || null,
+    keyId: env.CASHFREE_APP_ID || null,
     simulated: !paymentsConfigured(env),
-    webhookSecretSet: Boolean(env.RAZORPAY_WEBHOOK_SECRET),
+    webhookSecretSet: Boolean(env.CASHFREE_WEBHOOK_SECRET),
   };
 }

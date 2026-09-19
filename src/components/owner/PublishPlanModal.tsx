@@ -6,7 +6,7 @@ import { LISTING_PLANS, ListingPlan, ListingPlanId, formatInr } from '../../doma
 import { UserAccount } from '../../types';
 import {
   createListingOrder, failListingPayment, fetchListingOrder, fetchListingPlans,
-  ListingOrder, loadRazorpayCheckout, simulateListingPayment, verifyListingPayment,
+  ListingOrder, pollPaymentConfirmation, simulateListingPayment,
 } from '../../services/payments';
 
 /**
@@ -18,17 +18,6 @@ import {
  */
 
 type Phase = 'plans' | 'paying' | 'processing' | 'success' | 'failed';
-
-interface RazorpayInstance {
-  open: () => void;
-  on: (event: string, handler: (payload: unknown) => void) => void;
-}
-
-declare global {
-  interface Window {
-    Razorpay?: new (options: Record<string, unknown>) => RazorpayInstance;
-  }
-}
 
 export interface PayTarget {
   propertyId: string;
@@ -67,65 +56,33 @@ export const PublishPlanModal: React.FC<{
 
   const planOf = (id?: string | null) => plans.find((p) => p.id === id) || LISTING_PLANS.find((p) => p.id === id);
 
-  /** Open Razorpay checkout for a real order. */
+  /** Open Cashfree's hosted payment page, then poll the server for confirmation. */
   const openGateway = useCallback(async (pending: ListingOrder) => {
     setPhase('paying');
     setError(null);
-    const ready = await loadRazorpayCheckout();
-    if (!ready || !window.Razorpay || !target.keyId) {
-      setError('Could not load the secure payment window. Check your connection and try again.');
+    const hosted = pending.paymentLink;
+    if (!hosted) {
+      setError('The payment page could not be created. Try again, or use the resumable link below.');
       setPhase('failed');
       return;
     }
-    const checkout = new window.Razorpay({
-      key: pending.keyId,
-      order_id: pending.providerOrderId || undefined,
-      amount: pending.amountPaise || pending.amount * 100,
-      currency: pending.currency || 'INR',
-      name: 'PGWalo',
-      description: `${planOf(pending.planId)?.name || 'Listing'} plan — ${target.propertyName || 'your PG'}`,
-      prefill: {
-        name: currentUser?.name || '',
-        email: currentUser?.email || '',
-        contact: currentUser?.phone || '',
-      },
-      notes: { propertyId: target.propertyId, planId: pending.planId, orderId: pending.id },
-      theme: { color: '#1769FF' },
-      handler: (response: { razorpay_payment_id?: string; razorpay_order_id?: string; razorpay_signature?: string }) => {
-        void (async () => {
-          setPhase('processing');
-          const verified = await verifyListingPayment(pending.id, {
-            razorpay_payment_id: response?.razorpay_payment_id,
-            razorpay_order_id: response?.razorpay_order_id,
-            razorpay_signature: response?.razorpay_signature,
-          });
-          if (!verified.ok) {
-            const failed = await failListingPayment(pending.id, verified.error || 'Payment verification failed');
-            setOrder(failed.data?.order || pending);
-            setError(verified.error || 'Payment could not be verified.');
-            setPhase('failed');
-            return;
-          }
-          const paid = verified.data?.order || pending;
-          setOrder(paid);
-          setPhase('success');
-          onPublished(paid);
-        })();
-      },
-      modal: {
-        ondismiss: () => {
-          void (async () => {
-            const failed = await failListingPayment(pending.id, 'Checkout closed before the payment completed');
-            setOrder(failed.data?.order || pending);
-            setError('The payment window was closed before it completed. Your listing is saved — try again any time.');
-            setPhase('failed');
-          })();
-        },
-      },
-    });
-    checkout.open();
+    // Cashfree's hosted page handles UPI/cards/netbanking; confirmation only
+    // ever comes from the server (webhook or gateway status poll).
+    window.open(hosted, '_blank', 'noopener');
+    setPhase('processing');
+    const result = await pollPaymentConfirmation(pending.id);
+    if (result.paid) {
+      const res = await fetchListingOrder(pending.id);
+      const paid = res.data?.order || { ...pending, status: 'paid' as const };
+      setOrder(paid);
+      setPhase('success');
+      onPublished(paid);
+      return;
+    }
+    setError(result.error || 'We could not confirm the payment yet. If you were charged, it completes automatically.');
+    setPhase('failed');
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentUser?.email, currentUser?.name, currentUser?.phone, onPublished, plans, target.propertyId, target.propertyName]);
+  }, [onPublished]);
 
   // Resume an emailed payment link (or a re-opened checkout).
   useEffect(() => {
@@ -299,8 +256,8 @@ export const PublishPlanModal: React.FC<{
                   <AlertCircle className="w-4 h-4" /> Test mode — no real gateway is connected
                 </p>
                 <p>
-                  {chosenPlan?.name} plan for {formatInr(order.amount)}. The moment Razorpay keys are
-                  installed (<code>RAZORPAY_KEY_ID</code> / <code>RAZORPAY_KEY_SECRET</code>) this screen
+                  {chosenPlan?.name} plan for {formatInr(order.amount)}. The moment Cashfree keys are
+                  installed (<code>CASHFREE_APP_ID</code> / <code>CASHFREE_SECRET_KEY</code>) this screen
                   becomes the live checkout and this test panel disappears.
                 </p>
               </div>

@@ -20,8 +20,8 @@ export interface ListingOrder {
   currency: string;
   amountPaise?: number;
   status: 'created' | 'paid' | 'failed' | 'cancelled';
-  provider: 'razorpay' | 'none';
-  /** The gateway's own order id — required by Razorpay checkout. */
+  provider: 'cashfree' | 'none';
+  /** The gateway's own order id — used for server-side status polling. */
   providerOrderId?: string | null;
   keyId?: string | null;
   paymentLink?: string;
@@ -33,7 +33,7 @@ export interface ListingOrder {
 }
 
 export interface PaymentTransport {
-  provider: 'razorpay' | 'none';
+  provider: 'cashfree' | 'none';
   configured: boolean;
   simulated: boolean;
   webhookSecretSet?: boolean;
@@ -75,7 +75,7 @@ export async function fetchListingOrder(orderId: string) {
 
 export async function verifyListingPayment(
   orderId: string,
-  payload: { razorpay_payment_id?: string; razorpay_order_id?: string; razorpay_signature?: string }
+  payload: { cf_payment_id?: string } = {}
 ) {
   return request<{ order: ListingOrder; alreadyPaid?: boolean }>(
     `/api/payments/orders/${encodeURIComponent(orderId)}/verify`,
@@ -101,23 +101,25 @@ export async function simulateListingPayment(orderId: string, outcome: 'success'
   });
 }
 
-const CHECKOUT_SRC = 'https://checkout.razorpay.com/v1/checkout.js';
-
-export function loadRazorpayCheckout(): Promise<boolean> {
-  if (typeof window === 'undefined') return Promise.resolve(false);
-  if ((window as unknown as { Razorpay?: unknown }).Razorpay) return Promise.resolve(true);
+/**
+ * Cashfree confirmation: poll the server-side verify endpoint, which checks the
+ * order's payment status at the gateway. No client SDK, no client signature.
+ */
+export function pollPaymentConfirmation(orderId: string, timeoutMs = 90_000): Promise<{ paid: boolean; error?: string }> {
+  const deadline = Date.now() + timeoutMs;
   return new Promise((resolve) => {
-    const existing = document.querySelector<HTMLScriptElement>(`script[src="${CHECKOUT_SRC}"]`);
-    if (existing) {
-      existing.addEventListener('load', () => resolve(true), { once: true });
-      existing.addEventListener('error', () => resolve(false), { once: true });
-      return;
-    }
-    const script = document.createElement('script');
-    script.src = CHECKOUT_SRC;
-    script.async = true;
-    script.onload = () => resolve(true);
-    script.onerror = () => resolve(false);
-    document.head.appendChild(script);
+    const tick = async () => {
+      const res = await verifyListingPayment(orderId);
+      if (res.ok && res.data?.order?.status === 'paid') {
+        resolve({ paid: true });
+        return;
+      }
+      if (Date.now() >= deadline) {
+        resolve({ paid: false, error: res.error || 'Payment confirmation timed out — if you were charged, the webhook will complete it shortly.' });
+        return;
+      }
+      window.setTimeout(tick, 4000);
+    };
+    void tick();
   });
 }
