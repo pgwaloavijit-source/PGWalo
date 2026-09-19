@@ -30,8 +30,16 @@ export function citiesMatch(propertyCity: string, selectedCity: string) {
   return normalizeCity(propertyCity) === normalizeCity(selectedCity);
 }
 
+function normalizeSearchText(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .replace(/\s+/g, ' ');
+}
+
 export function matchesPlaceQuery(property: Property, query: string) {
-  const q = query.trim().toLowerCase();
+  const q = normalizeSearchText(query);
   if (!q) return true;
   if (citiesMatch(property.city, query.trim())) return true;
   const aliases = cityAliases(property.city);
@@ -49,9 +57,10 @@ export function matchesPlaceQuery(property: Property, query: string) {
     ...aliases,
   ]
     .filter(Boolean)
-    .join(' ')
-    .toLowerCase();
-  return hay.includes(q) || q.split(/\s+/).every((part) => hay.includes(part) || aliases.includes(part));
+    .map((value) => normalizeSearchText(String(value)))
+    .join(' ');
+  const tokens = q.split(' ');
+  return hay.includes(q) || tokens.every((part) => hay.includes(part) || aliases.some((alias) => normalizeSearchText(alias) === part));
 }
 
 export function mergeProperties(local: Property[], remote: Property[]) {

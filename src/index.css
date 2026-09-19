@@ -16,7 +16,7 @@ body {
   overflow-y: auto;
   overflow-x: hidden;
   /* Native feel: kill the rubber-band bounce and grey tap flash everywhere. */
-  overscroll-behavior-y: none;
+  overscroll-behavior-y: auto;
   -webkit-tap-highlight-color: transparent;
 }
 
@@ -86,7 +86,8 @@ html {
 body.native-shell {
   min-height: 100dvh;
   -webkit-tap-highlight-color: transparent;
-  touch-action: manipulation;
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
 }
 
 .native-app {
