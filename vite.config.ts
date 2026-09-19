@@ -31,7 +31,7 @@ export default defineConfig(({ command, mode }) => {
           name: 'PGWalo',
           short_name: 'PGWalo',
           description: 'PGWalo — Your Home Away From Home. Modern PG accommodation and property management platform.',
-          theme_color: '#2563EB',
+          theme_color: '#0f2d6b',
           background_color: '#f8fafc',
           display: 'standalone',
           display_override: ['standalone', 'fullscreen'],

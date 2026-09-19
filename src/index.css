@@ -13,6 +13,61 @@ body {
   min-height: 100%;
   height: auto;
   overflow-y: auto;
+  /* Native feel: kill the rubber-band bounce and grey tap flash everywhere. */
+  overscroll-behavior-y: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Native feel: chrome (headers, tab bars, buttons) must not select like text
+   and long-press must not pop a callout on app chrome. Scrollbars disappear on
+   touch devices exactly like a native app — content scrolls, scrollbar doesn't. */
+@media (hover: none) and (pointer: coarse) {
+  * {
+    -webkit-touch-callout: none;
+  }
+  body {
+    scrollbar-width: none;
+  }
+  body::-webkit-scrollbar {
+    display: none;
+  }
+  ::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+  }
+}
+
+/* Native feel: standard pressed-state feedback so every touchable reacts like
+   a native control (native apps scale/dim on press, websites don't). */
+.pnative-press {
+  transition: transform 120ms ease, opacity 120ms ease;
+}
+.pnative-press:active {
+  transform: scale(0.97);
+  opacity: 0.92;
+}
+
+/* Native feel: subtle screen-enter fade when a dashboard view mounts.
+   Opacity only — a transform here would make ancestors of position:fixed
+   elements (bottom nav, modals) their containing block and break layout. */
+@keyframes pnative-screen-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.pnative-screen {
+  animation: pnative-screen-in 160ms ease-out both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pnative-screen {
+    animation: none;
+  }
+  .pnative-press {
+    transition: none;
+  }
 }
 
 #root {
@@ -136,6 +191,17 @@ button,
 a,
 [role="button"] {
   touch-action: manipulation;
+}
+
+/* Native feel: iOS Safari auto-zooms any focused input whose font-size is
+   below 16px, which feels broken inside a standalone app. Enforce 16px on
+   touch devices (desktop keeps the designed compact sizes). */
+@media (hover: none) and (pointer: coarse) {
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
 }
 
 /* ---------------------------------------------------------------

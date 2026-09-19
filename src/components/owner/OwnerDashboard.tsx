@@ -759,7 +759,7 @@ export const OwnerDashboard: React.FC = () => {
             );
           })}
         </nav>
-        <div className="flex-1 min-w-0 mb-6">
+        <div key={activeTab} className="pnative-screen flex-1 min-w-0 mb-6">
 
         {/* MARKET-READY TABS */}
         {activeTab === 'home' && <OwnerHomeTab onNavigate={(t) => setActiveTab(t as typeof activeTab)} />}
@@ -1145,8 +1145,8 @@ export const OwnerDashboard: React.FC = () => {
             </div>
 
             <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-2xs">
-              <div className="grid grid-cols-1 md:grid-cols-1">
-                <table className="w-full text-left text-xs">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs min-w-[640px]">
                   <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase text-[10px]">
                     <tr>
                       <th className="py-3 px-4">Resident</th>

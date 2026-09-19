@@ -1,0 +1,3 @@
+SUPERADMIN_USERNAME=PGWalo.Avijit
+SUPERADMIN_PASSWORD=change-me-locally
+# Copy to .dev.vars (gitignored) for local wrangler dev

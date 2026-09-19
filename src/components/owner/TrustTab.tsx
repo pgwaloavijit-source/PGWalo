@@ -383,8 +383,8 @@ const InspectionForm: React.FC<{
           <input value={roomNumber} onChange={(e) => setRoomNumber(e.target.value)} className="w-full mt-1 px-3 py-2 rounded-xl border border-slate-300 text-sm" placeholder="204" />
         </label>
       </div>
-      <div className="max-h-72 overflow-y-auto rounded-2xl border border-slate-100">
-        <table className="w-full text-xs">
+      <div className="max-h-72 overflow-y-auto overflow-x-auto rounded-2xl border border-slate-100">
+        <table className="w-full text-xs min-w-[420px]">
           <thead className="sticky top-0 bg-slate-50">
             <tr className="text-left text-[10px] font-black uppercase text-slate-400">
               <th className="px-3 py-2">Area</th>

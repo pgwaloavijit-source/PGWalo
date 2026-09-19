@@ -180,8 +180,8 @@ export const MoneyTab: React.FC = () => {
           {overdue.length === 0 ? (
             <EmptyState icon={CheckCircle2} title="Nobody owes you money" body="Every invoice is settled. Check reconciliation for pending gateway payments." />
           ) : (
-            <div className="bg-white rounded-3xl border border-slate-200 overflow-hidden">
-              <table className="w-full text-sm">
+            <div className="bg-white rounded-3xl border border-slate-200 overflow-hidden overflow-x-auto">
+              <table className="w-full text-sm min-w-[560px]">
                 <thead>
                   <tr className="text-left text-[10px] font-black uppercase tracking-wide text-slate-400 border-b border-slate-100">
                     <th className="px-5 py-2.5">Resident</th>
@@ -284,8 +284,8 @@ export const MoneyTab: React.FC = () => {
           {intents.length === 0 ? (
             <EmptyState icon={ArrowRightLeft} title="No payment intents yet" body="Token, rent and deposit payment links you create will appear here for tracking and reconciliation." />
           ) : (
-            <div className="bg-white rounded-3xl border border-slate-200 overflow-hidden">
-              <table className="w-full text-sm">
+            <div className="bg-white rounded-3xl border border-slate-200 overflow-hidden overflow-x-auto">
+              <table className="w-full text-sm min-w-[560px]">
                 <thead>
                   <tr className="text-left text-[10px] font-black uppercase tracking-wide text-slate-400 border-b border-slate-100">
                     <th className="px-5 py-2.5">Payer</th>
