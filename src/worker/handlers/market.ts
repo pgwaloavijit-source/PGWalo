@@ -974,75 +974,85 @@ interface AnalyticsRow {
  */
 async function ownerAnalytics(env: Env, orgId: string | null, request: Request): Promise<Response> {
   const propertyIdFilter = new URL(request.url).searchParams.get('propertyId');
-  const orgClause = orgId ? 'organization_id = ?' : '1=1';
-  const binds: unknown[] = orgId ? [orgId] : [];
+  const now = nowIso();
+  const today = now.slice(0, 10);
+  const month = now.slice(0, 7);
 
-  const bedStats = await env.DB.prepare(
+  // Per-query scope builder: placeholders and binds are assembled together so
+  // the count and order can never drift (this endpoint previously crashed with
+  // a D1 bind-count mismatch when org scoping applied).
+  const scope = (table: string, supportsProperty: boolean): { clause: string; binds: unknown[] } => {
+    const parts: string[] = [];
+    const binds: unknown[] = [];
+    if (orgId) { parts.push(`${table}.organization_id = ?`); binds.push(orgId); }
+    if (propertyIdFilter && supportsProperty) { parts.push(`${table}.property_id = ?`); binds.push(propertyIdFilter); }
+    return { clause: parts.length ? parts.join(' AND ') : '1=1', binds };
+  };
+
+  const bedScope = scope('b', true);
+  const bedRow = await env.DB.prepare(
     `SELECT COUNT(*) AS total,
-       SUM(CASE WHEN status IN ('Occupied','Notice Period','Vacating') THEN 1 ELSE 0 END) AS occupied,
-       SUM(CASE WHEN status IN ('Vacant','Available','Ready') THEN 1 ELSE 0 END) AS vacant
-     FROM beds WHERE ${orgClause} ${propertyIdFilter ? 'AND property_id = ?' : ''}`
-  );
-  const bedRow = await (propertyIdFilter ? bedStats.bind(...binds, propertyIdFilter) : bedStats.bind(...binds))
-    .first<{ total: number; occupied: number; vacant: number }>();
+       SUM(CASE WHEN b.status IN ('Occupied','Notice Period','Vacating') THEN 1 ELSE 0 END) AS occupied,
+       SUM(CASE WHEN b.status IN ('Vacant','Available','Ready') THEN 1 ELSE 0 END) AS vacant
+     FROM beds b WHERE ${bedScope.clause}`
+  ).bind(...bedScope.binds).first<{ total: number; occupied: number; vacant: number }>();
 
+  const invScope = scope('i', false);
   const invStats = await env.DB.prepare(
     `SELECT COUNT(*) AS overdue_count,
-       COALESCE(SUM(CASE WHEN due_date < ? AND status NOT IN ('Paid','Cancelled','Waived')
-         THEN amount - COALESCE(verified_paid_amount, 0) ELSE 0 END), 0) AS overdue_amount,
-       COALESCE(SUM(CASE WHEN substr(created_at,1,7) = ? THEN amount ELSE 0 END), 0) AS billed_month,
-       COALESCE(SUM(CASE WHEN substr(created_at,1,7) = ? THEN COALESCE(verified_paid_amount,0) ELSE 0 END), 0) AS collected_month
-     FROM invoices WHERE ${orgClause}`
-  ).bind(...(propertyIdFilter ? [...binds, nowIso().slice(0, 10), nowIso().slice(0, 7), nowIso().slice(0, 7)] : [nowIso().slice(0, 10), nowIso().slice(0, 7), nowIso().slice(0, 7)]))
+       COALESCE(SUM(CASE WHEN i.due_date < ? AND i.status NOT IN ('Paid','Cancelled','Waived')
+         THEN i.amount - COALESCE(i.verified_paid_amount, 0) ELSE 0 END), 0) AS overdue_amount,
+       COALESCE(SUM(CASE WHEN substr(i.created_at,1,7) = ? THEN i.amount ELSE 0 END), 0) AS billed_month,
+       COALESCE(SUM(CASE WHEN substr(i.created_at,1,7) = ? THEN COALESCE(i.verified_paid_amount,0) ELSE 0 END), 0) AS collected_month
+     FROM invoices i WHERE ${invScope.clause}`
+  ).bind(...invScope.binds, today, month, month)
     .first<{ overdue_count: number; overdue_amount: number; billed_month: number; collected_month: number }>();
 
+  const expScope = scope('e', true);
   const expenseStats = await env.DB.prepare(
-    `SELECT COALESCE(SUM(amount), 0) AS total FROM expenses
-     WHERE ${orgClause} AND substr(date,1,7) = ?`
-  ).bind(...(propertyIdFilter ? [...binds, nowIso().slice(0, 7)] : binds), ...(propertyIdFilter ? [] : []))
-   .bind(...(propertyIdFilter ? [...binds, nowIso().slice(0, 7)] : [...binds, nowIso().slice(0, 7)]))
-   .first<{ total: number }>();
+    `SELECT COALESCE(SUM(e.amount), 0) AS total FROM expenses e
+     WHERE ${expScope.clause} AND substr(e.date,1,7) = ?`
+  ).bind(...expScope.binds, month).first<{ total: number }>();
 
+  const resScope = scope('r', false);
   const reservationStats = await env.DB.prepare(
-    `SELECT COUNT(*) AS active FROM reservations
-     WHERE ${orgClause} AND status IN ('pending_payment','held','confirmed')`
-  ).bind(...binds).first<{ active: number }>();
+    `SELECT COUNT(*) AS active FROM reservations r
+     WHERE ${resScope.clause} AND r.status IN ('pending_payment','held','confirmed')`
+  ).bind(...resScope.binds).first<{ active: number }>();
 
   // Deposit liability is a balance-sheet number (spec §19/§31): held on active
   // residents' accounts. It is a liability, never counted as revenue.
+  const depScope = scope('d', false);
   const depositStats = await env.DB.prepare(
-    `SELECT COALESCE(SUM(deposit_amount), 0) AS held FROM residents
-     WHERE ${orgClause} AND status = 'Active'`
-  ).bind(...binds).first<{ held: number }>();
+    `SELECT COALESCE(SUM(d.deposit_amount), 0) AS held FROM residents d
+     WHERE ${depScope.clause} AND d.status = 'Active'`
+  ).bind(...depScope.binds).first<{ held: number }>();
 
   // Future vacancies from real notice windows (spec §10/§31): notice/vacating
   // beds whose next_available_date falls inside each forward window.
-  const today = nowIso().slice(0, 10);
   const futureVacancies: Record<7 | 30 | 60, number> = { 7: 0, 30: 0, 60: 0 };
   for (const days of [7, 30, 60] as const) {
     const row = await env.DB.prepare(
-      `SELECT COUNT(*) AS n FROM beds
-       WHERE ${orgClause} AND status IN ('Notice Period','Vacating')
-         AND next_available_date IS NOT NULL AND next_available_date >= ?
-         AND next_available_date <= date(?, '+${days} days')`
-    ).bind(...(propertyIdFilter ? [...binds, today, today] : [today, today]))
-     .first<{ n: number }>();
+      `SELECT COUNT(*) AS n FROM beds b
+       WHERE ${bedScope.clause} AND b.status IN ('Notice Period','Vacating')
+         AND b.next_available_date IS NOT NULL AND b.next_available_date >= ?
+         AND b.next_available_date <= date(?, '+${days} days')`
+    ).bind(...bedScope.binds, today, today).first<{ n: number }>();
     futureVacancies[days] = row?.n || 0;
   }
 
   // Funnel + conversions (spec §31) computed in SQL from CRM stages. Legacy
   // stages map onto the pipeline: Booked → reserved, Booking Pending →
   // token_pending, Interested → negotiating (same mapping as the CRM UI).
-  const legacyVisited = "('Visit Scheduled','Visited','Interested','Booking Pending','Booked','Moved In')";
-  const legacyToken = "('Booking Pending','Booked','Moved In')";
+  const leadScope = scope('l', false);
   const funnelRows = await env.DB.prepare(
-    `SELECT COALESCE(stage_v2, CASE stage
+    `SELECT COALESCE(l.stage_v2, CASE l.stage
        WHEN 'Booking Pending' THEN 'token_pending' WHEN 'Booked' THEN 'reserved'
-       WHEN 'Interested' THEN 'negotiating' ELSE REPLACE(LOWER(stage), ' ', '_') END) AS stage,
+       WHEN 'Interested' THEN 'negotiating' ELSE REPLACE(LOWER(l.stage), ' ', '_') END) AS stage,
        COUNT(*) AS count
-     FROM leads WHERE ${orgClause} AND stage NOT IN ('Lost')
-     GROUP BY stage`
-  ).bind(...binds).all<{ stage: string; count: number }>();
+     FROM leads l WHERE ${leadScope.clause} AND (l.stage IS NULL OR l.stage != 'Lost')
+     GROUP BY 1`
+  ).bind(...leadScope.binds).all<{ stage: string; count: number }>();
 
   const stageCounts = new Map<string, number>();
   for (const r of funnelRows.results || []) {
@@ -1073,7 +1083,6 @@ async function ownerAnalytics(env: Env, orgId: string | null, request: Request):
     futureVacancies60: futureVacancies[60],
   };
 
-  void legacyVisited; void legacyToken; // documented mapping; counts derive from stageCounts
   const funnel = [...stageCounts].map(([stage, count]) => ({ stage, count }));
   const conversions = {
     leadToVisit: pct(visitedCount, leadCount),
@@ -1081,13 +1090,14 @@ async function ownerAnalytics(env: Env, orgId: string | null, request: Request):
     tokenToMoveIn: pct(movedInCount, tokenCount),
   };
 
+  const propScope = scope('p', false);
   const { results: perProperty } = await env.DB.prepare(
     `SELECT p.id, p.name,
        (SELECT COUNT(*) FROM beds b WHERE b.property_id = p.id) AS total,
        (SELECT COUNT(*) FROM beds b WHERE b.property_id = p.id AND b.status IN ('Occupied','Notice Period','Vacating')) AS occupied,
        (SELECT COUNT(*) FROM beds b WHERE b.property_id = p.id AND b.status IN ('Vacant','Available','Ready')) AS vacant
-     FROM properties p WHERE ${orgClause}`
-  ).bind(...binds).all<Row>();
+     FROM properties p WHERE ${propScope.clause}`
+  ).bind(...propScope.binds).all<Row>();
 
   const payload: AnalyticsRow = {
     kpis,
@@ -1444,9 +1454,9 @@ async function patchInstitutional(env: Env, orgId: string | null, user: User, in
 }
 
 /** Eligible vacant beds for a request — server-filtered by the shared rules. */
-async function institutionalEligibility(env: Env, orgId: string | null, request: Request): Promise<Response> {
+async function institutionalEligibility(env: Env, orgId: string | null, request: Request, instIdFromPath?: string): Promise<Response> {
   const url = new URL(request.url);
-  const instId = url.searchParams.get('institutionalId');
+  const instId = instIdFromPath || url.searchParams.get('institutionalId');
   if (!instId) return json({ error: 'institutionalId required' }, 400);
   const inst = await env.DB.prepare(
     'SELECT * FROM institutional_leads WHERE id = ? ' + (orgId ? 'AND organization_id = ?' : '')
@@ -1458,7 +1468,7 @@ async function institutionalEligibility(env: Env, orgId: string | null, request:
     ? `AND (p.locality IN (${req.targetLocalities.map(() => '?').join(',')})) `
     : '';
   const { results } = await env.DB.prepare(
-    `SELECT b.id, b.bed_number, b.room_number, b.monthly_rent, b.sharing_type, b.property_id, p.name AS property_name, p.gender_model
+    `SELECT b.id, b.bed_number, b.room_number, b.monthly_rent, b.sharing_type, b.status, b.property_id, p.name AS property_name, p.gender
      FROM beds b JOIN properties p ON p.id = b.property_id
      WHERE 1=1 ${orgId ? 'AND b.organization_id = ?' : ''} ${propClause}`
   ).bind(...(orgId ? [orgId, ...req.targetLocalities] : req.targetLocalities)).all<Row>();
@@ -1466,7 +1476,8 @@ async function institutionalEligibility(env: Env, orgId: string | null, request:
   const eligible = (results || []).filter((r) => bedEligibleForInstitution({
     bed: { status: String(r.status ?? 'Vacant'), sharingType: String(r.sharing_type || ''), monthlyRent: Number(r.monthly_rent || 0) },
     genderEligibility: req.genderEligibility,
-    propertyGenderModel: (r.gender_model as string) || null,
+    // properties.gender is 'Boys' | 'Girls' | 'Unisex' (legacy model).
+    propertyGenderModel: r.gender ? String(r.gender).toLowerCase().replace('unisex', 'any') : null,
     budgetPerBed: req.budgetPerBed,
   }));
   return json({
@@ -1649,7 +1660,7 @@ export async function marketHandler(request: Request, env: Env): Promise<Respons
     const instMatch = path.match(/^\/api\/market\/institutional\/([^/]+)$/);
     if (instMatch && method === 'PATCH') return patchInstitutional(env, orgId, user, decodeURIComponent(instMatch[1]), request);
     const instElig = path.match(/^\/api\/market\/institutional\/([^/]+)\/eligible-beds$/);
-    if (instElig && method === 'GET') return institutionalEligibility(env, orgId, request);
+    if (instElig && method === 'GET') return institutionalEligibility(env, orgId, request, decodeURIComponent(instElig[1]));
 
     // ---- P1: meal operations (§28) --------------------------------------------
     if (path === '/api/market/meal-ops') {
