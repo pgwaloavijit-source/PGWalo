@@ -113,6 +113,8 @@ const OwnerListingWizard: React.FC<OwnerListingWizardProps> = ({ onComplete, onC
   useEffect(() => {
     const prevBody = document.body.style.overflow;
     const prevHtml = document.documentElement.style.overflow;
+    const prevBodyPaddingRight = document.body.style.paddingRight;
+    const scrollY = window.scrollY;
     document.body.style.overflow = 'hidden';
     document.documentElement.style.overflow = 'hidden';
     const onKey = (e: KeyboardEvent) => {
@@ -122,6 +124,8 @@ const OwnerListingWizard: React.FC<OwnerListingWizardProps> = ({ onComplete, onC
     return () => {
       document.body.style.overflow = prevBody;
       document.documentElement.style.overflow = prevHtml;
+      document.body.style.paddingRight = prevBodyPaddingRight;
+      window.scrollTo(0, scrollY);
       window.removeEventListener('keydown', onKey);
     };
   }, [onCancel]);

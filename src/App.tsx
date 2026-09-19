@@ -302,7 +302,7 @@ const MainAppContent: React.FC = () => {
           <main
             id="main-content"
             tabIndex={-1}
-            className="flex-1 pb-[calc(var(--app-tab-bar-height)+var(--safe-bottom))] md:pb-0 outline-none"
+            className="min-h-0 flex-1 overflow-visible pb-[calc(var(--app-tab-bar-height)+var(--safe-bottom))] md:pb-0 outline-none"
           >
             {appContent}
           </main>

@@ -296,7 +296,7 @@ export const LandingPage: React.FC<{
           </h1>
 
           <p className="mt-4 text-sm sm:text-base text-slate-300 max-w-2xl mx-auto leading-relaxed font-normal">
-            Hygienic 3-time meals, high-speed Wi-Fi, biometric security, and digital stay management. Schedule free visits or request to join with zero brokerage.
+            Compare rent, deposit, food, room sharing, amenities, and house rules in one place. Check live availability, schedule a visit, and request to move in without broker fees.
           </p>
 
           {/* Quick Search Card */}
@@ -495,10 +495,10 @@ export const LandingPage: React.FC<{
             <div>
               <div className="inline-flex items-center gap-1.5 text-blue-600 text-xs font-bold uppercase tracking-wider mb-1">
                 <Building className="w-4 h-4" />
-                <span>Featured Accommodations</span>
+                <span>Live availability</span>
               </div>
               <h2 className="text-xl sm:text-2xl font-black text-slate-900">
-                Verified PGs near you
+                Homes that match your move-in plan
               </h2>
             </div>
             <button
@@ -627,13 +627,13 @@ export const LandingPage: React.FC<{
           <div>
             <span className="text-blue-600 text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 mb-1">
               <MapPin className="w-4 h-4" />
-              <span>Locality Hubs</span>
+              <span>Search by commute</span>
             </span>
             <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900">
-              Browse PGs by Area & Tech Park
+              Find a PG near work, college, or transit
             </h2>
             <p className="text-xs sm:text-sm text-slate-600 mt-1">
-              Live within 15 minutes of your office with seamless transport connectivity.
+              Start with the area that matters to you, then compare available rooms and pricing.
             </p>
           </div>
           <button
@@ -672,14 +672,14 @@ export const LandingPage: React.FC<{
         </div>
       </section>
 
-      {/* ================= HOW PGNEST WORKS ================= */}
+      {/* ================= HOW PGWALO WORKS ================= */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-20">
         <div className="text-center max-w-2xl mx-auto mb-12">
           <span className="text-blue-600 text-xs font-bold uppercase tracking-wider">
-            Customer-First Experience
+            A clearer move-in journey
           </span>
           <h2 className="text-2xl sm:text-4xl font-extrabold text-slate-900 mt-1">
-            How PGWalo Works For You
+            From shortlist to move-in
           </h2>
           <p className="text-slate-600 text-xs sm:text-sm mt-2 leading-relaxed">
             Finding your home away from home should be easy, transparent, and completely free of broker hassles.
@@ -693,7 +693,7 @@ export const LandingPage: React.FC<{
             </div>
             <h3 className="text-base font-bold text-slate-900 mb-2">Search & Filter by Area</h3>
             <p className="text-xs text-slate-600 leading-relaxed">
-              Explore verified PGs with transparent photos, real resident reviews, mess food menus, room sharing options, and exact prices.
+              Filter by location, budget, room sharing, amenities, food, and house rules. See the details you need before contacting a property.
             </p>
           </div>
 
@@ -703,7 +703,7 @@ export const LandingPage: React.FC<{
             </div>
             <h3 className="text-base font-bold text-slate-900 mb-2">Schedule Free Physical Visit</h3>
             <p className="text-xs text-slate-600 leading-relaxed">
-              Select your convenient date and time slot. Receive instant confirmation and caretaker details so you can inspect the campus in person.
+              Ask for a visit or send an enquiry from the property page. Keep the conversation tied to the property and your preferred move-in date.
             </p>
           </div>
 
@@ -713,7 +713,7 @@ export const LandingPage: React.FC<{
             </div>
             <h3 className="text-base font-bold text-slate-900 mb-2">Zero Brokerage Move-In</h3>
             <p className="text-xs text-slate-600 leading-relaxed">
-              Request to join or book online. Once approved, complete your digital agreement, track meal times, and pay rent smoothly from your phone.
+              Once approved by the operator, complete your stay details and keep rent, notices, requests, and agreements in one resident workspace.
             </p>
           </div>
         </div>
@@ -733,10 +733,10 @@ export const LandingPage: React.FC<{
               <span>For Property Owners & Co-Living Operators</span>
             </div>
             <h2 className="text-2xl sm:text-4xl font-extrabold text-white leading-tight">
-              List Your Property on PGWalo & Fill Vacancies 3x Faster
+              Keep every property, lead, room, and collection in one workspace
             </h2>
             <p className="text-xs sm:text-sm text-slate-300 mt-3 leading-relaxed">
-              Automate your PG operations with digital room & bed matrices, lead tracking CRM, automated UPI rent collections, electricity sub-meter calculations, and daily mess management.
+              Publish accurate room and bed availability, follow up with enquiries, track occupancy, manage collections and expenses, and coordinate staff from a single operating view.
             </p>
 
             <div className="mt-6 flex flex-wrap items-center gap-3">
