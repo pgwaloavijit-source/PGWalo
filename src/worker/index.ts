@@ -22,6 +22,7 @@ import { eventsHandler } from './handlers/events';
 import { notificationsHandler } from './handlers/notifications';
 import { runEscalationSweep } from './handlers/maintenanceTickets';
 import { emailHandler } from './handlers/email';
+import { marketHandler, marketWebhookHandler } from './handlers/market';
 import { drainOutbox } from './email';
 
 export default {
@@ -141,6 +142,16 @@ export default {
       // Owner publishing plans: order, verify, resume and the gateway webhook.
       if (path.startsWith('/api/payments')) {
         return paymentsHandler(request, env);
+      }
+
+      // Market-ready domain endpoints: visits, reservations, payment intents,
+      // expenses, inspections, compliance, KYC, verified reviews, imports,
+      // analytics and the payment webhook.
+      if (path === '/api/market/webhooks/razorpay') {
+        return marketWebhookHandler(request, env);
+      }
+      if (path.startsWith('/api/market/')) {
+        return marketHandler(request, env);
       }
 
       // Bootstrap endpoints (auth middleware applied)

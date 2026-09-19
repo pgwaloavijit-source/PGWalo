@@ -211,6 +211,36 @@ async function overview(env: Env, user: User): Promise<Response> {
     ORDER BY sla_deadline ASC
     LIMIT 10`;
 
+  // §27 owner analytics — repeat issues: same category raised twice or more
+  // for the same property room within the trailing 30 days (a leaking tap
+  // fixed three times is a plumbing problem, not three tickets).
+  const repeatIssuesSql = `
+    SELECT COALESCE(NULLIF(category, ''), 'Other') AS category,
+           COALESCE(property_name, '') AS property_name,
+           room_number,
+           COUNT(*) AS occurrences,
+           MAX(created_at) AS last_at
+    FROM maintenance_tickets
+    ${whereSql}${and}created_at >= ?
+    GROUP BY COALESCE(NULLIF(category, ''), 'Other'), COALESCE(property_name, ''), room_number
+    HAVING COUNT(*) >= 2
+    ORDER BY occurrences DESC, last_at DESC
+    LIMIT 8`;
+
+  // §27 owner analytics — verified maintenance spend per occupied bed.
+  const costPerBedSql = `
+    SELECT t.property_id,
+           MAX(t.property_name) AS property_name,
+           COALESCE(SUM(t.cost), 0) AS total_cost,
+           (SELECT COUNT(*) FROM beds b
+             WHERE b.property_id = t.property_id
+               AND b.status IN ('Occupied', 'Notice Period', 'Vacating')) AS occupied_beds
+    FROM maintenance_tickets t
+    ${whereSql}${and}t.property_id IS NOT NULL AND t.status IN ('Resolved', 'Closed')
+    GROUP BY t.property_id
+    ORDER BY total_cost DESC
+    LIMIT 50`;
+
   const num = (value: unknown): number | null => {
     if (value === null || value === undefined) return null;
     const parsed = Number(value);
@@ -227,6 +257,9 @@ async function overview(env: Env, user: User): Promise<Response> {
     // Note the bind order: in this query the deadline `?` sits after the scope
     // placeholders, unlike the aggregate queries where it leads.
     const { results: breachRows } = await env.DB.prepare(breachedSql).bind(...params, nowIso).all<Record<string, unknown>>();
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 86_400_000).toISOString();
+    const { results: repeatRows } = await env.DB.prepare(repeatIssuesSql).bind(...params, thirtyDaysAgo).all<Record<string, unknown>>();
+    const { results: costRows } = await env.DB.prepare(costPerBedSql).bind(...params).all<Record<string, unknown>>();
 
     const durations = (durationRows || [])
       .map((row) => num(row.hours))
@@ -288,6 +321,24 @@ async function overview(env: Env, user: User): Promise<Response> {
         slaDeadline: row.sla_deadline ? String(row.sla_deadline) : undefined,
         escalatedAt: row.escalated_at ? String(row.escalated_at) : undefined,
       })),
+      repeatIssues: (repeatRows || []).map((row) => ({
+        category: String(row.category || 'Other'),
+        propertyName: String(row.property_name || ''),
+        roomNumber: String(row.room_number || ''),
+        occurrences: num(row.occurrences) || 0,
+        lastAt: String(row.last_at || ''),
+      })),
+      costPerBed: (costRows || []).map((row) => {
+        const occupied = num(row.occupied_beds) || 0;
+        const totalCost = num(row.total_cost) || 0;
+        return {
+          propertyId: String(row.property_id || ''),
+          propertyName: String(row.property_name || ''),
+          totalCost,
+          occupiedBeds: occupied,
+          costPerBed: occupied > 0 ? Math.round((totalCost / occupied) * 100) / 100 : null,
+        };
+      }),
       generatedAt: nowIso,
     });
   } catch (error) {

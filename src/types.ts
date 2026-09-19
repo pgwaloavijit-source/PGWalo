@@ -546,6 +546,10 @@ export interface MaintenanceOverview {
   };
   staff: MaintenanceStaffStat[];
   breached: MaintenanceBreachRow[];
+  /** §27 owner analytics: same category raised ≥2× within 30 days (per property+category+room). */
+  repeatIssues: { category: string; roomNumber: string; propertyName: string; occurrences: number; lastAt: string }[];
+  /** §27 owner analytics: verified maintenance spend ÷ occupied beds, per property. */
+  costPerBed: { propertyId: string; propertyName: string; totalCost: number; occupiedBeds: number; costPerBed: number | null }[];
   generatedAt: string;
 }
 

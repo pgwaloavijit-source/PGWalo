@@ -18,7 +18,7 @@ read_sql() { npx wrangler d1 execute "$DB" "$MODE" --json --command "$1" 2>/dev/
 
 # One round-trip answers "what is already applied?". Must stay on a single
 # line — Wrangler's --command rejects embedded newlines.
-PROBE="SELECT (SELECT COUNT(*) FROM pragma_table_info('users') WHERE name='password_hash') AS password_hash, (SELECT COUNT(*) FROM pragma_table_info('properties') WHERE name IN ('owner_user_id','place_label')) AS properties_owner, (SELECT COUNT(*) FROM pragma_table_info('staff_members') WHERE name IN ('owner_user_id','organization_id')) AS staff_owner, (SELECT COUNT(*) FROM pragma_table_info('users') WHERE name='aadhaar_hash') AS aadhaar_hash, (SELECT COUNT(*) FROM pragma_table_info('users') WHERE name='profile_extras') AS profile_extras,  (SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='support_tickets') AS support_tickets, (SELECT COUNT(*) FROM pragma_table_info('broadcast_notifications') WHERE name='recipient_id') AS broadcast_recipient, (SELECT COUNT(*) FROM pragma_table_info('maintenance_tickets') WHERE name='requester_id') AS maint_requester, (SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='auth_events') AS auth_events;"
+PROBE="SELECT (SELECT COUNT(*) FROM pragma_table_info('users') WHERE name='password_hash') AS password_hash, (SELECT COUNT(*) FROM pragma_table_info('properties') WHERE name IN ('owner_user_id','place_label')) AS properties_owner, (SELECT COUNT(*) FROM pragma_table_info('staff_members') WHERE name IN ('owner_user_id','organization_id')) AS staff_owner, (SELECT COUNT(*) FROM pragma_table_info('users') WHERE name='aadhaar_hash') AS aadhaar_hash, (SELECT COUNT(*) FROM pragma_table_info('users') WHERE name='profile_extras') AS profile_extras,  (SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='support_tickets') AS support_tickets, (SELECT COUNT(*) FROM pragma_table_info('broadcast_notifications') WHERE name='recipient_id') AS broadcast_recipient, (SELECT COUNT(*) FROM pragma_table_info('maintenance_tickets') WHERE name='requester_id') AS maint_requester, (SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='auth_events') AS auth_events, (SELECT COUNT(*) FROM pragma_table_info('leads') WHERE name='stage_v2') AS leads_v2, (SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='guardian_access') AS p1_tables;"
 
 RAW="$(read_sql "$PROBE")"
 JSON="$(printf '%s' "$RAW" | sed -n '/^\[/,$p')"
@@ -33,11 +33,11 @@ let s=''; process.stdin.on('data', d => s += d).on('end', () => {
   try {
     const rows = JSON.parse(s);
     const r = rows[0].results[0];
-    console.log([r.password_hash, r.properties_owner, r.staff_owner, r.aadhaar_hash, r.profile_extras, r.support_tickets, r.broadcast_recipient, r.maint_requester, r.auth_events].join(' '));
+    console.log([r.password_hash, r.properties_owner, r.staff_owner, r.aadhaar_hash, r.profile_extras, r.support_tickets, r.broadcast_recipient, r.maint_requester, r.auth_events, r.leads_v2, r.p1_tables].join(' '));
   } catch (e) { console.error('parse-failed'); process.exit(1); }
 });")" || { echo "Could not parse schema state."; exit 1; }
 
-read -r HAS_AUTH HAS_PROP_OWNER HAS_STAFF_OWNER HAS_AADHAAR HAS_EXTRAS HAS_TICKETS HAS_RECIPIENT HAS_MAINT_REQ HAS_EVENTS <<< "$FLAGS"
+read -r HAS_AUTH HAS_PROP_OWNER HAS_STAFF_OWNER HAS_AADHAAR HAS_EXTRAS HAS_TICKETS HAS_RECIPIENT HAS_MAINT_REQ HAS_EVENTS HAS_LEADS_V2 HAS_P1 <<< "$FLAGS"
 
 echo "Applying migrations to $DB ($MODE)…"
 
@@ -76,6 +76,16 @@ if [ "$HAS_TICKETS" -gt 0 ]; then skipped "admin-console-migration.sql"; else ap
 if [ "$HAS_RECIPIENT" -gt 0 ]; then skipped "notification-recipients.sql"; else apply_file "notification-recipients.sql"; fi
 if [ "$HAS_MAINT_REQ" -gt 0 ]; then skipped "maintenance-tickets.sql"; else apply_file "maintenance-tickets.sql"; fi
 if [ "$HAS_EVENTS" -gt 0 ]; then skipped "auth-events.sql"; else apply_file "auth-events.sql"; fi
+
+# Market-ready additive entities (leads v2 columns, visits, reservations,
+# payment intents, expenses, inspections, compliance, kyc, reviews, imports).
+# The file mixes CREATE IF NOT EXISTS with ALTERs, so it is gated on the
+# leads.stage_v2 probe and applied exactly once.
+if [ "$HAS_LEADS_V2" -gt 0 ]; then skipped "market-ready.sql"; else apply_file "market-ready.sql"; fi
+
+# P1 features (guardian access, institutional booking, meal ops) — gated on the
+# guardian_access table probe and applied exactly once.
+if [ "$HAS_P1" -gt 0 ]; then skipped "p1-features.sql"; else apply_file "p1-features.sql"; fi
 
 # 3. Additive columns — each ALTER runs only when the column is missing,
 # because a duplicate-column error would abort the remaining batch.

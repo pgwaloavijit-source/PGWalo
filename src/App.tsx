@@ -29,6 +29,7 @@ import { isPlatformAdmin } from './utils/platformAdmin';
 import { dashboardTabForRole, restoredSessionRole } from './utils/roles';
 import { getAuthToken, isProductionApiEnabled } from './services/productionApi';
 import { requestReactivation } from './services/supportTickets';
+import { GuardianPortal } from './components/GuardianPortal';
 import { Lock, Send } from 'lucide-react';
 
 const MainAppContent: React.FC = () => {
@@ -49,6 +50,13 @@ const MainAppContent: React.FC = () => {
     logout,
   } = useApp();
   const isStandalone = useStandalonePWA();
+
+  // Guardian portal (spec §29): a token link renders its own standalone,
+  // auth-free page before any session/dashboard logic applies.
+  const guardianToken = typeof window !== 'undefined'
+    ? new URLSearchParams(window.location.search).get('guardian') ||
+      window.location.pathname.match(/^\/guardian\/([^/]+)\/?$/)?.[1]
+    : null;
 
   const [currentTab, setCurrentTab] = useState<string>(() => {
     if (typeof window !== 'undefined' && (window.location.hash === '#admin' || window.location.pathname === '/admin')) {
@@ -158,7 +166,9 @@ const MainAppContent: React.FC = () => {
 
   const appContent = (
     <Suspense fallback={<PGWaloLoader done={false} message="Loading this section" />}>
-        {isPlatformAdminSession || wantsAdminRoute ? (
+        {guardianToken ? (
+          <GuardianPortal token={guardianToken} onExit={() => window.history.replaceState({}, '', '/')} />
+        ) : isPlatformAdminSession || wantsAdminRoute ? (
           <AdminDashboard />
         ) : currentUser?.role === 'staff' && currentTab !== 'profile' ? (
           <StaffDashboard />

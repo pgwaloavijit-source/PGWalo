@@ -28,6 +28,7 @@ import {
   Bed as BedIcon,
   Compass,
   FileText,
+  FileSpreadsheet,
   PieChart,
   ArrowRightLeft,
   LogOut,
@@ -41,6 +42,14 @@ import { AgreementsTab } from './AgreementsTab';
 import { OwnerOpsTab } from './OwnerOpsTab';
 import { ProfitabilityTab } from './ProfitabilityTab';
 import { OwnerMaintenanceTab } from './OwnerMaintenanceTab';
+import { OwnerHomeTab } from './OwnerHomeTab';
+import { MoneyTab } from './MoneyTab';
+import { CrmTab } from './CrmTab';
+import { TrustTab } from './TrustTab';
+import { InstitutionalTab } from './InstitutionalTab';
+import { GuardianAccessCard } from './GuardianAccessCard';
+import { MealOpsCard } from './MealOpsCard';
+import { ImportModal } from './ImportModal';
 import { AIPropertyOnboardingModal } from '../features/AIPropertyOnboardingModal';
 import { VirtualTourModal } from '../features/VirtualTourModal';
 import { createStaffWithWorkers } from '../../services/auth';
@@ -93,6 +102,11 @@ export const OwnerDashboard: React.FC = () => {
 
   const [activeTab, setActiveTab] = useState<
     | 'overview'
+    | 'home'
+    | 'crm'
+    | 'money'
+    | 'trust'
+    | 'institutional'
     | 'beds'
     | 'leads'
     | 'agreements'
@@ -106,7 +120,8 @@ export const OwnerDashboard: React.FC = () => {
     | 'menu'
     | 'broadcasts'
     | 'reports'
-  >('overview');
+  >('home');
+  const [showImportModal, setShowImportModal] = useState(false);
 
   // Nav badge: open complaints on this account's properties. The Maintenance
   // tab itself recomputes org-wide SLA stats from the Worker.
@@ -617,6 +632,8 @@ export const OwnerDashboard: React.FC = () => {
         </div>
       )}
 
+      {showImportModal && <ImportModal onClose={() => setShowImportModal(false)} />}
+
       {/* Top Banner with Owner Context */}
       <div className="bg-white border-b border-blue-100 py-6 px-4 sm:px-6 lg:px-8 shadow-2xs">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -678,6 +695,13 @@ export const OwnerDashboard: React.FC = () => {
               <Plus className="w-4 h-4" />
               <span>List New Property</span>
             </button>
+            <button
+              onClick={() => setShowImportModal(true)}
+              className="px-3.5 py-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-200 text-xs font-bold transition flex items-center gap-1.5 shadow-2xs"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
+              <span>Import data</span>
+            </button>
           </div>
         </div>
       </div>
@@ -689,16 +713,21 @@ export const OwnerDashboard: React.FC = () => {
           className="sticky top-20 z-10 shrink-0 w-[4.85rem] sm:w-56 lg:w-64 rounded-3xl bg-white border border-slate-200 shadow-2xs p-1.5 sm:p-2"
         >
           {[
-            { key: 'overview', label: 'Overview', icon: TrendingUp, count: 0 },
-            { key: 'beds', label: 'Bed Matrix', icon: BedIcon, count: beds.length },
-            { key: 'leads', label: 'Leads Funnel', icon: Users, count: leads.length },
+            { key: 'home', label: 'Home', icon: TrendingUp, count: 0 },
+            { key: 'crm', label: 'Leads (CRM)', icon: Users, count: leads.length },
+            { key: 'beds', label: 'Inventory', icon: BedIcon, count: beds.length },
+            { key: 'residents', label: 'Residents', icon: Users, count: residents.length },
+            { key: 'money', label: 'Money', icon: CreditCard, count: 0 },
+            { key: 'operations', label: 'Operations', icon: ClipboardList, count: 0 },
+            { key: 'trust', label: 'Trust & Compliance', icon: ShieldCheck, count: 0 },
+            { key: 'institutional', label: 'Bulk / Institutional', icon: Building2, count: 0 },
+            { key: 'maintenance', label: 'Maintenance', icon: Wrench, count: openComplaints },
+            { key: 'properties', label: 'Properties', icon: Building2, count: properties.length },
+            { key: 'staff', label: 'Staff & Team', icon: ShieldCheck, count: staff.length },
             { key: 'agreements', label: 'Agreements', icon: FileText, count: agreements.length },
             { key: 'profitability', label: 'Profitability & NOI', icon: PieChart, count: 0 },
-            { key: 'properties', label: 'Properties', icon: Building2, count: properties.length },
-            { key: 'residents', label: 'Residents & Bookings', icon: Users, count: residents.length },
-            { key: 'staff', label: 'Staff & Team', icon: ShieldCheck, count: staff.length },
-            { key: 'operations', label: 'Staff Operations', icon: ClipboardList, count: 0 },
-            { key: 'maintenance', label: 'Maintenance SLA', icon: Wrench, count: openComplaints },
+            { key: 'overview', label: 'Classic Overview', icon: BarChart3, count: 0 },
+            { key: 'leads', label: 'Leads Funnel (classic)', icon: Users, count: leads.length },
             { key: 'attendance', label: 'Attendance & Gate Log', icon: Clock, count: 0 },
             { key: 'menu', label: 'Mess & Food Menu', icon: Utensils, count: 0 },
             { key: 'broadcasts', label: 'Broadcasts & Alerts', icon: Bell, count: 0 },
@@ -731,6 +760,19 @@ export const OwnerDashboard: React.FC = () => {
           })}
         </nav>
         <div className="flex-1 min-w-0 mb-6">
+
+        {/* MARKET-READY TABS */}
+        {activeTab === 'home' && <OwnerHomeTab onNavigate={(t) => setActiveTab(t as typeof activeTab)} />}
+        {activeTab === 'crm' && <CrmTab />}
+        {activeTab === 'money' && <MoneyTab />}
+        {activeTab === 'trust' && <TrustTab />}
+        {activeTab === 'institutional' && (
+          <div className="space-y-4">
+            <InstitutionalTab properties={properties.map((p) => ({ id: p.id, name: p.name, locality: (p as unknown as { locality?: string }).locality }))} />
+            <GuardianAccessCard residents={residents.map((r) => ({ id: r.id, name: r.name }))} />
+            <MealOpsCard properties={properties.map((p) => ({ id: p.id, name: p.name }))} />
+          </div>
+        )}
 
         {/* ENTERPRISE EXTENSIONS TABS */}
         {activeTab === 'beds' && <BedMatrixTab />}

@@ -51,7 +51,7 @@ function hoursBetween(from: string, to: string): number | null {
  * already holds. Used in demo mode and whenever the overview call fails, so the
  * tab is never blank.
  */
-function localOverview(tickets: MaintenanceTicket[]): MaintenanceOverview {
+function localOverview(tickets: MaintenanceTicket[], beds: { propertyId: string; status: string }[] = []): MaintenanceOverview {
   const nowIso = new Date().toISOString();
   const now = Date.now();
   const done = tickets.filter(isDone);
@@ -124,6 +124,38 @@ function localOverview(tickets: MaintenanceTicket[]): MaintenanceOverview {
 
   const avg = durations.length ? durations.reduce((a, b) => a + b, 0) / durations.length : null;
 
+  // §27 analytics — repeat issues: same category on the same room within 30 days.
+  const thirtyDaysAgo = Date.now() - 30 * 86_400_000;
+  const repeatMap = new Map<string, { category: string; roomNumber: string; propertyName: string; occurrences: number; lastAt: string }>();
+  for (const t of tickets) {
+    if (new Date(t.createdAt).getTime() < thirtyDaysAgo) continue;
+    const key = `${t.category}|${t.propertyName || ''}|${t.roomNumber}`;
+    const row = repeatMap.get(key) || { category: t.category, roomNumber: t.roomNumber, propertyName: t.propertyName || '', occurrences: 0, lastAt: t.createdAt };
+    row.occurrences += 1;
+    if (t.createdAt > row.lastAt) row.lastAt = t.createdAt;
+    repeatMap.set(key, row);
+  }
+  const repeatIssues = [...repeatMap.values()].filter((r) => r.occurrences >= 2).sort((a, b) => b.occurrences - a.occurrences).slice(0, 8);
+
+  // §27 analytics — verified spend per occupied bed, per property.
+  const costMap = new Map<string, { propertyId: string; propertyName: string; totalCost: number }>();
+  for (const t of done) {
+    if (!t.propertyId || !t.cost || t.cost <= 0) continue;
+    const row = costMap.get(t.propertyId) || { propertyId: t.propertyId, propertyName: t.propertyName || '', totalCost: 0 };
+    row.totalCost += t.cost;
+    costMap.set(t.propertyId, row);
+  }
+  const costPerBed = [...costMap.values()].map((row) => {
+    const occupied = beds.filter(
+      (b) => b.propertyId === row.propertyId && ['Occupied', 'Notice Period', 'Vacating'].includes(String(b.status))
+    ).length;
+    return {
+      ...row,
+      occupiedBeds: occupied,
+      costPerBed: occupied > 0 ? Math.round((row.totalCost / occupied) * 100) / 100 : null,
+    };
+  }).sort((a, b) => b.totalCost - a.totalCost).slice(0, 50);
+
   return {
     totals: {
       total: tickets.length,
@@ -144,6 +176,8 @@ function localOverview(tickets: MaintenanceTicket[]): MaintenanceOverview {
     },
     staff,
     breached,
+    repeatIssues,
+    costPerBed,
     generatedAt: nowIso,
   };
 }
@@ -178,7 +212,7 @@ const SLA_BAR = (pct: number | null) => {
 };
 
 export const OwnerMaintenanceTab: React.FC = () => {
-  const { tickets, staff, propertyIds, residents } = useOwnerScope();
+  const { tickets, staff, propertyIds, residents, beds } = useOwnerScope();
   const [remote, setRemote] = useState<MaintenanceOverview | null>(null);
   const [loading, setLoading] = useState(false);
   const [lastSync, setLastSync] = useState<string | null>(null);
@@ -192,7 +226,7 @@ export const OwnerMaintenanceTab: React.FC = () => {
     );
   }, [tickets, propertyIds, residents]);
 
-  const fallback = useMemo(() => localOverview(scopedTickets), [scopedTickets]);
+  const fallback = useMemo(() => localOverview(scopedTickets, beds), [scopedTickets, beds]);
 
   const load = useCallback(async () => {
     if (!isProductionApiEnabled()) return;
@@ -460,6 +494,58 @@ export const OwnerMaintenanceTab: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {(data.repeatIssues?.length > 0 || data.costPerBed?.some((c) => c.totalCost > 0)) && (
+        <div className="grid lg:grid-cols-2 gap-4 sm:gap-6">
+          <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs space-y-3">
+            <h3 className="font-extrabold text-sm text-slate-900 flex items-center gap-2">
+              <RefreshCw className="w-4 h-4 text-amber-600" /> Repeat issues (last 30 days)
+            </h3>
+            {data.repeatIssues.length === 0 ? (
+              <p className="text-xs text-slate-400">No category recurring on the same room — good sign.</p>
+            ) : (
+              <ul className="divide-y divide-slate-100">
+                {data.repeatIssues.map((r, i) => (
+                  <li key={i} className="py-2 text-xs flex items-center justify-between">
+                    <span className="font-bold text-slate-800">
+                      {r.category} · Room {r.roomNumber}
+                      {r.propertyName ? <span className="text-slate-400 font-semibold"> — {r.propertyName}</span> : null}
+                    </span>
+                    <span className="text-[11px] font-black text-amber-600">{r.occurrences}× tickets</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+          <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-2xs space-y-3">
+            <h3 className="font-extrabold text-sm text-slate-900 flex items-center gap-2">
+              <Wrench className="w-4 h-4 text-blue-600" /> Maintenance cost per occupied bed
+            </h3>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-[10px] uppercase text-slate-400">
+                    <th className="text-left font-bold pb-2">Property</th>
+                    <th className="text-right font-bold pb-2">Spend</th>
+                    <th className="text-right font-bold pb-2">Beds</th>
+                    <th className="text-right font-bold pb-2">Per bed</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {data.costPerBed.filter((c) => c.totalCost > 0).slice(0, 8).map((c) => (
+                    <tr key={c.propertyId}>
+                      <td className="py-2 font-bold text-slate-800">{c.propertyName || c.propertyId}</td>
+                      <td className="py-2 text-right font-semibold text-slate-600">₹{c.totalCost.toLocaleString('en-IN')}</td>
+                      <td className="py-2 text-right font-semibold text-slate-600">{c.occupiedBeds}</td>
+                      <td className="py-2 text-right font-black text-slate-900">{c.costPerBed !== null ? `₹${c.costPerBed.toLocaleString('en-IN')}` : '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
