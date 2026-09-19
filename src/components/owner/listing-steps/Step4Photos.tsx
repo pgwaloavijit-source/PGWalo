@@ -41,7 +41,7 @@ const Step4Photos: React.FC<Step4PhotosProps> = ({ data, onDataChange, onValidat
     const files = event.target.files;
     if (!files) return;
 
-    Array.from(files).forEach((file) => {
+    Array.from(files).forEach((file: File) => {
       void (async () => {
         const normalized = await normalizeListingPhoto(file);
         let url = normalized.dataUrl;

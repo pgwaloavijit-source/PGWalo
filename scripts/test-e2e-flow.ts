@@ -68,9 +68,13 @@ async function main() {
   }
 
   // ---------- 1. Super admin ----------
+  const adminLoginId = process.env.QA_ADMIN_USERNAME || process.env.QA_ADMIN_PHONE;
+  const adminLoginSecret = process.env.QA_ADMIN_PASSWORD || process.env.QA_ADMIN_PIN;
   const adminLogin = await api('/api/auth/login', {
     method: 'POST',
-    body: { email: 'PGWalo.Avijit', password: '1q2w3e4r5t' },
+    body: adminLoginId && adminLoginSecret
+      ? { email: adminLoginId, password: adminLoginSecret }
+      : { email: '', password: '' },
   });
   const adminToken = adminLogin.data?.token as string | undefined;
   check('superadmin login issues a token', adminLogin.status === 200 && Boolean(adminToken));

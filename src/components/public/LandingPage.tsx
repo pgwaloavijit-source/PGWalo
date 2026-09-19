@@ -228,7 +228,7 @@ export const LandingPage: React.FC<{
   const applyCoords = (lat: number, lng: number, label?: string) => {
     setUserCoords({ lat, lng });
     setSpecificSearch(false);
-    const nearest = sortByDistance(catalog.filter(hasCoords), lat, lng)[0];
+    const nearest = sortByDistance<Property>(catalog.filter((property) => hasCoords(property)), lat, lng)[0];
     if (label) {
       setLocationQuery(label);
     } else if (nearest) {

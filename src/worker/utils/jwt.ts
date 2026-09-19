@@ -80,13 +80,14 @@ async function sign(data: string, secret: string): Promise<string> {
   return base64UrlEncode(signature);
 }
 
-function base64UrlEncode(data: string | ArrayBuffer): string {
+function base64UrlEncode(data: string | ArrayBuffer | Uint8Array<ArrayBufferLike>): string {
   if (typeof data === 'string') {
     const encoder = new TextEncoder();
     data = encoder.encode(data);
   }
   
-  const base64 = btoa(String.fromCharCode(...new Uint8Array(data)));
+  const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
+  const base64 = btoa(String.fromCharCode(...bytes));
   return base64
     .replace(/\+/g, '-')
     .replace(/\//g, '_')

@@ -250,8 +250,9 @@ const isVisibleToOwner = async (propertyId: string | undefined, token: string) =
 
 /** Read the worker's durable outbox through the admin surface. */
 async function lastEmailTo(email: string) {
-  const login = await api('/api/auth/login', { method: 'POST', body: { email: 'PGWalo.Avijit', password: '1q2w3e4r5t' } });
-  const token = login.data?.token;
+  // Never embed admin credentials in a test file. Supply a short-lived QA token
+  // explicitly when the outbox assertion is run against a live Worker.
+  const token = process.env.QA_ADMIN_TOKEN;
   if (!token) return null;
   const stats = await api(`/api/admin/email/stats?to=${encodeURIComponent(email)}`, { token });
   const rows: any[] = stats.data?.recent || [];

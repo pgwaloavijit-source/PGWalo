@@ -39,6 +39,8 @@ import {
   Checkout,
   CheckoutSettlement,
   PermissionKey,
+  ResidentStatus,
+  StayRecord,
 } from '../types';
 import {
   DEFAULT_ORGANIZATION_ID,
@@ -3231,6 +3233,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
         const newInvoice: Invoice = {
           id: `inv-${Date.now()}-${res.id.slice(-4)}`,
+          organizationId: res.organizationId || DEFAULT_ORGANIZATION_ID,
           invoiceNumber: `INV-${new Date().getFullYear()}-${String(updated.length + 1).padStart(4, '0')}`,
           residentId: res.id,
           residentName: res.name,
@@ -3241,6 +3244,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           billingCycleStart: `${todayStr.slice(0, 7)}-01`,
           billingCycleEnd: `${todayStr.slice(0, 7)}-30`,
           dueDate: res.rentDueDate || `${todayStr.slice(0, 7)}-07`,
+          lines: lineItems.map((line) => ({
+            ...line,
+            type: line.type === 'Electricity' ? 'Electricity' : 'Rent',
+          })),
+          amount: totalDue,
+          verifiedPaidAmount: 0,
           baseRent,
           electricityCharges,
           otherCharges: 0,

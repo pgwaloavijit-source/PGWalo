@@ -5,6 +5,7 @@ import {
   BookingRequest,
   BroadcastNotification,
   Checkout,
+  CheckoutSettlement,
   DepositTransaction,
   Invoice,
   Notice,
@@ -38,6 +39,7 @@ export interface ProductionSnapshot {
   depositTransactions: DepositTransaction[];
   notices: Notice[];
   checkouts: Checkout[];
+  checkoutSettlements?: CheckoutSettlement[];
   auditLogs: AuditLogEntry[];
   booking_requests?: BookingRequest[];
   rent_agreements?: RentAgreement[];

@@ -410,9 +410,9 @@ export interface StaffMember {
   roles?: string[];
   phone: string;
   avatar: string;
-  propertyId: string;
+  propertyId?: string;
   shift: 'Morning (6 AM - 2 PM)' | 'Evening (2 PM - 10 PM)' | 'Night (10 PM - 6 AM)';
-  todayStatus: 'Checked-In' | 'Checked-Out' | 'On Leave';
+  todayStatus: 'Checked-In' | 'Checked-Out' | 'On Leave' | 'Available';
   lastClockIn?: string;
 }
 
@@ -619,6 +619,7 @@ export interface Stay {
   monthlyRentAtStart: number;
   transferReason?: string;
   status: StayStatus;
+  createdAt?: string;
 }
 
 export interface RentPlan {
@@ -649,21 +650,6 @@ export interface InvoiceLine {
   description: string;
   amount: number;
   type: 'Rent' | 'Previous Due' | 'Electricity' | 'Food' | 'Damage' | 'Other';
-}
-
-export interface Invoice {
-  id: string;
-  organizationId: string;
-  residentId: string;
-  propertyId: string;
-  month: string;
-  dueDate: string;
-  lines: InvoiceLine[];
-  amount: number;
-  verifiedPaidAmount: number;
-  status: InvoiceStatus;
-  createdAt: string;
-  cancelledAt?: string;
 }
 
 export type PaymentStatus =
@@ -998,11 +984,12 @@ export interface InvoiceLineItem {
   id: string;
   description: string;
   amount: number;
-  type: 'Rent' | 'Electricity' | 'Maintenance' | 'Food' | 'Damage' | 'LateFee' | 'Discount';
+  type: 'Rent' | 'Previous Due' | 'Electricity' | 'Maintenance' | 'Food' | 'Damage' | 'LateFee' | 'Discount';
 }
 
 export interface Invoice {
   id: string;
+  organizationId: string;
   invoiceNumber: string;
   residentId: string;
   residentName: string;
@@ -1013,6 +1000,9 @@ export interface Invoice {
   billingCycleStart: string;
   billingCycleEnd: string;
   dueDate: string;
+  lines: InvoiceLine[];
+  amount: number;
+  verifiedPaidAmount: number;
   baseRent: number;
   electricityCharges: number;
   otherCharges: number;
