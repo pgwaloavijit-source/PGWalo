@@ -74,15 +74,20 @@ State machine + masked-identifier storage are live in code; no provider calls ye
 
 Bucket `pgwalo-media` is created, bound in `wrangler.toml` and deployed. Photo uploads for inspections/compliance are feature-flagged off until you want them enabled — say the word and I flip the flag (no credentials needed).
 
-## 5. Superadmin credentials — ⚠️ recommended hardening
+## 5. Superadmin credentials — ✅ DONE (2026-09-19)
 
-Currently `SUPERADMIN_PHONE / SUPERADMIN_PIN / SUPERADMIN_PASSWORD` sit as plaintext `[vars]` in `wrangler.toml` and print in deploy logs. To fix:
+Moved out of `wrangler.toml` into Cloudflare secrets:
 
 ```bash
-npx wrangler secret put SUPERADMIN_PASSWORD
-npx wrangler secret put SUPERADMIN_PIN
+npx wrangler secret put SUPERADMIN_PASSWORD   # ✅ installed
+npx wrangler secret put SUPERADMIN_PIN        # ✅ installed
+npx wrangler secret put SUPERADMIN_PHONE      # ✅ installed
+npx wrangler secret put SUPERADMIN_USERNAME   # ✅ installed
 ```
-Then delete the three `SUPERADMIN_*` lines from `wrangler.toml` (secrets override vars anyway). For local dev, create a `.dev.vars` file (already gitignored) with the same names instead.
+
+`wrangler.toml` now contains no credentials. Local dev uses `.dev.vars`
+(gitignored — copy from `.dev.vars.example`). Login verified working after the
+move. If you ever rotate the password, re-run the two `secret put` commands.
 
 ---
 

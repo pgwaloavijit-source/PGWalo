@@ -9,3 +9,4 @@ coverage/
 .env*
 !.env.example
 database/data-migration.sql
+.dev.vars
