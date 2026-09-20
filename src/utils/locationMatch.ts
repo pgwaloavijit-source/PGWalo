@@ -38,10 +38,21 @@ function normalizeSearchText(value: string) {
     .replace(/\s+/g, ' ');
 }
 
+export function isPincodeQuery(value: string) {
+  return /^\d{6}$/.test(value.replace(/\D/g, ''));
+}
+
 export function matchesPlaceQuery(property: Property, query: string) {
-  const q = normalizeSearchText(query);
+  const rawQuery = query.trim();
+  const q = normalizeSearchText(rawQuery);
   if (!q) return true;
-  if (citiesMatch(property.city, query.trim())) return true;
+  if (isPincodeQuery(rawQuery)) {
+    const pin = rawQuery.replace(/\D/g, '');
+    return [property.pincode, property.locality, property.address, property.placeLabel]
+      .filter(Boolean)
+      .some((value) => normalizeSearchText(String(value)).split(' ').includes(pin));
+  }
+  if (citiesMatch(property.city, rawQuery)) return true;
   const aliases = cityAliases(property.city);
   const hay = [
     property.name,

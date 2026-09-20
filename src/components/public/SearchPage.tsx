@@ -3,7 +3,7 @@ import { useApp } from '../../context/AppContext';
 import { Property, GenderPreference, RoomSharingType, PublicSearchCriteria } from '../../types';
 import { visitedPropertyIds, bookedPropertyIds } from '../../utils/userBookings';
 import { ListingImage } from '../common/ListingImage';
-import { citiesMatch, matchesPlaceQuery, mapPinPercents, mergeProperties, sortByDistance, nearbyLocalities, distanceKm, hasCoords } from '../../utils/locationMatch';
+import { citiesMatch, isPincodeQuery, matchesPlaceQuery, mapPinPercents, mergeProperties, sortByDistance, nearbyLocalities, distanceKm, hasCoords } from '../../utils/locationMatch';
 import { osmEmbedUrl, osmBoundsUrl } from '../../services/geo';
 import { fetchPublicListings } from '../../services/listings';
 import { AMENITIES, amenityLabel, normalizeAmenities } from '../../utils/amenities';
@@ -110,17 +110,10 @@ export const SearchPage: React.FC<{
     setSelectedCity(initialCriteria.city || 'All');
     setSelectedGender(initialCriteria.type || 'All');
     setSelectedMoveInDate(initialCriteria.moveInDate || '');
-
-    // If the location matches a known locality, set the area filter
-    if (initialCriteria.location) {
-      const matchedArea = commonAreas.find(
-        (area) => area.value !== 'All' && initialCriteria.location?.toLowerCase().includes(area.value.toLowerCase())
-      );
-      setSelectedArea(matchedArea?.value || 'All');
-    } else {
-      setSelectedArea('All');
-    }
-  }, [initialCriteria.location, initialCriteria.city, initialCriteria.type, initialCriteria.moveInDate, commonAreas]);
+    // The location query is authoritative. Do not infer a second area filter
+    // from nearby chips: a pincode may be stored as locality on the listing.
+    setSelectedArea('All');
+  }, [initialCriteria.location, initialCriteria.city, initialCriteria.type, initialCriteria.moveInDate]);
 
   const hasMoveInAvailability = (property: Property) => {
     if (!selectedMoveInDate) return true;
@@ -142,9 +135,12 @@ export const SearchPage: React.FC<{
 
   // Filtered properties
   const filteredProperties = useMemo(() => {
+    const postalCodeSearch = isPincodeQuery(searchQuery.trim());
     let rows = catalog.filter((p) => {
         // City
-        if (selectedCity !== 'All' && !citiesMatch(p.city, selectedCity)) {
+        // A pincode is more precise than the city returned by geocoding. Do
+        // not let a stale/alternate city label hide an exact postal match.
+        if (!postalCodeSearch && selectedCity !== 'All' && !citiesMatch(p.city, selectedCity)) {
           return false;
         }
         // Area / Locality

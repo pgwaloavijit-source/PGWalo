@@ -13,6 +13,7 @@
     "lint": "tsc --noEmit",
     "test:email": "tsx scripts/test-email-provider.ts",
     "test:domain": "tsx scripts/test-domain.ts",
+    "test:search": "tsx scripts/test-search.ts",
     "test:e2e": "tsx scripts/test-e2e-flow.ts",
     "deploy": "npm run build && wrangler deploy",
     "d1:create": "wrangler d1 create pgwalo-db",
