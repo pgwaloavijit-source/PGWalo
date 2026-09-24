@@ -61,52 +61,35 @@ export async function sendTransactional(
     ctx?: WaitUntilContext;
   }
 ): Promise<boolean> {
-  const result = await enqueueEmail(env, msg);
-  if (!result.queued) return result.reason === 'duplicate';
-
   // Security mail must be attempted in the same request. The outbox remains
   // the durable retry record, but relying only on the drain pass can leave an
   // OTP queued while the user is already waiting on the verification screen.
   if (msg.security) {
-    const direct = await sendViaProvider(env, {
-      to: msg.to,
-      toName: msg.toName,
-      subject: msg.subject,
-      html: msg.html,
-      text: msg.text,
-      replyTo: msg.replyTo,
-      attachments: msg.attachments,
-    });
-    const ts = new Date().toISOString();
-    if (direct.ok) {
-      await env.DB.prepare(
-        `UPDATE email_outbox SET status = ?, attempts = attempts + 1, provider = ?,
-           provider_message_id = ?, sent_at = ?, updated_at = ?, last_error = ?, failover_from = ?
-         WHERE id = ?`
-      ).bind(
-        direct.simulated ? 'simulated' : 'sent',
-        direct.provider,
-        direct.id || null,
-        ts,
-        ts,
-        direct.primaryError ? direct.primaryError.slice(0, 500) : null,
-        direct.failedOver ? (direct.primaryError || '').split(':')[0] || null : null,
-        result.id
-      ).run();
-      return true;
+    const direct = await sendViaProvider(env, msg);
+    if (direct.ok) return true;
+    console.error('Security email provider rejected message', direct.error || 'unknown error');
+    const queued = await enqueueEmail(env, msg);
+    if (queued.queued) {
+      try {
+        await env.DB.prepare(
+          `UPDATE email_outbox SET attempts = 1, last_error = ?, provider = ?,
+             next_attempt_at = ?, updated_at = ? WHERE id = ?`
+        ).bind(
+          (direct.error || 'email provider rejected the message').slice(0, 500),
+          direct.provider,
+          new Date(Date.now() + 60_000).toISOString(),
+          new Date().toISOString(),
+          queued.id
+        ).run();
+      } catch (error) {
+        console.error('Security email retry record failed', error);
+      }
     }
-    await env.DB.prepare(
-      `UPDATE email_outbox SET status = 'queued', attempts = attempts + 1, last_error = ?,
-         provider = ?, next_attempt_at = ?, updated_at = ? WHERE id = ?`
-    ).bind(
-      (direct.error || 'email provider rejected the message').slice(0, 500),
-      direct.provider,
-      new Date(Date.now() + 60_000).toISOString(),
-      ts,
-      result.id
-    ).run();
     return false;
   }
+
+  const result = await enqueueEmail(env, msg);
+  if (!result.queued) return result.reason === 'duplicate';
 
   const deliverable = activeProvider(env) !== 'none';
   // A configured sender is necessary but not sufficient: an unverified sending
