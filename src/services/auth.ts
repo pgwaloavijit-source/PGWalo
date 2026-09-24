@@ -105,6 +105,24 @@ export async function verifyAuthOtp(otpId: string, code: string) {
   return response.json();
 }
 
+export async function requestPinReset(identifier: string) {
+  const response = await fetch(apiUrl('/api/auth/pin-reset/request'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ identifier }),
+  });
+  return response.json();
+}
+
+export async function completePinReset(otpId: string, code: string, newPin: string) {
+  const response = await fetch(apiUrl('/api/auth/pin-reset/complete'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ otpId, code, newPin }),
+  });
+  return response.json();
+}
+
 export async function fetchMeWithWorkers() {
   const token = getAuthToken();
   const response = await fetch(apiUrl('/api/auth/me'), {

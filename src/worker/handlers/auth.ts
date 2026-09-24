@@ -230,6 +230,77 @@ export async function authHandler(request: Request, env: Env): Promise<Response>
     }
   }
 
+  if (path === '/api/auth/pin-reset/request' && request.method === 'POST') {
+    const genericMessage = 'If an account matches that detail, we sent a PIN reset code to its email.';
+    try {
+      const body = await request.json() as { identifier?: string };
+      const identifier = String(body.identifier || '').trim();
+      const resetId = `reset-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const user = identifier.includes('@')
+        ? (isValidEmail(identifier) ? await findUserByEmail(env, identifier) : null)
+        : (isValidPhone(identifier) ? await findUserByPhone(env, identifier) : null);
+
+      // Keep the response identical for unknown accounts and accounts without a
+      // usable email address, so this endpoint cannot be used for enumeration.
+      if (!user || !isValidEmail(user.email || '')) return json({ success: true, message: genericMessage, otpId: resetId });
+
+      const target = `${user.id}|${user.email.trim().toLowerCase()}`;
+      const recent = await env.DB.prepare(
+        `SELECT COUNT(*) AS count FROM auth_otps
+         WHERE target = ? AND purpose = 'pin_reset' AND created_at >= datetime('now', '-15 minutes')`
+      ).bind(target).first<{ count: number }>();
+      if (Number(recent?.count || 0) >= 3) return json({ success: true, message: genericMessage, otpId: resetId });
+
+      const code = randomOtp();
+      const codeHash = await hashOtp(code);
+      await env.DB.prepare(
+        `INSERT INTO auth_otps (id, target, channel, code_hash, purpose, expires_at, consumed)
+         VALUES (?, ?, 'email', ?, 'pin_reset', ?, 0)`
+      ).bind(resetId, target, codeHash, Date.now() + 10 * 60 * 1000).run();
+
+      await deliverOtp(env, user.email.trim().toLowerCase(), code, 'pin_reset');
+      return json({ success: true, message: genericMessage, otpId: resetId });
+    } catch (error) {
+      console.error('PIN reset request', error);
+      return json({ success: true, message: genericMessage });
+    }
+  }
+
+  if (path === '/api/auth/pin-reset/complete' && request.method === 'POST') {
+    try {
+      const body = await request.json() as { otpId?: string; code?: string; newPin?: string };
+      const newPin = String(body.newPin || '');
+      if (!/^\d{6}$/.test(newPin)) return json({ success: false, error: 'Choose a 6-digit PIN.' }, 400);
+      const row = await env.DB.prepare(
+        `SELECT id, target, code_hash, expires_at, consumed FROM auth_otps
+         WHERE id = ? AND purpose = 'pin_reset'`
+      ).bind(body.otpId || '').first<{ id: string; target: string; code_hash: string; expires_at: number; consumed: number }>();
+      if (!row || row.consumed || row.expires_at < Date.now()) {
+        return json({ success: false, error: 'Code expired. Request a new one.' }, 400);
+      }
+      if (!(await matchOtp(String(body.code || ''), row.code_hash))) {
+        return json({ success: false, error: 'Incorrect code.' }, 400);
+      }
+      const separator = row.target.indexOf('|');
+      const userId = separator > 0 ? row.target.slice(0, separator) : '';
+      const email = separator > 0 ? row.target.slice(separator + 1) : '';
+      if (!userId || !isValidEmail(email)) return json({ success: false, error: 'Reset request is invalid.' }, 400);
+      const passwordHash = await hashPassword(newPin);
+      const updated = await env.DB.prepare(
+        `UPDATE users SET password_hash = ? WHERE id = ? AND LOWER(email) = LOWER(?)`
+      ).bind(passwordHash, userId, email).run();
+      if (!updated.meta.changes) return json({ success: false, error: 'Account not found.' }, 400);
+      await env.DB.prepare('UPDATE auth_otps SET consumed = 1 WHERE id = ?').bind(row.id).run();
+      await env.DB.prepare(
+        `UPDATE auth_otps SET consumed = 1 WHERE target = ? AND purpose = 'pin_reset' AND consumed = 0`
+      ).bind(row.target).run();
+      return json({ success: true, message: 'Your PIN was reset. You can sign in now.' });
+    } catch (error) {
+      console.error('PIN reset complete', error);
+      return json({ success: false, error: 'Could not reset your PIN.' }, 400);
+    }
+  }
+
   if (path === '/api/auth/login' && request.method === 'POST') {
     try {
       const body = await request.json() as {

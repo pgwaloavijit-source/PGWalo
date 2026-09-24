@@ -41,9 +41,17 @@ export async function deliverEmail(
 }
 
 export async function deliverOtp(env: Env, toEmail: string, code: string, purpose: string): Promise<boolean> {
-  const subject = purpose === 'login' ? 'Your PGWalo login code' : 'Verify your PGWalo account';
-  const html = `<p>Your verification code is <strong>${escapeHtml(code)}</strong>.</p><p>It expires in 10 minutes. Do not share it.</p>`;
-  return deliverEmail(env, toEmail, subject, html, `Your PGWalo code is ${code}. It expires in 10 minutes.`);
+  const reset = purpose === 'pin_reset';
+  const subject = reset
+    ? 'Reset your PGWalo PIN'
+    : purpose === 'login' ? 'Your PGWalo login code' : 'Verify your PGWalo account';
+  const html = reset
+    ? `<p>Use <strong>${escapeHtml(code)}</strong> to reset your PGWalo PIN.</p><p>This code expires in 10 minutes. If you did not request this, you can safely ignore this email.</p>`
+    : `<p>Your verification code is <strong>${escapeHtml(code)}</strong>.</p><p>It expires in 10 minutes. Do not share it.</p>`;
+  const text = reset
+    ? `Your PGWalo PIN reset code is ${code}. It expires in 10 minutes.`
+    : `Your PGWalo code is ${code}. It expires in 10 minutes.`;
+  return deliverEmail(env, toEmail, subject, html, text);
 }
 
 /** Verhoeff checksum — used by UIDAI for Aadhaar. */

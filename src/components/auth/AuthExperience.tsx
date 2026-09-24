@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { useApp } from '../../context/AppContext';
 import { UserRole } from '../../types';
 import { isProductionApiEnabled } from '../../services/productionApi';
-import { loginWithWorkers, registerWithWorkers, sendAuthOtp, verifyAuthOtp } from '../../services/auth';
+import { completePinReset, loginWithWorkers, registerWithWorkers, requestPinReset, sendAuthOtp, verifyAuthOtp } from '../../services/auth';
 import { isPlatformAdmin } from '../../utils/platformAdmin';
 import {
   trackAuthEvent,
@@ -27,7 +27,7 @@ import {
  * *or* their email plus their PIN and the server answers with the role.
  */
 
-type Step = 'choose' | 'login' | 'signup' | 'otp' | 'pin';
+type Step = 'choose' | 'login' | 'signup' | 'otp' | 'pin' | 'forgot' | 'reset';
 type AccountKind = 'owner' | 'tenant';
 
 const ACCOUNT_KINDS: Record<AccountKind, {
@@ -157,6 +157,9 @@ export const AuthExperience: React.FC = () => {
   const [email, setEmail] = useState('');
   const [identifier, setIdentifier] = useState('');
   const [pin, setPin] = useState('');
+  const [resetCode, setResetCode] = useState('');
+  const [newPin, setNewPin] = useState('');
+  const [confirmNewPin, setConfirmNewPin] = useState('');
   const [otpId, setOtpId] = useState('');
   const [verificationId, setVerificationId] = useState('');
   const [otpHint, setOtpHint] = useState('');
@@ -180,6 +183,9 @@ export const AuthExperience: React.FC = () => {
   const reset = useCallback(() => {
     setStep('choose');
     setPin('');
+    setResetCode('');
+    setNewPin('');
+    setConfirmNewPin('');
     setPasswordText('');
     setOtpId('');
     setVerificationId('');
@@ -270,6 +276,54 @@ export const AuthExperience: React.FC = () => {
       setVerificationId(res.verificationId);
       setPin('');
       setStep('pin');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const startForgotPin = () => {
+    setError(null);
+    setSuccess(false);
+    setResetCode('');
+    setNewPin('');
+    setConfirmNewPin('');
+    setStep('forgot');
+  };
+
+  const submitPinResetRequest = async () => {
+    const value = identifier.trim();
+    if (!isEmail(value) && !isMobile(value)) {
+      setError('Enter the email or 10-digit mobile number on your account');
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await requestPinReset(value);
+      if (!res.success) { setError(res.error || 'Could not start PIN recovery'); return; }
+      setOtpId(res.otpId || '');
+      setOtpHint(res.message || 'Check the email linked to your account for a reset code.');
+      setStep('reset');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const submitPinReset = async () => {
+    if (!otpId) { setError('Request a new reset code'); return; }
+    if (resetCode.length < 6) { setError('Enter the 6-digit reset code'); return; }
+    if (newPin.length !== 6) { setError('Choose a 6-digit PIN'); return; }
+    if (newPin !== confirmNewPin) { setError('The PINs do not match'); return; }
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await completePinReset(otpId, resetCode, newPin);
+      if (!res.success) { setError(res.error || 'Could not reset your PIN'); return; }
+      setPin('');
+      setSuccess(false);
+      setError(null);
+      setStep('login');
+      setOtpHint('PIN reset complete. Sign in with your new PIN.');
     } finally {
       setLoading(false);
     }
@@ -367,6 +421,8 @@ export const AuthExperience: React.FC = () => {
       : step === 'login' ? (isAdminPath ? 'Super Admin sign in' : 'Welcome back')
         : step === 'otp' ? 'Verify your email'
           : step === 'pin' ? 'Set your login PIN'
+            : step === 'forgot' ? 'Recover your PIN'
+              : step === 'reset' ? 'Create a new PIN'
             : `Join as ${kind === 'owner' ? 'an Owner' : 'a Tenant'}`;
 
   const shell = isMobileViewport
@@ -384,7 +440,9 @@ export const AuthExperience: React.FC = () => {
             {step !== 'choose' && !isAdminPath ? (
               <button
                 type="button"
-                onClick={() => setStep(step === 'pin' ? 'otp' : step === 'otp' ? 'signup' : 'choose')}
+                onClick={() => setStep(
+                  step === 'reset' ? 'forgot' : step === 'forgot' ? 'login' : step === 'pin' ? 'otp' : step === 'otp' ? 'signup' : 'choose'
+                )}
                 className="p-2 -ml-2 rounded-full hover:bg-white/10"
                 aria-label="Back"
               >
@@ -412,6 +470,10 @@ export const AuthExperience: React.FC = () => {
                     ? 'Mobile or email · 6-digit PIN'
                     : step === 'otp'
                       ? `Code sent to ${email}`
+                      : step === 'forgot'
+                        ? 'We will email a one-time recovery code'
+                        : step === 'reset'
+                          ? 'Use the code from your email to choose a new PIN'
                       : 'Use it to sign in quickly next time'}
           </p>
         </div>
@@ -420,6 +482,11 @@ export const AuthExperience: React.FC = () => {
           {error && (
             <div className="mb-4 p-3 rounded-xl bg-rose-50 border border-rose-100 text-rose-700 text-xs flex gap-2">
               <AlertCircle className="w-4 h-4 shrink-0" /> <span>{error}</span>
+            </div>
+          )}
+          {step === 'login' && otpHint && !error && (
+            <div className="mb-4 p-3 rounded-xl bg-emerald-50 border border-emerald-100 text-emerald-800 text-xs flex gap-2">
+              <CheckCircle2 className="w-4 h-4 shrink-0" /> <span>{otpHint}</span>
             </div>
           )}
           {success && (
@@ -534,6 +601,12 @@ export const AuthExperience: React.FC = () => {
               </button>
 
               {!isAdminPath && (
+                <button type="button" onClick={startForgotPin} className="w-full text-sm font-bold text-blue-600 hover:text-blue-700">
+                  Forgot PIN?
+                </button>
+              )}
+
+              {!isAdminPath && (
                 <div className="space-y-2 pt-1">
                   <button
                     type="button"
@@ -555,6 +628,59 @@ export const AuthExperience: React.FC = () => {
                   </button>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* ---- PIN recovery ---- */}
+          {step === 'forgot' && !isAdminPath && (
+            <div className="space-y-4">
+              <div className="rounded-2xl bg-blue-50 border border-blue-100 p-4">
+                <p className="text-sm font-semibold text-blue-900">Recover access securely</p>
+                <p className="text-xs text-blue-700 mt-1 leading-relaxed">Enter the mobile number or email linked to your account. We&apos;ll send a one-time code to the account email.</p>
+              </div>
+              <div>
+                <label className="text-xs font-bold text-slate-600">Mobile number or email</label>
+                <input
+                  type="text"
+                  autoComplete="username"
+                  inputMode="email"
+                  placeholder="98765 43210 or you@email.com"
+                  value={identifier}
+                  onChange={(e) => setIdentifier(e.target.value)}
+                  className="mt-1 w-full px-4 py-3.5 rounded-2xl border border-slate-200 text-base focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <button type="button" disabled={loading} onClick={submitPinResetRequest} className="w-full py-4 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-bold disabled:opacity-50">
+                {loading ? 'Sending code…' : 'Send recovery code'}
+              </button>
+              <button type="button" onClick={() => { setStep('login'); setError(null); }} className="w-full text-sm text-slate-500">
+                Back to sign in
+              </button>
+            </div>
+          )}
+
+          {step === 'reset' && !isAdminPath && (
+            <div className="space-y-4">
+              <p className="text-sm text-slate-600 text-center">Enter the code sent to the email linked to your account.</p>
+              {otpHint && <p className="text-xs text-center text-blue-700 bg-blue-50 rounded-xl p-2">{otpHint}</p>}
+              <div>
+                <label className="text-xs font-bold text-slate-600">Recovery code</label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  maxLength={6}
+                  value={resetCode}
+                  onChange={(e) => setResetCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  className="mt-1 w-full px-4 py-3.5 rounded-2xl border border-slate-200 text-lg tracking-[0.4em] focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="••••••"
+                />
+              </div>
+              <PinField label="New 6-digit PIN" value={newPin} onChange={setNewPin} autoFocus />
+              <PinField label="Confirm new PIN" value={confirmNewPin} onChange={setConfirmNewPin} />
+              <button type="button" disabled={loading} onClick={submitPinReset} className="w-full py-4 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-bold disabled:opacity-50">
+                {loading ? 'Resetting PIN…' : 'Reset PIN'}
+              </button>
             </div>
           )}
 
