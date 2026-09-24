@@ -42,7 +42,7 @@ async function watermark(env: Env, user: User, kind: StreamKind): Promise<string
     const row = await env.DB.prepare(
       `SELECT
          (SELECT COUNT(*) FROM maintenance_tickets WHERE requester_id = ? OR resident_id = ?) AS mine,
-         (SELECT COALESCE(MAX(updated_at), '') FROM maintenance_tickets
+         (SELECT COALESCE(MAX(created_at), '') FROM maintenance_tickets
            WHERE requester_id = ? OR resident_id = ?) AS touched`
     ).bind(user.id, user.id, user.id, user.id).first<{ mine: number; touched: string }>();
     return `${row?.mine || 0}|${row?.touched || ''}`;
@@ -94,7 +94,7 @@ async function watermark(env: Env, user: User, kind: StreamKind): Promise<string
   const row = await env.DB.prepare(
     `SELECT
        (SELECT COUNT(*) FROM properties) AS p,
-       (SELECT COALESCE(MAX(updated_at), '') FROM properties) AS pt,
+       (SELECT COALESCE(MAX(created_at), '') FROM properties) AS pt,
        (SELECT COUNT(*) FROM beds) AS b,
        (SELECT COUNT(*) FROM residents) AS r,
        (SELECT COUNT(*) FROM rent_agreements) AS a,
