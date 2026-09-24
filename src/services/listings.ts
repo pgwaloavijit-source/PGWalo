@@ -42,3 +42,25 @@ export async function publishListing(property: Property): Promise<Property | nul
   const stored = (data as { property?: Property } | null)?.property;
   return stored && stored.id ? stored : null;
 }
+
+export async function patchListingLifecycle(
+  propertyId: string,
+  action: 'unlist' | 'relist',
+  reason?: Property['unlistReason']
+): Promise<{ ok: boolean; property?: Property; error?: string }> {
+  if (!isProductionApiEnabled() && !import.meta.env.PROD) return { ok: false, error: 'API not available' };
+  const token = getAuthToken();
+  if (!token) return { ok: false, error: 'Sign in again as the owner.' };
+  try {
+    const response = await fetch(apiUrl(`/api/listings/${encodeURIComponent(propertyId)}/lifecycle`), {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ action, reason }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) return { ok: false, error: data.error || 'Could not update listing visibility.' };
+    return { ok: true, property: data.property };
+  } catch {
+    return { ok: false, error: 'Network error while updating listing visibility.' };
+  }
+}

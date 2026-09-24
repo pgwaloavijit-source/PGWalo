@@ -79,7 +79,7 @@ import {
   postAdminLogout,
   postAdminTicketReply,
 } from '../services/adminApi';
-import { fetchPublicListings, publishListing } from '../services/listings';
+import { fetchPublicListings, patchListingLifecycle, publishListing } from '../services/listings';
 import { fetchInquiries, publishInquiry, patchInquiry, mergeBookings } from '../services/inquiries';
 import { mergeProperties } from '../utils/locationMatch';
 import { isPlatformAdmin } from '../utils/platformAdmin';
@@ -264,6 +264,7 @@ interface AppContextType {
   /** Returns the created property (with its generated id) to the caller. */
   addProperty: (property: Omit<Property, 'id'>) => Property;
   updateProperty: (propertyId: string, updates: Partial<Property>) => void;
+  updatePropertyLifecycle: (propertyId: string, action: 'unlist' | 'relist', reason?: Property['unlistReason']) => Promise<{ ok: boolean; error?: string }>;
   addBookingRequest: (request: Omit<BookingRequest, 'id' | 'status' | 'requestDate'>) => void;
   approveBookingRequest: (requestId: string, roomNumber?: string, bedNumber?: string) => void;
   rejectBookingRequest: (requestId: string) => void;
@@ -293,7 +294,7 @@ interface AppContextType {
   updateSupportTicket: (ticketId: string, status: SupportTicketStatus, adminNote?: string, assignedTo?: string) => void;
   addSupportTicketReply: (ticketId: string, body: string) => void;
   updateUserAccountStatus: (userId: string, status: NonNullable<UserAccount['status']>) => void;
-  setListingDecision: (propertyId: string, action: 'approve' | 'reject' | 'disable') => void;
+  setListingDecision: (propertyId: string, action: 'approve' | 'reject' | 'disable', reason?: string) => void;
   /** False while the API snapshot is still in flight, so the shell can show the boot loader. */
   productionHydrated: boolean;
 }
@@ -2655,7 +2656,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return updated;
       })
     );
-    if (updated) {
+    if (updated && !['Owner Unlisted', 'Archived', 'Restricted'].includes(String(updates.status || ''))) {
       // Every property reaches the server: a pending one so the owner can pay
       // for it from any device, a live one so edits are reflected publicly.
       void publishListing(updated).then((stored) => (stored ? adoptStoredProperty(stored) : undefined));
@@ -2675,6 +2676,40 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (!ok) console.warn(`[admin] property edit for ${propertyId} could not be persisted to the database`);
       });
     }
+  };
+
+  const updatePropertyLifecycle = async (
+    propertyId: string,
+    action: 'unlist' | 'relist',
+    reason?: Property['unlistReason']
+  ): Promise<{ ok: boolean; error?: string }> => {
+    const target = properties.find((property) => property.id === propertyId);
+    if (!target) return { ok: false, error: 'Property not found.' };
+    if (!isProductionApiEnabled()) {
+      setProperties((prev) => prev.map((property) => property.id === propertyId ? {
+        ...property,
+        status: action === 'unlist' ? 'Owner Unlisted' : 'Active',
+        listingStatus: action === 'unlist' ? 'Owner Unlisted' : 'Active',
+        verified: action === 'relist',
+        unlistReason: action === 'unlist' ? reason : undefined,
+        unlistedAt: action === 'unlist' ? new Date().toISOString() : undefined,
+        unlistedBy: action === 'unlist' ? 'owner' : undefined,
+      } : property));
+      return { ok: true };
+    }
+    const result = await patchListingLifecycle(propertyId, action, reason);
+    if (!result.ok) return { ok: false, error: result.error };
+    setProperties((prev) => prev.map((property) => property.id === propertyId ? {
+      ...property,
+      ...(result.property || {}),
+      status: action === 'unlist' ? 'Owner Unlisted' : 'Active',
+      listingStatus: action === 'unlist' ? 'Owner Unlisted' : 'Active',
+      verified: action === 'relist',
+      unlistReason: action === 'unlist' ? reason : undefined,
+      unlistedAt: action === 'unlist' ? new Date().toISOString() : undefined,
+      unlistedBy: action === 'unlist' ? 'owner' : undefined,
+    } : property));
+    return { ok: true };
   };
 
   const addBookingRequest = (request: Omit<BookingRequest, 'id' | 'status' | 'requestDate'>) => {
@@ -3908,17 +3943,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  const setListingDecision = (propertyId: string, action: 'approve' | 'reject' | 'disable') => {
+  const setListingDecision = (propertyId: string, action: 'approve' | 'reject' | 'disable', reason?: string) => {
     const patch: Partial<Property> =
       action === 'approve'
-        ? { verified: true, listingStatus: 'Active', status: 'Active' }
+        ? { verified: true, listingStatus: 'Active', status: 'Active', unlistReason: undefined, unlistedBy: undefined, unlistedAt: undefined }
         : action === 'reject'
-          ? { verified: false, listingStatus: 'Archived', status: 'Restricted' }
-          : { verified: false, listingStatus: 'Archived', status: 'Archived' };
+          ? { verified: false, listingStatus: 'Archived', status: 'Restricted', unlistReason: reason as Property['unlistReason'], unlistedBy: 'superadmin', unlistedAt: new Date().toISOString() }
+          : { verified: false, listingStatus: 'Archived', status: 'Archived', unlistReason: (reason || 'admin_enforcement') as Property['unlistReason'], unlistedBy: 'superadmin', unlistedAt: new Date().toISOString() };
     updateProperty(propertyId, patch);
     logAuditEvent(`Listing ${action}`, `Property ${propertyId}`, action);
     if (isProductionApiEnabled() && getAuthToken()) {
-      void patchAdminProperty(propertyId, { action }).then((ok) => {
+      void patchAdminProperty(propertyId, { action, reason }).then((ok) => {
         if (!ok) console.warn(`[admin] listing ${action} for property ${propertyId} could not be persisted to the database`);
       });
     }
@@ -4098,6 +4133,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setVirtualTourRoom,
         addProperty,
         updateProperty,
+        updatePropertyLifecycle,
         addBookingRequest,
         approveBookingRequest,
         rejectBookingRequest,

@@ -142,6 +142,16 @@ export async function collectionHandler(
       }
 
       if (collection === 'properties') {
+        // Public/resident discovery must never expose owner-hidden, admin-
+        // disabled, payment-pending, or expired-plan properties. Owners and
+        // platform admins need the full internal view for operations.
+        if (!isPlatformAdmin(user.role) && user.role !== 'owner') {
+          conditions.push(`(status IS NULL OR status = 'Active')`);
+          const propertyColumns = await env.DB.prepare('PRAGMA table_info(properties)').all<{ name: string }>();
+          if ((propertyColumns.results || []).some((c) => c.name === 'plan_expires_at')) {
+            conditions.push(`(plan_expires_at IS NULL OR julianday(plan_expires_at) > julianday('now'))`);
+          }
+        }
         const location = (url.searchParams.get('location') || url.searchParams.get('q') || '').trim();
         const city = (url.searchParams.get('city') || '').trim();
         const type = (url.searchParams.get('type') || '').trim();

@@ -66,6 +66,8 @@ export type PropertyStatus =
   /** Created by the wizard, waiting for the owner's publishing payment. */
   | 'Payment Pending'
   | 'Active'
+  /** Hidden by the owner for an operational reason; data remains intact. */
+  | 'Owner Unlisted'
   | 'Restricted'
   | 'Archived';
 
@@ -268,6 +270,9 @@ export interface Property {
   /** Paid publishing plan: lite | air | ocean. Absent on legacy listings. */
   planTier?: 'lite' | 'air' | 'ocean';
   planExpiresAt?: string;
+  unlistReason?: 'maintenance' | 'temporarily_closed' | 'no_longer_operational' | 'other';
+  unlistedAt?: string;
+  unlistedBy?: 'owner' | 'superadmin';
   listingPaymentStatus?: 'Pending' | 'Paid' | 'Failed';
   listingFeeAmount?: number;
   publishedAt?: string;
@@ -281,7 +286,7 @@ export interface Property {
   attendanceEnabled?: boolean;
   visitorManagementEnabled?: boolean;
   onlinePaymentsEnabled?: boolean;
-  listingStatus?: 'Active' | 'Setup In Progress' | 'Payment Pending' | 'Archived' | 'Under Maintenance';
+  listingStatus?: 'Active' | 'Setup In Progress' | 'Payment Pending' | 'Owner Unlisted' | 'Archived' | 'Under Maintenance';
   listingDefaultRentDueDay?: number;
   totalFloors?: number;
 }

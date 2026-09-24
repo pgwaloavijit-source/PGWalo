@@ -518,6 +518,7 @@ export async function adminHandler(request: Request, env: Env, ctx?: WaitUntilCo
       name?: string;
       tagline?: string;
       description?: string;
+      reason?: string;
     };
     if (body.name || body.tagline || body.description) {
       try {
@@ -537,9 +538,23 @@ export async function adminHandler(request: Request, env: Env, ctx?: WaitUntilCo
     } as const;
     const next = body.action ? map[body.action] : null;
     if (!next) return json({ error: 'Invalid action' }, 400);
+    if (body.action === 'approve') {
+      const current = await env.DB.prepare('SELECT plan_expires_at FROM properties WHERE id = ?')
+        .bind(parts[3]).first<{ plan_expires_at: string | null }>();
+      if (current?.plan_expires_at && !Number.isNaN(Date.parse(current.plan_expires_at)) && Date.parse(current.plan_expires_at) <= Date.now()) {
+        return json({ error: 'This publishing plan has expired. The owner must renew it before the property can be relisted.' }, 409);
+      }
+    }
     try {
-      const result = await env.DB.prepare('UPDATE properties SET verified = ?, status = ? WHERE id = ?')
-        .bind(next.verified, next.status, parts[3]).run();
+      const columns = await env.DB.prepare('PRAGMA table_info(properties)').all<{ name: string }>();
+      const names = new Set((columns.results || []).map((c) => c.name));
+      const assignments = ['verified = ?', 'status = ?'];
+      const params: Array<string | number | null> = [next.verified, next.status];
+      if (names.has('unlist_reason')) { assignments.push('unlist_reason = ?'); params.push(body.reason || (body.action === 'disable' ? 'admin_enforcement' : null)); }
+      if (names.has('unlisted_at')) { assignments.push('unlisted_at = ?'); params.push(body.action === 'approve' ? null : new Date().toISOString()); }
+      if (names.has('unlisted_by')) { assignments.push('unlisted_by = ?'); params.push(body.action === 'approve' ? null : 'superadmin'); }
+      const result = await env.DB.prepare(`UPDATE properties SET ${assignments.join(', ')} WHERE id = ?`)
+        .bind(...params, parts[3]).run();
       if (!result.meta || result.meta.changes === 0) return json({ error: 'Property not found' }, 404);
     } catch {
       return json({ error: 'Could not update property' }, 500);
@@ -566,7 +581,7 @@ export async function adminHandler(request: Request, env: Env, ctx?: WaitUntilCo
             data: {
               propertyName: name,
               reason: body.action === 'disable'
-                ? 'Disabled by the Super Admin. The listing is read-only; raise a reactivation request to restore it.'
+                ? `Disabled by the Super Admin${body.reason ? `: ${body.reason}` : ''}. The listing is read-only; raise a reactivation request to restore it.`
                 : body.action === 'reject' ? 'Rejected by the Super Admin after review.' : 'Approved by the Super Admin.',
             },
             dedupeKey: `listing-${body.action}-${parts[3]}`,

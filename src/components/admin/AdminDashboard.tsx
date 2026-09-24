@@ -427,12 +427,12 @@ const AdminBody: React.FC<{
                       <td className="p-3">{p.ownerName}</td>
                       <td className="p-3 text-slate-600">{p.locality}, {p.city}</td>
                       <td className="p-3">{pBeds.length ? `${occ}/${pBeds.length}` : p.rooms?.map((r) => `${r.availableBeds}/${r.totalBeds}`).join(', ') || '—'}</td>
-                      <td className="p-3"><Pill tone={label === 'Approved' ? 'bg-emerald-50 text-emerald-700' : label === 'Pending' ? 'bg-amber-50 text-amber-700' : 'bg-rose-50 text-rose-700'}>{label}</Pill></td>
+                      <td className="p-3"><Pill tone={label === 'Approved' ? 'bg-emerald-50 text-emerald-700' : label === 'Pending' ? 'bg-amber-50 text-amber-700' : label === 'Owner Unlisted' ? 'bg-slate-100 text-slate-700' : 'bg-rose-50 text-rose-700'}>{label}{p.planExpiresAt && new Date(p.planExpiresAt).getTime() <= Date.now() ? ' · Plan expired' : ''}</Pill></td>
                       <td className="p-3 text-right space-x-2 whitespace-nowrap">
                         <button type="button" className="text-xs font-bold text-blue-600" onClick={() => props.setPropertyId(p.id)}>View</button>
                         <button type="button" className="text-xs font-bold text-emerald-700" onClick={() => { setListingDecision(p.id, 'approve'); refreshOverview(); }}>Approve</button>
                         <button type="button" className="text-xs font-bold text-amber-700" onClick={() => { setListingDecision(p.id, 'reject'); refreshOverview(); }}>Reject</button>
-                        <button type="button" className="text-xs font-bold text-slate-500" onClick={() => { setListingDecision(p.id, 'disable'); refreshOverview(); }}>Disable</button>
+                        <button type="button" className="text-xs font-bold text-slate-500" onClick={() => { const reason = window.prompt('Reason for delisting this property:', 'admin_enforcement') || 'admin_enforcement'; setListingDecision(p.id, 'disable', reason); refreshOverview(); }}>Delist</button>
                       </td>
                     </tr>
                   );

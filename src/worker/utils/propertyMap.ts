@@ -1,6 +1,7 @@
 import { normalizeAmenities } from '../../utils/amenities';
 import { pgDisplayName } from '../../utils/pgName';
 import { listingPlan } from '../../domain/pricing';
+import type { Property } from '../../types';
 
 type ListingRecord = Record<string, unknown>;
 
@@ -72,8 +73,11 @@ export function rowToProperty(row: ListingRecord): ListingRecord {
     // `status` is the durable publish state: a listing created by the wizard is
     // 'Payment Pending' until a publishing plan is paid for, and only 'Active'
     // listings are served to the public catalog.
-    listingStatus: String(row.status || 'Active') === 'Payment Pending' ? 'Payment Pending' : 'Active',
+    listingStatus: String(row.status || 'Active') as ListingRecord['listingStatus'],
     listingPaymentStatus: String(row.status || 'Active') === 'Payment Pending' ? 'Pending' : 'Paid',
+    unlistReason: row.unlist_reason as Property['unlistReason'],
+    unlistedAt: row.unlisted_at ? String(row.unlisted_at) : undefined,
+    unlistedBy: row.unlisted_by as Property['unlistedBy'],
     floors: Number(row.total_floors ?? row.floors) || undefined,
   };
 }
@@ -117,6 +121,9 @@ export function propertyToRow(property: ListingRecord) {
     pg_number: Number(property.pgNumber) || null,
     plan_tier: listingPlan(String(property.planTier || ''))?.id || null,
     plan_expires_at: property.planExpiresAt || null,
+    unlist_reason: property.unlistReason || null,
+    unlisted_at: property.unlistedAt || null,
+    unlisted_by: property.unlistedBy || null,
     place_label: property.placeLabel || '',
     default_rent_due_day: property.defaultRentDueDay || 7,
     total_floors: property.floors || property.totalFloors || 1,

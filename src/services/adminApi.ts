@@ -191,7 +191,7 @@ export const patchAdminUserStatus = (userId: string, status: string) =>
 
 export const patchAdminProperty = (
   propertyId: string,
-  payload: { action?: 'approve' | 'reject' | 'disable'; name?: string; tagline?: string; description?: string }
+  payload: { action?: 'approve' | 'reject' | 'disable'; reason?: string; name?: string; tagline?: string; description?: string }
 ) => mutate(`/api/admin/properties/${encodeURIComponent(propertyId)}`, 'PATCH', payload);
 
 export const patchAdminTicket = (

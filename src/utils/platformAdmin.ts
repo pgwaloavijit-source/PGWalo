@@ -6,9 +6,10 @@ export function listingApprovalLabel(property: {
   verified?: boolean;
   listingStatus?: string;
   status?: string;
-}): 'Pending' | 'Approved' | 'Rejected' | 'Disabled' {
+}): 'Pending' | 'Approved' | 'Rejected' | 'Disabled' | 'Owner Unlisted' {
   const listing = property.listingStatus || '';
   const status = property.status || '';
+  if (status === 'Owner Unlisted' || listing === 'Owner Unlisted') return 'Owner Unlisted';
   if (listing === 'Archived' || status === 'Archived' || status === 'Restricted') {
     return property.verified ? 'Disabled' : 'Rejected';
   }

@@ -31,12 +31,67 @@ function json(data: unknown, status = 200) {
 export async function listingsHandler(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
 
+  // Owner-controlled visibility is deliberately a separate endpoint from the
+  // listing editor. Editing a property must never accidentally publish it or
+  // undo an admin enforcement decision.
+  const lifecycleMatch = url.pathname.match(/^\/api\/listings\/([^/]+)\/lifecycle$/);
+  if (lifecycleMatch && request.method === 'PATCH') {
+    const auth = await authMiddleware(request, env);
+    if (!auth.success) return json({ error: 'Sign in as the owner to manage listing visibility.' }, 401);
+    if (auth.user!.role !== 'owner') return json({ error: 'Only the property owner can use this control.' }, 403);
+    const propertyId = decodeURIComponent(lifecycleMatch[1]);
+    const body = await request.json() as { action?: 'unlist' | 'relist'; reason?: string };
+    const property = await env.DB.prepare(
+      'SELECT * FROM properties WHERE id = ? AND (owner_user_id = ? OR organization_id = ?) LIMIT 1'
+    ).bind(propertyId, auth.user!.id, auth.user!.organizationId || '').first<Record<string, unknown>>();
+    if (!property) return json({ error: 'Property not found on this owner account.' }, 404);
+
+    const columns = await env.DB.prepare('PRAGMA table_info(properties)').all<{ name: string }>()
+      .then(({ results }) => new Set((results || []).map((c) => c.name)));
+    const currentStatus = String(property.status || 'Active');
+    if (currentStatus === 'Archived' || currentStatus === 'Restricted') {
+      return json({ error: 'This listing was disabled by the Super Admin and cannot be changed by the owner.' }, 409);
+    }
+
+    if (body.action === 'unlist') {
+      const allowedReasons = ['maintenance', 'temporarily_closed', 'no_longer_operational', 'other'];
+      if (!allowedReasons.includes(String(body.reason))) return json({ error: 'Choose a valid reason for hiding this property.' }, 400);
+      const assignments = ['status = \'Owner Unlisted\'', 'verified = 0'];
+      const params: Array<string | number> = [];
+      if (columns.has('unlist_reason')) { assignments.push('unlist_reason = ?'); params.push(String(body.reason)); }
+      if (columns.has('unlisted_at')) { assignments.push('unlisted_at = ?'); params.push(new Date().toISOString()); }
+      if (columns.has('unlisted_by')) { assignments.push('unlisted_by = ?'); params.push('owner'); }
+      await env.DB.prepare(`UPDATE properties SET ${assignments.join(', ')} WHERE id = ?`).bind(...params, propertyId).run();
+      return json({ ok: true, property: { ...property, status: 'Owner Unlisted', verified: 0, unlist_reason: body.reason, unlisted_by: 'owner' } });
+    }
+
+    if (body.action === 'relist') {
+      if (currentStatus !== 'Owner Unlisted') return json({ error: 'Only an owner-unlisted property can be relisted here.' }, 409);
+      const expiresAt = String(property.plan_expires_at || '');
+      if (expiresAt && !Number.isNaN(Date.parse(expiresAt)) && Date.parse(expiresAt) <= Date.now()) {
+        return json({ error: 'Your publishing plan has expired. Renew the plan before relisting this property.' }, 409);
+      }
+      const assignments = ['status = \'Active\'', 'verified = 1'];
+      if (columns.has('unlist_reason')) assignments.push('unlist_reason = NULL');
+      if (columns.has('unlisted_at')) assignments.push('unlisted_at = NULL');
+      if (columns.has('unlisted_by')) assignments.push('unlisted_by = NULL');
+      await env.DB.prepare(`UPDATE properties SET ${assignments.join(', ')} WHERE id = ?`).bind(propertyId).run();
+      return json({ ok: true, property: { ...property, status: 'Active', verified: 1, unlist_reason: null, unlisted_at: null, unlisted_by: null } });
+    }
+    return json({ error: 'Invalid lifecycle action.' }, 400);
+  }
+
   if (request.method === 'GET') {
     const city = (url.searchParams.get('city') || '').trim();
     const location = (url.searchParams.get('location') || url.searchParams.get('q') || '').trim();
     const requestedLimit = Number(url.searchParams.get('limit') || '500');
     const limit = Number.isFinite(requestedLimit) ? Math.min(Math.max(Math.floor(requestedLimit), 1), 1000) : 500;
-    const conditions = [`(status IS NULL OR status = 'Active')`];
+    const columns = await env.DB.prepare('PRAGMA table_info(properties)').all<{ name: string }>()
+      .then(({ results }) => new Set((results || []).map((c) => c.name)));
+    const publicCondition = columns.has('plan_expires_at')
+      ? `(status IS NULL OR status = 'Active') AND (plan_expires_at IS NULL OR julianday(plan_expires_at) > julianday('now'))`
+      : `(status IS NULL OR status = 'Active')`;
+    const conditions = [`(${publicCondition})`];
     const params: unknown[] = [];
 
     // A signed-in owner always sees their own listings — including the ones
@@ -70,7 +125,7 @@ export async function listingsHandler(request: Request, env: Env): Promise<Respo
       console.error('listings get', error);
       try {
         const { results } = await env.DB.prepare(
-          `SELECT * FROM properties WHERE status = 'Active' OR status IS NULL LIMIT ${limit}`
+          `SELECT * FROM properties WHERE (${publicCondition}) LIMIT ${limit}`
         ).all();
         return json((results || []).map((row) => rowToProperty(row as Record<string, unknown>)));
       } catch {
@@ -142,7 +197,7 @@ export async function listingsHandler(request: Request, env: Env): Promise<Respo
       // Admin's own PATCH (admin handler) can restore it. An owner edit — or a
       // publishing payment — cannot resurrect an archived/restricted listing.
       if (existing.status === 'Active') row.status = 'Active';
-      if (existing.status === 'Archived' || existing.status === 'Restricted') {
+      if (existing.status === 'Archived' || existing.status === 'Restricted' || existing.status === 'Owner Unlisted') {
         row.status = existing.status;
         row.verified = 0;
       }

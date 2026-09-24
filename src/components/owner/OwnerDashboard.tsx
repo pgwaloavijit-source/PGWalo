@@ -35,6 +35,8 @@ import {
   Pencil,
   Wrench,
   ClipboardList,
+  EyeOff,
+  RotateCcw,
 } from 'lucide-react';
 import { BedMatrixTab } from './BedMatrixTab';
 import { LeadFunnelTab } from './LeadFunnelTab';
@@ -70,6 +72,7 @@ export const OwnerDashboard: React.FC = () => {
   const {
     addProperty,
     updateProperty,
+    updatePropertyLifecycle,
     approveBookingRequest,
     rejectBookingRequest,
     addStaffMember,
@@ -137,6 +140,9 @@ export const OwnerDashboard: React.FC = () => {
   // The property waiting for a publishing plan ("Pay & publish").
   const [payTarget, setPayTarget] = useState<PayTarget | null>(null);
   const [resumeOrderId, setResumeOrderId] = useState<string | undefined>(undefined);
+  const [lifecycleTarget, setLifecycleTarget] = useState<Property | null>(null);
+  const [lifecycleReason, setLifecycleReason] = useState<NonNullable<Property['unlistReason']>>('maintenance');
+  const [lifecycleBusy, setLifecycleBusy] = useState(false);
 
   // An emailed payment link (`/pay/<orderId>`) resumes that exact order — same
   // plan, same amount — as soon as the owner is signed in and looking at their
@@ -339,7 +345,7 @@ export const OwnerDashboard: React.FC = () => {
       preferredContact: 'Phone',
     },
     createdAt: property.publishedAt || new Date().toISOString(),
-    listingStatus: property.listingStatus === 'Active' ? 'Published' : 'Payment Pending',
+    listingStatus: property.listingStatus === 'Active' || property.listingStatus === 'Owner Unlisted' ? 'Published' : 'Payment Pending',
   });
 
   // New Property Form Modal State
@@ -394,6 +400,22 @@ export const OwnerDashboard: React.FC = () => {
   const visibleBroadcasts = currentUser?.isDemo
     ? broadcasts
     : broadcasts.filter((b) => properties.some((property) => property.id === b.propertyId));
+
+  const submitLifecycleChange = async () => {
+    if (!lifecycleTarget) return;
+    setLifecycleBusy(true);
+    const isRelist = lifecycleTarget.status === 'Owner Unlisted';
+    const result = await updatePropertyLifecycle(lifecycleTarget.id, isRelist ? 'relist' : 'unlist', lifecycleReason);
+    setLifecycleBusy(false);
+    if (!result.ok) {
+      setReminderToast(result.error || 'Could not update listing visibility.');
+      setTimeout(() => setReminderToast(null), 4000);
+      return;
+    }
+    setLifecycleTarget(null);
+    setReminderToast(isRelist ? `${lifecycleTarget.name} is visible in public search again.` : `${lifecycleTarget.name} is hidden from public search. Your data is still available here.`);
+    setTimeout(() => setReminderToast(null), 4000);
+  };
 
   const handleCreateProperty = (e: React.FormEvent) => {
     e.preventDefault();
@@ -1056,6 +1078,16 @@ export const OwnerDashboard: React.FC = () => {
                           Payment pending
                         </span>
                       )}
+                      {prop.status === 'Owner Unlisted' && (
+                        <span className="ml-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-200 text-slate-700">
+                          Hidden from search
+                        </span>
+                      )}
+                      {(prop.status === 'Archived' || prop.status === 'Restricted') && (
+                        <span className="ml-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-700">
+                          Admin disabled
+                        </span>
+                      )}
                       <h3 className="font-extrabold text-slate-900 text-base mt-1">{prop.name}</h3>
                       <p className="text-xs text-slate-500 truncate">PIN {prop.pincode || prop.locality}, {prop.city}</p>
                       </div>
@@ -1087,6 +1119,11 @@ export const OwnerDashboard: React.FC = () => {
                   <div className="rounded-xl bg-emerald-50 border border-emerald-100 px-3 py-2 text-[11px] text-emerald-900">
                     PGWalo is 0% commission. Rent, tax, security deposit and utilities remain between tenant and owner.
                   </div>
+                  {prop.status === 'Owner Unlisted' && (
+                    <div className="rounded-xl bg-slate-50 border border-slate-200 px-3 py-2 text-[11px] text-slate-600">
+                      This PG is saved on your account but hidden from public discovery{prop.unlistReason ? ` · ${prop.unlistReason.replace(/_/g, ' ')}` : ''}.
+                    </div>
+                  )}
                   <div className="flex items-center justify-end gap-2">
                     {(prop.listingPaymentStatus === 'Pending' || prop.listingStatus === 'Payment Pending') ? (
                       <button
@@ -1111,6 +1148,23 @@ export const OwnerDashboard: React.FC = () => {
                       <Pencil className="w-3.5 h-3.5" />
                       Edit
                     </button>
+                    {prop.status === 'Owner Unlisted' ? (
+                      <button
+                        type="button"
+                        onClick={() => setLifecycleTarget(prop)}
+                        className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center gap-1"
+                      >
+                        <RotateCcw className="w-3.5 h-3.5" /> Relist
+                      </button>
+                    ) : prop.status !== 'Archived' && prop.status !== 'Restricted' && prop.listingStatus === 'Active' ? (
+                      <button
+                        type="button"
+                        onClick={() => setLifecycleTarget(prop)}
+                        className="px-3 py-1.5 rounded-xl border border-slate-300 hover:bg-slate-100 text-slate-700 text-xs font-bold flex items-center gap-1"
+                      >
+                        <EyeOff className="w-3.5 h-3.5" /> Unlist
+                      </button>
+                    ) : null}
                   </div>
                 </div>
               ))}
@@ -2360,6 +2414,53 @@ export const OwnerDashboard: React.FC = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {lifecycleTarget && (
+        <div className="owner-modal-backdrop fixed inset-0 z-[1000] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl p-6 sm:p-7 max-w-md w-full shadow-2xl border border-slate-100 animate-in fade-in">
+            <div className="flex items-start justify-between gap-4 pb-4 border-b border-slate-100">
+              <div className="flex items-center gap-3">
+                <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${lifecycleTarget.status === 'Owner Unlisted' ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-100 text-slate-700'}`}>
+                  {lifecycleTarget.status === 'Owner Unlisted' ? <RotateCcw className="w-5 h-5" /> : <EyeOff className="w-5 h-5" />}
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-900">{lifecycleTarget.status === 'Owner Unlisted' ? 'Relist this PG?' : 'Hide this PG from search?'}</h3>
+                  <p className="text-xs text-slate-500 mt-0.5">{lifecycleTarget.name}</p>
+                </div>
+              </div>
+              <button type="button" onClick={() => setLifecycleTarget(null)} className="text-slate-400 hover:text-slate-700 text-lg">×</button>
+            </div>
+
+            {lifecycleTarget.status === 'Owner Unlisted' ? (
+              <div className="pt-4 space-y-3">
+                <p className="text-sm text-slate-600">Your property data, rooms, beds and residents stay intact. Relisting makes it available to new visitors again.</p>
+                <div className="flex gap-2 pt-2">
+                  <button type="button" onClick={() => setLifecycleTarget(null)} className="w-1/3 py-2.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-600">Cancel</button>
+                  <button type="button" disabled={lifecycleBusy} onClick={submitLifecycleChange} className="w-2/3 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold">{lifecycleBusy ? 'Relisting…' : 'Relist property'}</button>
+                </div>
+              </div>
+            ) : (
+              <div className="pt-4 space-y-4">
+                <p className="text-sm text-slate-600">The PG will remain in your dashboard, but new visitors will not see it in search or receive new listing traffic.</p>
+                <div>
+                  <label className="text-xs font-bold text-slate-700 block mb-1">Why are you hiding it?</label>
+                  <select value={lifecycleReason} onChange={(e) => setLifecycleReason(e.target.value as NonNullable<Property['unlistReason']>)} className="w-full px-3 py-2.5 rounded-xl border border-slate-300 bg-white text-sm font-medium">
+                    <option value="maintenance">Maintenance / renovation</option>
+                    <option value="temporarily_closed">Temporarily closed</option>
+                    <option value="no_longer_operational">No longer operational</option>
+                    <option value="other">Another reason</option>
+                  </select>
+                </div>
+                <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-[11px] text-amber-900">This is an owner action. A Super Admin disabled listing cannot be relisted from here.</div>
+                <div className="flex gap-2 pt-1">
+                  <button type="button" onClick={() => setLifecycleTarget(null)} className="w-1/3 py-2.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-600">Cancel</button>
+                  <button type="button" disabled={lifecycleBusy} onClick={submitLifecycleChange} className="w-2/3 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white text-xs font-bold">{lifecycleBusy ? 'Hiding…' : 'Hide from public search'}</button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
