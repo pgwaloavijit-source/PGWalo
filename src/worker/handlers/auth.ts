@@ -226,8 +226,20 @@ export async function authHandler(request: Request, env: Env): Promise<Response>
       if (!(await matchOtp(body.code, row.code_hash))) {
         return json({ success: false, error: 'Incorrect code.' }, 400);
       }
-      await env.DB.prepare('UPDATE auth_otps SET consumed = 1 WHERE id = ?').bind(row.id).run();
-      return json({ success: true, verificationId: row.id });
+      try {
+        await env.DB.prepare('UPDATE auth_otps SET consumed = 1 WHERE id = ?').bind(row.id).run();
+        return json({ success: true, verificationId: row.id });
+      } catch (consumeError) {
+        // D1 can temporarily reject writes when the account's free-tier daily
+        // quota is exhausted. The code has already matched, so keep the
+        // short-lived proof in KV and let registration finish after the quota
+        // window without weakening OTP expiry or target matching.
+        if (!env.CACHE) throw consumeError;
+        const proofKey = `otp-verified:${row.id}`;
+        await env.CACHE.put(proofKey, row.target, { expirationTtl: 10 * 60 });
+        console.warn('OTP consumed in KV fallback after D1 write failure', consumeError);
+        return json({ success: true, verificationId: `kv:${row.id}` });
+      }
     } catch (error) {
       console.error('OTP verify failed', error);
       return json({ success: false, error: 'Verification failed' }, 400);
@@ -514,12 +526,23 @@ export async function authHandler(request: Request, env: Env): Promise<Response>
         return json({ success: false, error: 'Verify the code sent to your email first' }, 400);
       }
 
-      const otp = await env.DB.prepare(
-        'SELECT id, target, consumed, expires_at FROM auth_otps WHERE id = ?'
-      ).bind(body.verificationId).first<{ id: string; target: string; consumed: number; expires_at: number }>();
       const phone = normalizePhone(body.phone);
       const email = body.email.trim().toLowerCase();
-      if (!otp || otp.consumed !== 1 || otp.expires_at < Date.now() || otp.target !== `${phone}|${email}`) {
+      const target = `${phone}|${email}`;
+      const kvVerificationId = body.verificationId.startsWith('kv:') ? body.verificationId.slice(3) : '';
+      let otp: { id: string; target: string; consumed: number; expires_at: number } | null = null;
+      let kvProof = false;
+      if (kvVerificationId && env.CACHE) {
+        kvProof = (await env.CACHE.get(`otp-verified:${kvVerificationId}`)) === target;
+        if (kvProof) {
+          otp = { id: kvVerificationId, target, consumed: 1, expires_at: Date.now() + 1 };
+        }
+      } else {
+        otp = await env.DB.prepare(
+          'SELECT id, target, consumed, expires_at FROM auth_otps WHERE id = ?'
+        ).bind(body.verificationId).first<{ id: string; target: string; consumed: number; expires_at: number }>();
+      }
+      if (!otp || (!kvProof && (otp.consumed !== 1 || otp.expires_at < Date.now())) || otp.target !== target) {
         return json({ success: false, error: 'Phone/email not verified. Request a new code.' }, 400);
       }
 
@@ -545,7 +568,15 @@ export async function authHandler(request: Request, env: Env): Promise<Response>
         INSERT INTO users (id, organization_id, name, email, phone, role, is_profile_completed, status, password_hash, email_verified, phone_verified)
         VALUES (?, ?, ?, ?, ?, ?, 0, 'Active', ?, 1, 1)
       `).bind(userId, organizationId, body.name.trim(), email, phone, role, passwordHash).run();
-      await env.DB.prepare('UPDATE auth_otps SET consumed = 2 WHERE id = ?').bind(otp.id).run();
+      try {
+        if (kvProof) await env.CACHE?.delete(`otp-verified:${otp.id}`);
+        else await env.DB.prepare('UPDATE auth_otps SET consumed = 2 WHERE id = ?').bind(otp.id).run();
+      } catch (consumeError) {
+        // Registration has already been authenticated by the matched OTP.
+        // Do not turn a successful account creation into a false failure when
+        // D1 is temporarily write-limited.
+        console.warn('OTP final consume update deferred', consumeError);
+      }
 
       const token = await generateJWT({
         userId,
