@@ -597,7 +597,7 @@ export const OwnerDashboard: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 pb-20">
+    <div className="owner-dashboard min-h-screen bg-slate-50 text-slate-900 pb-20">
       {/* Disabled-listing banner: the Super Admin froze a listing. Read-only
           until the reactivation ticket is resolved. */}
       {properties.some((p) => ownsProperty(p, currentUser!) && (p.status === 'Archived' || p.status === 'Restricted')) && (
@@ -626,7 +626,7 @@ export const OwnerDashboard: React.FC = () => {
       )}
       {/* Toast banner */}
       {reminderToast && (
-        <div className="fixed top-20 right-6 z-50 bg-blue-600 text-white px-4 py-2.5 rounded-xl shadow-xl flex items-center gap-2 text-xs font-semibold animate-in fade-in">
+        <div className="owner-toast fixed top-20 right-6 z-[1100] bg-blue-600 text-white px-4 py-2.5 rounded-xl shadow-xl flex items-center gap-2 text-xs font-semibold animate-in fade-in">
           <CheckCircle2 className="w-4 h-4 text-blue-200" />
           <span>{reminderToast}</span>
         </div>
@@ -710,7 +710,7 @@ export const OwnerDashboard: React.FC = () => {
       <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 pt-4 sm:pt-6 flex gap-3 lg:gap-6 items-start">
         <nav
           aria-label="Owner sections"
-          className="sticky top-20 z-10 shrink-0 w-[4.85rem] sm:w-56 lg:w-64 rounded-3xl bg-white border border-slate-200 shadow-2xs p-1.5 sm:p-2"
+          className="owner-sidebar sticky top-20 z-20 shrink-0 w-[4.85rem] sm:w-56 lg:w-64 rounded-3xl bg-white border border-slate-200 shadow-2xs p-1.5 sm:p-2"
         >
           {[
             { key: 'home', label: 'Home', icon: TrendingUp, count: 0 },
@@ -740,7 +740,7 @@ export const OwnerDashboard: React.FC = () => {
                 key={tab.key}
                 type="button"
                 onClick={() => setActiveTab(tab.key as typeof activeTab)}
-                className={`w-full mb-1 last:mb-0 rounded-2xl flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2 px-1.5 py-2.5 sm:px-3 sm:py-2.5 text-center sm:text-left transition min-h-[52px] sm:min-h-[44px] ${
+                className={`owner-nav-item w-full mb-1 last:mb-0 rounded-2xl flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2 px-1.5 py-2.5 sm:px-3 sm:py-2.5 text-center sm:text-left transition min-h-[52px] sm:min-h-[44px] ${
                   active ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-50 hover:text-blue-700'
                 }`}
               >
@@ -759,7 +759,7 @@ export const OwnerDashboard: React.FC = () => {
             );
           })}
         </nav>
-        <div key={activeTab} className="pnative-screen flex-1 min-w-0 mb-6">
+        <div key={activeTab} className="owner-panel pnative-screen flex-1 min-w-0 mb-6">
 
         {/* MARKET-READY TABS */}
         {activeTab === 'home' && <OwnerHomeTab onNavigate={(t) => setActiveTab(t as typeof activeTab)} />}
@@ -1675,7 +1675,7 @@ export const OwnerDashboard: React.FC = () => {
 
       {/* Add New Property Modal */}
       {showAddPropModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4">
+        <div className="owner-modal-backdrop fixed inset-0 z-[1000] flex items-center justify-center bg-slate-900/60 p-4">
           <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-blue-100">
             <div className="flex items-center justify-between border-b pb-3 mb-4">
               <div>
@@ -1869,7 +1869,7 @@ export const OwnerDashboard: React.FC = () => {
 
       {/* Add Staff Member Modal */}
       {showAddStaffModal && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 z-[100] animate-in fade-in duration-200">
+        <div className="owner-modal-backdrop fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 z-[1000] animate-in fade-in duration-200">
           <div className="bg-white rounded-t-3xl sm:rounded-3xl max-w-md w-full max-h-[92dvh] overflow-y-auto p-6 shadow-2xl border border-blue-100">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <div className="flex items-center gap-2">
@@ -2201,7 +2201,7 @@ export const OwnerDashboard: React.FC = () => {
 
       {/* Room Transfer Modal */}
       {showTransferModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="owner-modal-backdrop fixed inset-0 z-[1000] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl p-6 sm:p-7 max-w-md w-full shadow-2xl border border-slate-100 animate-in fade-in">
             <div className="flex items-center justify-between pb-4 border-b border-slate-100">
               <div className="flex items-center gap-2.5">
@@ -2289,7 +2289,7 @@ export const OwnerDashboard: React.FC = () => {
 
       {/* Notice Period Modal */}
       {showNoticeModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="owner-modal-backdrop fixed inset-0 z-[1000] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl p-6 sm:p-7 max-w-md w-full shadow-2xl border border-slate-100 animate-in fade-in">
             <div className="flex items-center justify-between pb-4 border-b border-slate-100">
               <div className="flex items-center gap-2.5">

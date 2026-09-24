@@ -384,3 +384,142 @@ img.listing-photo {
   scrollbar-width: thin;
   scrollbar-color: rgba(100, 116, 139, 0.28) transparent;
 }
+
+/* Owner console interaction system. Keep these styles scoped so the richer
+   hover treatment does not unexpectedly change public/search surfaces. */
+.owner-dashboard {
+  --owner-blue: #2563eb;
+  --owner-ink: #0f172a;
+  --owner-border: rgba(226, 232, 240, 0.92);
+  background:
+    radial-gradient(circle at 92% 0%, rgba(59, 130, 246, 0.08), transparent 25rem),
+    #f8fafc;
+}
+
+.owner-dashboard button,
+.owner-dashboard a,
+.owner-dashboard [role="button"] {
+  transition:
+    transform 160ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 160ms ease,
+    background-color 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease,
+    opacity 160ms ease;
+}
+
+.owner-dashboard button:not(:disabled):hover,
+.owner-dashboard a:hover,
+.owner-dashboard [role="button"]:hover {
+  transform: translateY(-1px);
+}
+
+.owner-dashboard button:not(:disabled):active,
+.owner-dashboard a:active,
+.owner-dashboard [role="button"]:active {
+  transform: translateY(1px) scale(0.98);
+}
+
+.owner-dashboard button:disabled {
+  transform: none;
+}
+
+.owner-dashboard .owner-sidebar {
+  border-color: rgba(219, 234, 254, 0.95);
+  box-shadow: 0 14px 35px rgba(15, 23, 42, 0.07);
+  backdrop-filter: blur(16px);
+}
+
+.owner-dashboard .owner-nav-item {
+  position: relative;
+  overflow: hidden;
+}
+
+.owner-dashboard .owner-nav-item::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(110deg, transparent 20%, rgba(255, 255, 255, 0.2), transparent 70%);
+  transform: translateX(-120%);
+  transition: transform 500ms ease;
+  pointer-events: none;
+}
+
+.owner-dashboard .owner-nav-item:hover::after {
+  transform: translateX(120%);
+}
+
+.owner-dashboard .owner-panel > * {
+  animation: owner-panel-rise 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.owner-dashboard .owner-panel > *:nth-child(2) { animation-delay: 35ms; }
+.owner-dashboard .owner-panel > *:nth-child(3) { animation-delay: 70ms; }
+.owner-dashboard .owner-panel > *:nth-child(4) { animation-delay: 105ms; }
+
+.owner-dashboard .owner-panel .bg-white.rounded-2xl,
+.owner-dashboard .owner-panel .bg-white.rounded-3xl,
+.owner-dashboard .owner-panel .bg-white.rounded-xl {
+  border-color: var(--owner-border);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.045);
+  transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 180ms ease, border-color 180ms ease;
+}
+
+.owner-dashboard .owner-panel .bg-white.rounded-2xl:hover,
+.owner-dashboard .owner-panel .bg-white.rounded-3xl:hover,
+.owner-dashboard .owner-panel .bg-white.rounded-xl:hover {
+  border-color: rgba(147, 197, 253, 0.9);
+  box-shadow: 0 16px 34px rgba(37, 99, 235, 0.09);
+  transform: translateY(-2px);
+}
+
+.owner-dashboard .owner-modal-backdrop {
+  isolation: isolate;
+  animation: owner-backdrop-in 180ms ease-out both;
+}
+
+.owner-dashboard .owner-modal-backdrop > * {
+  animation: owner-modal-in 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.owner-dashboard .owner-toast {
+  animation: owner-toast-in 300ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes owner-panel-rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes owner-backdrop-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes owner-modal-in {
+  from { opacity: 0; transform: translateY(14px) scale(0.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes owner-toast-in {
+  from { opacity: 0; transform: translateY(-8px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .owner-dashboard .owner-panel > *,
+  .owner-dashboard .owner-modal-backdrop,
+  .owner-dashboard .owner-modal-backdrop > *,
+  .owner-dashboard .owner-toast {
+    animation: none;
+  }
+
+  .owner-dashboard button,
+  .owner-dashboard a,
+  .owner-dashboard [role="button"],
+  .owner-dashboard .owner-panel .bg-white.rounded-2xl,
+  .owner-dashboard .owner-panel .bg-white.rounded-3xl,
+  .owner-dashboard .owner-panel .bg-white.rounded-xl {
+    transition: none;
+  }
+}
