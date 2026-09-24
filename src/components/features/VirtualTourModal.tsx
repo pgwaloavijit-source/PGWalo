@@ -160,9 +160,8 @@ export const VirtualTourModal: React.FC<VirtualTourModalProps> = ({ propertyName
   );
   const scenes = useMemo(() => {
     const built = buildScenes(tourProperty);
-    return built.length >= 1 ? built : DEMO_SCENES;
+    return built;
   }, [tourProperty]);
-  const isDemo = scenes === DEMO_SCENES;
 
   const [activeIndex, setActiveIndex] = useState(0);
   const [activeInfo, setActiveInfo] = useState<{ title: string; text: string } | null>(null);
@@ -172,6 +171,19 @@ export const VirtualTourModal: React.FC<VirtualTourModalProps> = ({ propertyName
   const dragRef = useRef<{ startX: number; startOffset: number } | null>(null);
 
   if (!showVirtualTourModal) return null;
+
+  if (!scenes.length) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md">
+        <div className="w-full max-w-md rounded-2xl bg-slate-900 border border-slate-800 p-6 text-white shadow-2xl text-center">
+          <Images className="w-10 h-10 mx-auto text-blue-400 mb-3" />
+          <h2 className="text-lg font-bold">Add property photos to create a tour</h2>
+          <p className="text-xs text-slate-400 mt-2">Your tour will be generated from the property cover, gallery, and room details.</p>
+          <button onClick={() => (onClose ? onClose() : setShowVirtualTourModal(false))} className="mt-5 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-xs font-bold">Close</button>
+        </div>
+      </div>
+    );
+  }
 
   const current = scenes[Math.min(activeIndex, scenes.length - 1)];
   const maxPan = 120;
@@ -221,7 +233,6 @@ export const VirtualTourModal: React.FC<VirtualTourModalProps> = ({ propertyName
               </div>
               <p className="text-xs text-slate-400">
                 Drag to pan · click hotspots to move between scenes
-                {isDemo && ' · showing a sample tour (add property photos to customise)'}
               </p>
             </div>
           </div>

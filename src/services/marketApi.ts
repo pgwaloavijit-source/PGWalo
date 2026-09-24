@@ -12,7 +12,6 @@ import type {
   PropertyComplianceItem, ImportKind, ImportPreview,
 } from '../domain/market';
 import { parseCsv, buildImportPreview, rejectionReport, CSV_TEMPLATES } from '../domain/csvImport';
-import { seedDemoMarketData } from '../domain/demoSeed';
 import type { GuardianAccess, InstitutionalLead, InstitutionalStage, MealOpsEntry, GuardianViewPayload } from '../domain/p1';
 import { canTransitionInstitutional, summarizeMealOps } from '../domain/p1';
 
@@ -64,9 +63,8 @@ const loadDemo = (): DemoStore => {
       return { ...emptyStore(), ...parsed };
     }
   } catch { /* fresh demo */ }
-  // Fresh demo store: seed once with the market-ready fixtures (spec §43).
+  // Fresh local store starts empty; live data comes from the Worker API.
   const fresh = emptyStore();
-  seedDemoMarketData(fresh);
   saveDemo(fresh);
   return fresh;
 };

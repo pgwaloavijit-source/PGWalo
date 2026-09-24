@@ -2,46 +2,22 @@ import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { BrandLogo } from './BrandLogo';
 import {
-  MapPin,
   ShieldCheck,
-  Building2,
   Lock,
   Phone,
   Mail,
-  ChevronRight,
-  HelpCircle,
   FileText,
-  CheckCircle2,
   X,
-  Play,
-  Users,
-  User,
-  Star,
 } from 'lucide-react';
 
 export const Footer: React.FC<{
   onAreaClick?: (locality: string, city: string) => void;
 }> = ({ onAreaClick }) => {
-  const { openAuthModal, login, currentUser } = useApp();
+  const { openAuthModal } = useApp();
   const [legalModal, setLegalModal] = useState<{ title: string; content: string } | null>(null);
-  const [demoModal, setDemoModal] = useState(false);
 
   const openPolicy = (title: string, content: string) => {
     setLegalModal({ title, content });
-  };
-
-  const handleDemoLogin = (role: 'owner' | 'resident' | 'staff' | 'admin') => {
-    // Demo login without password
-    const demoCredentials = {
-      owner: { email: 'demo-owner@pgwalo.com', password: 'demo123', role: 'owner' as const },
-      resident: { email: 'demo-resident@pgwalo.com', password: 'demo123', role: 'resident' as const },
-      staff: { email: 'demo-staff@pgwalo.com', password: 'demo123', role: 'staff' as const },
-      admin: { email: 'demo-admin@pgwalo.com', password: 'demo123', role: 'admin' as const },
-    };
-
-    const creds = demoCredentials[role];
-    login(creds.email, creds.password, creds.role, true); // true for isDemo
-    setDemoModal(false);
   };
 
   return (
@@ -81,13 +57,6 @@ export const Footer: React.FC<{
           {/* Primary actions */}
           <div className="flex items-center gap-2">
             <div className="flex flex-wrap items-center gap-2">
-              <button
-                onClick={() => setDemoModal(true)}
-                className="py-2 px-3 rounded-xl bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 text-white font-bold text-xs transition shadow-xs text-center flex items-center justify-center gap-1.5"
-              >
-                <Play className="w-3.5 h-3.5" />
-                Launch Demo
-              </button>
               <button
                 onClick={() => openAuthModal('login', 'superadmin', { path: 'superadmin', source: 'footer', intent: 'dashboard' })}
                 className="py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs transition text-center"
@@ -185,65 +154,6 @@ export const Footer: React.FC<{
         </div>
       )}
 
-      {/* Demo Login Modal */}
-      {demoModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs animate-in fade-in">
-          <div className="relative w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl p-6 text-white shadow-2xl space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <div className="flex items-center gap-2">
-                <Play className="w-5 h-5 text-green-400" />
-                <h3 className="font-bold text-sm text-white">Try PGWALO Demo</h3>
-              </div>
-              <button
-                onClick={() => setDemoModal(false)}
-                className="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <p className="text-xs text-slate-300 leading-relaxed">
-              Experience PGWALO without any password. Choose a role to explore the platform features with demo data.
-            </p>
-            <div className="space-y-2">
-              <button
-                onClick={() => handleDemoLogin('owner')}
-                className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 text-white font-semibold text-xs transition flex items-center justify-center gap-2"
-              >
-                <Building2 className="w-4 h-4" />
-                <span>Owner Demo</span>
-                <Star className="w-3 h-3 text-yellow-400" />
-              </button>
-              <button
-                onClick={() => handleDemoLogin('resident')}
-                className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-500 hover:to-purple-600 text-white font-semibold text-xs transition flex items-center justify-center gap-2"
-              >
-                <User className="w-4 h-4" />
-                <span>Resident Demo</span>
-                <Star className="w-3 h-3 text-yellow-400" />
-              </button>
-              <button
-                onClick={() => handleDemoLogin('staff')}
-                className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-500 hover:to-amber-600 text-white font-semibold text-xs transition flex items-center justify-center gap-2"
-              >
-                <Users className="w-4 h-4" />
-                <span>Staff Demo</span>
-                <Star className="w-3 h-3 text-yellow-400" />
-              </button>
-              <button
-                onClick={() => handleDemoLogin('admin')}
-                className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 text-white font-semibold text-xs transition flex items-center justify-center gap-2"
-              >
-                <ShieldCheck className="w-4 h-4" />
-                <span>Admin Demo</span>
-                <Star className="w-3 h-3 text-yellow-400" />
-              </button>
-            </div>
-            <div className="pt-2 text-center">
-              <p className="text-[10px] text-slate-500">Demo accounts use pre-configured data and don't require passwords</p>
-            </div>
-          </div>
-        </div>
-      )}
     </footer>
   );
 };

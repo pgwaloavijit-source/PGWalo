@@ -118,9 +118,6 @@ import {
   INITIAL_STAYS,
   INITIAL_INVOICES,
   INITIAL_CHECKOUT_SETTLEMENTS,
-  DEMO_PROPERTIES,
-  DEMO_RESIDENTS,
-  DEMO_BOOKING_REQUESTS,
 } from '../mockData';
 
 interface AppContextType {
@@ -146,7 +143,7 @@ interface AppContextType {
   tickets: MaintenanceTicket[];
   supportTickets: SupportTicket[];
   currentResident: Resident | null;
-  activeProperty: Property;
+  activeProperty: Property | null;
   selectedPGForDetail: Property | null;
   setSelectedPGForDetail: (property: Property | null) => void;
   propertyModalIntent: 'view' | 'book';
@@ -169,7 +166,7 @@ interface AppContextType {
   ) => void;
   requireAuth: (action: () => void, meta?: { mode?: 'login' | 'register'; role?: UserRole; intent?: string; path?: string; propertyId?: string; source?: string }) => void;
   runPendingAuthAction: () => void;
-  login: (email: string, password?: string, requestedRole?: UserRole, isDemo?: boolean) => { success: boolean; message?: string };
+  login: (email: string, password?: string, requestedRole?: UserRole) => { success: boolean; message?: string };
     applyApiSession: (user: Partial<UserAccount> & { id: string; role: UserRole }) => void;
   openPublicCatalog: () => void;
   shellIntent: string | null;
@@ -297,7 +294,6 @@ interface AppContextType {
   addSupportTicketReply: (ticketId: string, body: string) => void;
   updateUserAccountStatus: (userId: string, status: NonNullable<UserAccount['status']>) => void;
   setListingDecision: (propertyId: string, action: 'approve' | 'reject' | 'disable') => void;
-  resetToDemoData: () => void;
   /** False while the API snapshot is still in flight, so the shell can show the boot loader. */
   productionHydrated: boolean;
 }
@@ -395,6 +391,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   });
 
   const [organizations, setOrganizations] = useState<Organization[]>(() => {
+    if (isProductionApiEnabled()) return [];
     const saved = localStorage.getItem(STORAGE_KEYS.ORGANIZATIONS);
     return saved
       ? JSON.parse(saved)
@@ -424,7 +421,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     }
 
-    const source: Property[] = saved ? JSON.parse(saved) : INITIAL_PROPERTIES;
+    const source: Property[] = isProductionApiEnabled() ? [] : saved ? JSON.parse(saved) : INITIAL_PROPERTIES;
 
     // Filter out demo data for non-demo users
     const filteredSource = isDemoUser ? source : source.filter(p => !p.id.startsWith('demo-'));
@@ -463,7 +460,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     }
 
-    const source: Resident[] = saved ? JSON.parse(saved) : INITIAL_RESIDENTS;
+    const source: Resident[] = isProductionApiEnabled() ? [] : saved ? JSON.parse(saved) : INITIAL_RESIDENTS;
     const filteredSource = isDemoUser ? source : source.filter(r => !r.id.startsWith('demo-'));
 
     return filteredSource.map((resident) => ({
@@ -493,11 +490,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     }
 
-    const source: BookingRequest[] = saved ? JSON.parse(saved) : INITIAL_BOOKING_REQUESTS;
+    const source: BookingRequest[] = isProductionApiEnabled() ? [] : saved ? JSON.parse(saved) : INITIAL_BOOKING_REQUESTS;
     return isDemoUser ? source : source.filter(b => !b.id.startsWith('demo-'));
   });
 
   const [attendance, setAttendance] = useState<AttendanceRecord[]>(() => {
+    if (isProductionApiEnabled()) return [];
     const saved = localStorage.getItem(STORAGE_KEYS.ATTENDANCE);
     return saved ? JSON.parse(saved) : INITIAL_ATTENDANCE;
   });
@@ -513,38 +511,44 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         isDemoUser = false;
       }
     }
-    const source: StaffMember[] = saved ? JSON.parse(saved) : isDemoUser ? INITIAL_STAFF : [];
+    const source: StaffMember[] = isProductionApiEnabled() ? [] : saved ? JSON.parse(saved) : isDemoUser ? INITIAL_STAFF : [];
     const catalogProps = new Set(['prop-1', 'prop-2', 'prop-3', 'prop-4']);
     if (isDemoUser) return source;
     return source.filter((s) => !catalogProps.has(s.propertyId) || Boolean(s.ownerUserId));
   });
 
   const [tasks, setTasks] = useState<StaffTask[]>(() => {
+    if (isProductionApiEnabled()) return [];
     const saved = localStorage.getItem(STORAGE_KEYS.TASKS);
     return saved ? JSON.parse(saved) : INITIAL_TASKS;
   });
 
   const [broadcasts, setBroadcasts] = useState<BroadcastNotification[]>(() => {
+    if (isProductionApiEnabled()) return [];
     const saved = localStorage.getItem(STORAGE_KEYS.BROADCASTS);
     return saved ? JSON.parse(saved) : INITIAL_BROADCASTS;
   });
 
   const [mealPlan, setMealPlan] = useState<MealPlanDay[]>(() => {
+    if (isProductionApiEnabled()) return [];
     const saved = localStorage.getItem(STORAGE_KEYS.MEALS);
     return saved ? JSON.parse(saved) : INITIAL_MEAL_PLAN;
   });
 
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>(() => {
+    if (isProductionApiEnabled()) return [];
     const saved = localStorage.getItem(STORAGE_KEYS.CHAT);
     return saved ? JSON.parse(saved) : INITIAL_CHAT;
   });
 
   const [tickets, setTickets] = useState<MaintenanceTicket[]>(() => {
+    if (isProductionApiEnabled()) return [];
     const saved = localStorage.getItem(STORAGE_KEYS.TICKETS);
     return saved ? JSON.parse(saved) : INITIAL_TICKETS;
   });
 
   const [supportTickets, setSupportTickets] = useState<SupportTicket[]>(() => {
+    if (isProductionApiEnabled()) return [];
     const saved = localStorage.getItem(STORAGE_KEYS.SUPPORT_TICKETS);
     return saved ? JSON.parse(saved) : INITIAL_SUPPORT_TICKETS;
   });
@@ -555,7 +559,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       try {
         const parsed: UserAccount[] = JSON.parse(saved);
         return parsed.filter(
-          (u) =>
+          (u) => !u.isDemo && !u.id.startsWith('demo-') &&
+          
             !u.id.startsWith('user-owner') &&
             !u.id.startsWith('user-resident') &&
             !u.id.startsWith('user-staff') &&
@@ -590,6 +595,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           localStorage.removeItem(STORAGE_KEYS.ROLE);
           return null;
         }
+        if (parsed.isDemo || parsed.id.startsWith('demo-')) {
+          localStorage.removeItem(STORAGE_KEYS.CURRENT_USER);
+          localStorage.removeItem(STORAGE_KEYS.ROLE);
+          return null;
+        }
         return parsed;
       } catch {
         return null;
@@ -605,41 +615,49 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Enterprise States
   const [beds, setBeds] = useState<Bed[]>(() => {
+    if (isProductionApiEnabled()) return [];
     const saved = localStorage.getItem(STORAGE_KEYS.BEDS);
     return saved ? JSON.parse(saved) : INITIAL_BEDS;
   });
 
   const [leads, setLeads] = useState<Lead[]>(() => {
+    if (isProductionApiEnabled()) return [];
     const saved = localStorage.getItem(STORAGE_KEYS.LEADS);
     return saved ? JSON.parse(saved) : INITIAL_LEADS;
   });
 
   const [meterReadings, setMeterReadings] = useState<ElectricityMeterReading[]>(() => {
+    if (isProductionApiEnabled()) return [];
     const saved = localStorage.getItem(STORAGE_KEYS.METER_READINGS);
     return saved ? JSON.parse(saved) : INITIAL_METER_READINGS;
   });
 
   const [reconciliations, setReconciliations] = useState<PropertyElectricityReconciliation[]>(() => {
+    if (isProductionApiEnabled()) return [];
     const saved = localStorage.getItem(STORAGE_KEYS.RECONCILIATION);
     return saved ? JSON.parse(saved) : INITIAL_RECONCILIATION;
   });
 
   const [depositRecords, setDepositRecords] = useState<SecurityDepositRecord[]>(() => {
+    if (isProductionApiEnabled()) return [];
     const saved = localStorage.getItem(STORAGE_KEYS.DEPOSITS);
     return saved ? JSON.parse(saved) : INITIAL_DEPOSITS;
   });
 
   const [agreements, setAgreements] = useState<RentAgreement[]>(() => {
+    if (isProductionApiEnabled()) return [];
     const saved = localStorage.getItem(STORAGE_KEYS.AGREEMENTS);
     return saved ? JSON.parse(saved) : INITIAL_AGREEMENTS;
   });
 
   const [visitorPasses, setVisitorPasses] = useState<VisitorPass[]>(() => {
+    if (isProductionApiEnabled()) return [];
     const saved = localStorage.getItem(STORAGE_KEYS.VISITORS);
     return saved ? JSON.parse(saved) : INITIAL_VISITORS;
   });
 
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>(() => {
+    if (isProductionApiEnabled()) return [];
     const saved = localStorage.getItem(STORAGE_KEYS.AUDIT_LOGS);
     return saved ? JSON.parse(saved) : INITIAL_AUDIT_LOGS;
   });
@@ -655,11 +673,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   });
 
   const [stays, setStays] = useState<Stay[]>(() => {
+    if (isProductionApiEnabled()) return [];
     const saved = localStorage.getItem(STORAGE_KEYS.STAYS);
     return saved ? JSON.parse(saved) : deriveInitialStays(residents, beds);
   });
 
   const [invoices, setInvoices] = useState<Invoice[]>(() => {
+    if (isProductionApiEnabled()) return [];
     const saved = localStorage.getItem(STORAGE_KEYS.INVOICES);
     if (saved) return JSON.parse(saved);
     const now = new Date();
@@ -677,21 +697,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   });
 
   const [rentPlans, setRentPlans] = useState<RentPlan[]>(() => {
+    if (isProductionApiEnabled()) return [];
     const saved = localStorage.getItem(STORAGE_KEYS.RENT_PLANS);
     return saved ? JSON.parse(saved) : deriveInitialRentPlans(residents, properties);
   });
 
   const [payments, setPayments] = useState<Payment[]>(() => {
+    if (isProductionApiEnabled()) return [];
     const saved = localStorage.getItem(STORAGE_KEYS.PAYMENTS);
     return saved ? JSON.parse(saved) : [];
   });
 
   const [paymentAllocations, setPaymentAllocations] = useState<PaymentAllocation[]>(() => {
+    if (isProductionApiEnabled()) return [];
     const saved = localStorage.getItem(STORAGE_KEYS.PAYMENT_ALLOCATIONS);
     return saved ? JSON.parse(saved) : [];
   });
 
   const [depositTransactions, setDepositTransactions] = useState<DepositTransaction[]>(() => {
+    if (isProductionApiEnabled()) return [];
     const saved = localStorage.getItem(STORAGE_KEYS.DEPOSIT_TRANSACTIONS);
     if (saved) return JSON.parse(saved);
     return residents.map((resident) => ({
@@ -708,16 +732,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   });
 
   const [notices, setNotices] = useState<Notice[]>(() => {
+    if (isProductionApiEnabled()) return [];
     const saved = localStorage.getItem(STORAGE_KEYS.NOTICES);
     return saved ? JSON.parse(saved) : [];
   });
 
   const [checkouts, setCheckouts] = useState<Checkout[]>(() => {
+    if (isProductionApiEnabled()) return [];
     const saved = localStorage.getItem(STORAGE_KEYS.CHECKOUTS);
     return saved ? JSON.parse(saved) : [];
   });
 
   const [checkoutSettlements, setCheckoutSettlements] = useState<CheckoutSettlement[]>(() => {
+    if (isProductionApiEnabled()) return [];
     const saved = localStorage.getItem('pgwalo_checkout_settlements');
     return saved ? JSON.parse(saved) : [];
   });
@@ -773,7 +800,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const refreshCoreShared = useCallback(() => { refreshCoreRef.current?.(); }, []);
 
   // Active entities
-  const activeProperty = properties[0] || INITIAL_PROPERTIES[0];
+  const activeProperty = properties[0] || null;
   const currentResident: Resident | null = currentUser?.role === 'resident'
     ? (residents.find(
         (r) =>
@@ -2201,7 +2228,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return { referenceId: refId };
   };
 
-  const login = (email: string, password?: string, requestedRole?: UserRole, isDemo: boolean = false) => {
+  const login = (email: string, password?: string, requestedRole?: UserRole) => {
     const ident = email.trim();
     const identLower = ident.toLowerCase();
     // Super Admin authentication is enforced by the Worker (`POST /api/auth/login`)
@@ -2213,45 +2240,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return { success: false, message: 'Invalid Super Admin credentials.' };
     }
     let user = users.find((u) => u.email.toLowerCase() === identLower);
-
-    // Demo mode: Skip password validation and create/update demo user
-    if (isDemo) {
-      // For demo, auto-provision or use existing demo user
-      user = {
-        id: `demo-user-${Date.now()}`,
-        name: `Demo ${requestedRole || 'User'}`,
-        email: identLower,
-        phone: '+91 98765 43210',
-        role: requestedRole || 'resident',
-        avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=200&q=80',
-        createdAt: new Date().toISOString().split('T')[0],
-        isDemo: true,
-        isProfileCompleted: true,
-      };
-      
-      // Remove existing demo user with same email if exists
-      setUsers((prev) => [...prev.filter(u => !u.isDemo), user!]);
-      
-      // Load demo data based on role
-      if (requestedRole === 'owner') {
-        setProperties([...DEMO_PROPERTIES]);
-        setResidents([...DEMO_RESIDENTS]);
-        setBookingRequests([...DEMO_BOOKING_REQUESTS]);
-      } else if (requestedRole === 'resident') {
-        setProperties([...DEMO_PROPERTIES]);
-        setResidents([...DEMO_RESIDENTS]);
-      }
-      
-      setCurrentUser(user);
-      setRoleState(user.role);
-      setAuthModalOpen(false);
-      
-      return {
-        success: true,
-        message: `Demo login successful as ${user.role}`,
-        user,
-      };
-    }
 
     // For genuine user login, require existing account
     if (!user) {
@@ -2270,7 +2258,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     // Password validation for genuine users (skip for demo mode and Google OAuth)
-    if (password && password !== 'google_oauth_session' && !isDemo && !user.isDemo) {
+    if (password && password !== 'google_oauth_session' && !user.isDemo) {
       // For genuine users, require correct password
       if (password !== 'demo123') {
         return {
@@ -2281,14 +2269,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     // Clear demo data when a genuine user logs in
-    if (!isDemo && !user.isDemo) {
-      const hasDemoData = properties.some((p) => p.id.startsWith('demo-'));
-      if (hasDemoData) {
-        setProperties((prev) => prev.filter((p) => !p.id.startsWith('demo-')));
-        setResidents((prev) => prev.filter((r) => !r.id.startsWith('demo-')));
-        setBookingRequests((prev) => prev.filter((r) => !r.id.startsWith('demo-')));
-        setStaff((prev) => prev.filter((s) => !s.id.startsWith('demo-')));
-      }
+    const hasDemoData = properties.some((p) => p.id.startsWith('demo-'));
+    if (hasDemoData) {
+      setProperties((prev) => prev.filter((p) => !p.id.startsWith('demo-')));
+      setResidents((prev) => prev.filter((r) => !r.id.startsWith('demo-')));
+      setBookingRequests((prev) => prev.filter((r) => !r.id.startsWith('demo-')));
+      setStaff((prev) => prev.filter((s) => !s.id.startsWith('demo-')));
     }
 
     setCurrentUser(user);
@@ -4139,7 +4125,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         addSupportTicketReply,
         updateUserAccountStatus,
         setListingDecision,
-        resetToDemoData,
         productionHydrated,
         accountBlocked,
       }}
