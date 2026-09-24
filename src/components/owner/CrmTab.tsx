@@ -275,8 +275,8 @@ export const CrmTab: React.FC = () => {
 
       {/* Lead detail drawer */}
       {selected && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 flex justify-end" onClick={() => setSelected(null)}>
-          <div className="bg-white w-full max-w-md h-full overflow-y-auto p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
+        <div className="owner-modal-backdrop fixed inset-0 z-[1000] bg-slate-900/45 backdrop-blur-[2px] flex justify-end" onClick={() => setSelected(null)}>
+          <div className="bg-white w-full max-w-xl h-full overflow-y-auto border-l border-slate-200 shadow-2xl p-5 sm:p-7 space-y-5" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-start justify-between">
               <div>
                 <h3 className="text-lg font-black text-slate-900">{selected.fullName}</h3>
@@ -302,7 +302,44 @@ export const CrmTab: React.FC = () => {
               ))}
             </div>
 
-            <div className="flex gap-2">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                <p className="text-[10px] font-black uppercase tracking-wide text-slate-400">Current stage</p>
+                <p className="mt-1 text-sm font-black text-slate-900">{STAGE_LABELS[selected.stage]}</p>
+              </div>
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                <p className="text-[10px] font-black uppercase tracking-wide text-slate-400">Budget</p>
+                <p className="mt-1 text-sm font-black text-slate-900">{selected.budgetMax ? `Up to ₹${selected.budgetMax.toLocaleString('en-IN')}` : 'Not specified'}</p>
+              </div>
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                <p className="text-[10px] font-black uppercase tracking-wide text-slate-400">Move-in date</p>
+                <p className="mt-1 text-sm font-black text-slate-900">{selected.moveInDate || 'Not specified'}</p>
+              </div>
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                <p className="text-[10px] font-black uppercase tracking-wide text-slate-400">Follow-up</p>
+                <p className="mt-1 text-sm font-black text-slate-900">{selected.nextFollowUpAt || 'Not scheduled'}</p>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-200 p-4 space-y-3">
+              <div>
+                <h4 className="text-sm font-black text-slate-900">Lead preferences</h4>
+                <p className="text-[11px] text-slate-500 mt-0.5">Details captured from the original enquiry.</p>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-slate-600">
+                <span>Locality: {selected.desiredLocality || 'Not specified'}</span>
+                <span>Sharing: {selected.sharingPreference || 'Not specified'}</span>
+                <span>Workplace / college: {selected.workplaceOrCollege || 'Not specified'}</span>
+                <span>Property: {selected.propertyName || 'Not assigned'}</span>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-4">
+              <h4 className="text-sm font-black text-slate-900">Activity</h4>
+              <p className="text-xs text-slate-500 mt-1">{activityNote || `Last updated ${new Date(selected.updatedAt).toLocaleDateString('en-IN')}. Use the actions below to continue this lead.`}</p>
+            </div>
+
+            <div className="flex gap-2 sticky bottom-0 bg-white pt-3">
               <a href={whatsappDeepLink(selected.phone, WHATSAPP_TEMPLATES[0].body({ leadName: selected.fullName, propertyName: selected.propertyName }))} target="_blank" rel="noreferrer"
                 className="flex-1 text-center text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-3 py-2 rounded-xl border border-emerald-200">WhatsApp</a>
               <button onClick={() => { setVisitFormFor(selected.id); setSelected(null); }} className="flex-1 text-xs font-bold text-purple-700 bg-purple-50 hover:bg-purple-100 px-3 py-2 rounded-xl border border-purple-200">Schedule visit</button>
