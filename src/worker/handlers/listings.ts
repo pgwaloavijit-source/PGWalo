@@ -34,6 +34,8 @@ export async function listingsHandler(request: Request, env: Env): Promise<Respo
   if (request.method === 'GET') {
     const city = (url.searchParams.get('city') || '').trim();
     const location = (url.searchParams.get('location') || url.searchParams.get('q') || '').trim();
+    const requestedLimit = Number(url.searchParams.get('limit') || '500');
+    const limit = Number.isFinite(requestedLimit) ? Math.min(Math.max(Math.floor(requestedLimit), 1), 1000) : 500;
     const conditions = [`(status IS NULL OR status = 'Active')`];
     const params: unknown[] = [];
 
@@ -60,7 +62,7 @@ export async function listingsHandler(request: Request, env: Env): Promise<Respo
       params.push(like, like, like, like, like);
     }
     try {
-      const sql = `SELECT * FROM properties WHERE ${conditions.join(' AND ')} ORDER BY featured DESC, created_at DESC LIMIT 200`;
+      const sql = `SELECT * FROM properties WHERE ${conditions.join(' AND ')} ORDER BY featured DESC, created_at DESC LIMIT ${limit}`;
       const stmt = env.DB.prepare(sql);
       const { results } = params.length ? await stmt.bind(...params).all() : await stmt.all();
       return json((results || []).map((row) => rowToProperty(row as Record<string, unknown>)));
@@ -68,7 +70,7 @@ export async function listingsHandler(request: Request, env: Env): Promise<Respo
       console.error('listings get', error);
       try {
         const { results } = await env.DB.prepare(
-          `SELECT * FROM properties WHERE status = 'Active' OR status IS NULL LIMIT 200`
+          `SELECT * FROM properties WHERE status = 'Active' OR status IS NULL LIMIT ${limit}`
         ).all();
         return json((results || []).map((row) => rowToProperty(row as Record<string, unknown>)));
       } catch {

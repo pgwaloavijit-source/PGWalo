@@ -4,11 +4,12 @@ import { getAuthToken, isProductionApiEnabled } from './productionApi';
 
 const apiUrl = (path: string) => sharedApiUrl(path);
 
-export async function fetchPublicListings(filters?: { city?: string; location?: string }): Promise<Property[]> {
+export async function fetchPublicListings(filters?: { city?: string; location?: string; limit?: number }): Promise<Property[]> {
   if (!isProductionApiEnabled() && !import.meta.env.PROD) return [];
   const params = new URLSearchParams();
   if (filters?.city && filters.city !== 'All') params.set('city', filters.city);
   if (filters?.location) params.set('location', filters.location);
+  if (filters?.limit) params.set('limit', String(Math.min(Math.max(filters.limit, 1), 1000)));
   const qs = params.toString();
   const headers: Record<string, string> = {};
   // Sending the owner's token lets the worker include their own listings that

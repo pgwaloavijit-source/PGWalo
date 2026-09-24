@@ -3,9 +3,10 @@ import { useApp } from '../../context/AppContext';
 import { Property, GenderPreference, RoomSharingType, PublicSearchCriteria } from '../../types';
 import { visitedPropertyIds, bookedPropertyIds } from '../../utils/userBookings';
 import { ListingImage } from '../common/ListingImage';
-import { citiesMatch, isPincodeQuery, matchesPlaceQuery, mapPinPercents, mergeProperties, sortByDistance, nearbyLocalities, distanceKm, hasCoords } from '../../utils/locationMatch';
+import { citiesMatch, isPincodeQuery, matchesPlaceQuery, mapPinPercents, mergeProperties, sortByDistance, distanceKm, hasCoords } from '../../utils/locationMatch';
 import { osmEmbedUrl, osmBoundsUrl } from '../../services/geo';
 import { fetchPublicListings } from '../../services/listings';
+import { isProductionApiEnabled } from '../../services/productionApi';
 import { AMENITIES, amenityLabel, normalizeAmenities } from '../../utils/amenities';
 import {
   Search,
@@ -32,9 +33,11 @@ export const SearchPage: React.FC<{
 }> = ({ onSelectPG, initialCriteria = {} as PublicSearchCriteria }) => {
   const { properties, beds, currentUser, bookingRequests } = useApp();
   const [remoteListings, setRemoteListings] = useState<Property[]>([]);
+  const [remoteLoaded, setRemoteLoaded] = useState(!isProductionApiEnabled());
   const catalog = useMemo(
-    () => mergeProperties(properties, remoteListings).filter((p) => p.listingStatus !== 'Payment Pending' && p.listingPaymentStatus !== 'Pending'),
-    [properties, remoteListings]
+    () => (remoteLoaded ? mergeProperties(isProductionApiEnabled() ? [] : properties, remoteListings) : [])
+      .filter((p) => p.listingStatus !== 'Payment Pending' && p.listingPaymentStatus !== 'Pending'),
+    [properties, remoteListings, remoteLoaded]
   );
   const visitedIds = useMemo(() => visitedPropertyIds(bookingRequests, currentUser), [bookingRequests, currentUser]);
   const bookedIds = useMemo(() => bookedPropertyIds(bookingRequests, currentUser), [bookingRequests, currentUser]);
@@ -57,12 +60,15 @@ export const SearchPage: React.FC<{
   const [origin, setOrigin] = useState<{ lat: number; lng: number } | null>(
     initialCriteria.lat && initialCriteria.lng ? { lat: initialCriteria.lat, lng: initialCriteria.lng } : null
   );
-  const nearbyMode = initialCriteria.nearby !== false && !searchQuery.trim();
-  const commonAreas = useMemo(
-    () => nearbyLocalities(catalog, origin?.lat, origin?.lng, 5).map((area) => ({ label: area.name, value: area.name })),
-    [catalog, origin]
-  );
-  const areaOptions = useMemo(() => [{ label: 'All Localities', value: 'All' }, ...commonAreas], [commonAreas]);
+  const nearbyMode = initialCriteria.nearby !== false && !searchQuery.trim() && selectedCity === 'All' && selectedArea === 'All';
+  const areaOptions = useMemo(() => {
+    const areas = new Map<string, { label: string; value: string }>();
+    catalog.forEach((property) => {
+      const value = property.locality || property.pincode || '';
+      if (value) areas.set(value.toLowerCase(), { label: value, value });
+    });
+    return [{ label: 'All Localities', value: 'All' }, ...Array.from(areas.values()).sort((a, b) => a.label.localeCompare(b.label))];
+  }, [catalog]);
   const cityOptions = useMemo(
     () => ['All', ...Array.from(new Set(catalog.map((p) => p.city).filter(Boolean))).sort()],
     [catalog]
@@ -95,11 +101,15 @@ export const SearchPage: React.FC<{
 
   useEffect(() => {
     let cancelled = false;
-    fetchPublicListings()
+    fetchPublicListings({ limit: 1000 })
       .then((remote) => {
-        if (!cancelled && remote.length) setRemoteListings(remote);
+        if (cancelled) return;
+        setRemoteListings(remote);
+        setRemoteLoaded(true);
       })
-      .catch(() => undefined);
+      .catch(() => {
+        if (!cancelled) setRemoteLoaded(true);
+      });
     return () => {
       cancelled = true;
     };
@@ -115,22 +125,22 @@ export const SearchPage: React.FC<{
     setSelectedArea('All');
   }, [initialCriteria.location, initialCriteria.city, initialCriteria.type, initialCriteria.moveInDate]);
 
-  const hasMoveInAvailability = (property: Property) => {
-    if (!selectedMoveInDate) return true;
-
-    const hasRoomInventory = (property.rooms || []).some((room) => {
-      const typeMatches = selectedRoomType === 'All' || room.type === selectedRoomType;
-      return typeMatches && room.availableBeds > 0;
-    });
-
-    if (hasRoomInventory) return true;
-
-    return beds.some((bed) => {
-      if (bed.propertyId !== property.id) return false;
-      if (selectedRoomType !== 'All' && bed.sharingType !== selectedRoomType) return false;
-      if (['Vacant', 'Available', 'Ready'].includes(bed.status)) return true;
-      return Boolean(bed.nextAvailableDate && bed.nextAvailableDate <= selectedMoveInDate);
-    });
+  const hasRoomInventory = (property: Property) => {
+    const rooms = property.rooms || [];
+    const propertyBeds = beds.filter((bed) => bed.propertyId === property.id);
+    const isAvailableByDate = (status: string, nextAvailableDate?: string) => {
+      if (['Vacant', 'Available', 'Ready', 'vacant', 'available', 'ready'].includes(status)) return true;
+      return Boolean(selectedMoveInDate && nextAvailableDate && nextAvailableDate <= selectedMoveInDate);
+    };
+    if (rooms.some((room) => (
+      (selectedRoomType === 'All' || room.type === selectedRoomType) && room.availableBeds > 0
+    ))) return true;
+    if (propertyBeds.some((bed) => (
+      (selectedRoomType === 'All' || bed.sharingType === selectedRoomType) &&
+      isAvailableByDate(String(bed.status), bed.nextAvailableDate)
+    ))) return true;
+    // Keep older listings discoverable when they have no inventory model yet.
+    return rooms.length === 0 && propertyBeds.length === 0;
   };
 
   // Filtered properties
@@ -154,18 +164,13 @@ export const SearchPage: React.FC<{
         if (selectedGender !== 'All' && p.gender !== selectedGender) {
           return false;
         }
-        // Move-in availability
-        if (!hasMoveInAvailability(p)) {
+        // Availability and room-type filtering
+        if (!hasRoomInventory(p)) {
           return false;
         }
         // Price
         if (p.startingPrice > maxPrice) {
           return false;
-        }
-        // Room type
-        if (selectedRoomType !== 'All') {
-          const hasType = (p.rooms || []).some((r) => r.type === selectedRoomType);
-          if (!hasType) return false;
         }
         // Amenities
         if (selectedAmenities.length > 0) {
@@ -186,7 +191,14 @@ export const SearchPage: React.FC<{
         if (sortBy === 'price-asc') return a.startingPrice - b.startingPrice;
         if (sortBy === 'price-desc') return b.startingPrice - a.startingPrice;
         if (sortBy === 'rating') return b.rating - a.rating;
-        return 0;
+        const score = (property: Property) => {
+          const distanceScore = nearbyMode && origin && hasCoords(property)
+            ? Math.max(0, 35 - distanceKm(origin.lat, origin.lng, property.lat, property.lng)) / 35
+            : 0;
+          return (property.featured ? 40 : 0) + (property.verified ? 20 : 0) +
+            Math.min(20, Number(property.rating || 0) * 4) + distanceScore;
+        };
+        return score(b) - score(a);
     });
   }, [catalog, beds, selectedCity, selectedArea, selectedGender, selectedRoomType, selectedMoveInDate, maxPrice, selectedAmenities, searchQuery, sortBy, nearbyMode, origin]);
 
@@ -485,7 +497,9 @@ export const SearchPage: React.FC<{
                   {selectedCity === 'All' ? (nearbyMode ? 'PGs near you' : 'Available PGs in India') : `PGs in ${selectedCity}`}
                 </h1>
                 <p className="text-xs text-slate-500">
-                  Showing {filteredProperties.length} verified accommodation{filteredProperties.length === 1 ? '' : 's'}
+                  {remoteLoaded
+                    ? `Showing ${filteredProperties.length} verified accommodation${filteredProperties.length === 1 ? '' : 's'}`
+                    : 'Loading live listings…'}
                 </p>
               </div>
             </div>
@@ -504,7 +518,13 @@ export const SearchPage: React.FC<{
             ) : null}
 
             {/* Zero State */}
-            {filteredProperties.length === 0 && (
+            {!remoteLoaded ? (
+              <div className="bg-white rounded-2xl p-12 text-center border border-slate-200 max-w-md mx-auto my-8">
+                <div className="w-8 h-8 rounded-full border-2 border-blue-200 border-t-blue-600 animate-spin mx-auto mb-3" />
+                <h3 className="text-base font-bold text-slate-900">Loading live PGs</h3>
+                <p className="text-xs text-slate-500 mt-1">Fetching the latest published listings.</p>
+              </div>
+            ) : filteredProperties.length === 0 && (
               <div className="bg-white rounded-2xl p-12 text-center border border-slate-200 max-w-md mx-auto my-8">
                 <div className="w-12 h-12 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center mx-auto mb-3">
                   <Search className="w-6 h-6" />
