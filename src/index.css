@@ -523,3 +523,72 @@ img.listing-photo {
     transition: none;
   }
 }
+
+/* Responsive owner workspace: the desktop rail becomes a horizontally
+   scrollable section bar, so the content never gets squeezed into a narrow
+   column on phones. */
+@media (max-width: 767px) {
+  .owner-dashboard {
+    overflow-x: hidden;
+  }
+
+  .owner-dashboard .owner-workspace {
+    width: 100%;
+  }
+
+  .owner-dashboard .owner-sidebar {
+    max-width: 100%;
+    scrollbar-width: none;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .owner-dashboard .owner-sidebar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .owner-dashboard .owner-nav-item {
+    min-height: 3.5rem;
+  }
+
+  .owner-dashboard .owner-panel {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .owner-dashboard .owner-panel > * {
+    min-width: 0;
+  }
+
+  .owner-dashboard .owner-panel .overflow-x-auto {
+    max-width: 100%;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .owner-dashboard .owner-toast {
+    top: max(4.75rem, calc(var(--safe-top) + 4rem));
+    right: 0.75rem;
+    left: 0.75rem;
+    justify-content: center;
+    text-align: center;
+  }
+
+  .owner-dashboard .owner-modal-backdrop {
+    padding: 0.75rem;
+  }
+
+  .owner-dashboard .owner-modal-backdrop > * {
+    max-height: calc(100dvh - 1.5rem);
+  }
+
+  .owner-dashboard .owner-modal-backdrop.flex.justify-end {
+    padding: 0;
+  }
+
+  .owner-dashboard .owner-modal-backdrop.flex.justify-end > * {
+    width: 100%;
+    max-width: none;
+    border-left: 0;
+  }
+}

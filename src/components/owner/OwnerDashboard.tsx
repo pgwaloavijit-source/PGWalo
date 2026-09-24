@@ -707,10 +707,10 @@ export const OwnerDashboard: React.FC = () => {
       </div>
 
       {/* Owner workspace: vertical rail (same pattern as resident dashboard) */}
-      <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 pt-4 sm:pt-6 flex gap-3 lg:gap-6 items-start">
+      <div className="owner-workspace max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 pt-4 sm:pt-6 flex flex-col md:flex-row gap-3 lg:gap-6 items-stretch md:items-start">
         <nav
           aria-label="Owner sections"
-          className="owner-sidebar sticky top-20 z-20 shrink-0 w-[4.85rem] sm:w-56 lg:w-64 rounded-3xl bg-white border border-slate-200 shadow-2xs p-1.5 sm:p-2"
+          className="owner-sidebar sticky top-2 md:top-20 z-20 shrink-0 w-full md:w-56 lg:w-64 rounded-3xl bg-white border border-slate-200 shadow-2xs p-1.5 sm:p-2 flex flex-row md:block overflow-x-auto md:overflow-visible"
         >
           {[
             { key: 'home', label: 'Home', icon: TrendingUp, count: 0 },
@@ -740,7 +740,7 @@ export const OwnerDashboard: React.FC = () => {
                 key={tab.key}
                 type="button"
                 onClick={() => setActiveTab(tab.key as typeof activeTab)}
-                className={`owner-nav-item w-full mb-1 last:mb-0 rounded-2xl flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2 px-1.5 py-2.5 sm:px-3 sm:py-2.5 text-center sm:text-left transition min-h-[52px] sm:min-h-[44px] ${
+                className={`owner-nav-item shrink-0 min-w-[88px] md:min-w-0 md:w-full mb-0 md:mb-1 last:mb-0 rounded-2xl flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2 px-1.5 py-2.5 sm:px-3 sm:py-2.5 text-center sm:text-left transition min-h-[52px] sm:min-h-[44px] ${
                   active ? 'bg-blue-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-50 hover:text-blue-700'
                 }`}
               >
