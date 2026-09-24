@@ -117,7 +117,7 @@ export function senderIdentity(env: Env) {
 export function isFailoverWorthy(error?: string, status?: number): boolean {
   const text = String(error || '').toLowerCase();
   if (status === 429 || status === 401 || status === 403 || (status !== undefined && status >= 500)) return true;
-  return /quota|rate limit|too many|throttl|unauthor|forbidden|not verified|not authorized|suspend|temporarily|unavailable|daily limit|limit exceeded|over capacity/.test(text);
+  return /quota|rate limit|too many|throttl|unauthor|forbidden|not verified|not authorized|account config|sending domain|domain config|suspend|temporarily|unavailable|daily limit|limit exceeded|over capacity/.test(text);
 }
 
 async function sendWith(
