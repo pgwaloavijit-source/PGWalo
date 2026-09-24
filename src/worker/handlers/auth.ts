@@ -188,6 +188,7 @@ export async function authHandler(request: Request, env: Env): Promise<Response>
       ).bind(id, `${phone}|${email}`, codeHash, purpose, Date.now() + 10 * 60 * 1000).run();
 
       const delivered = await deliverOtp(env, email, code, purpose);
+      const developmentFallback = env.ENVIRONMENT !== 'production';
       await track({
         sessionId: id,
         eventType: 'otp_sent',
@@ -196,14 +197,16 @@ export async function authHandler(request: Request, env: Env): Promise<Response>
       }, env);
 
       return json({
-        success: true,
+        success: delivered || developmentFallback,
         otpId: id,
         delivered,
         message: delivered
           ? `Code sent to ${email}`
-          : `We could not reach email yet. Enter this one-time code: ${code}`,
-        // Code is included only when Cloudflare Email Sending is not bound.
-        fallbackCode: delivered ? undefined : code,
+          : developmentFallback
+            ? `We could not reach email yet. Development code: ${code}`
+            : 'We could not send the verification email. Please try again shortly.',
+        // Never expose a credential fallback from the production API.
+        fallbackCode: !delivered && developmentFallback ? code : undefined,
       });
     } catch (error) {
       console.error('OTP send', error);
@@ -225,7 +228,8 @@ export async function authHandler(request: Request, env: Env): Promise<Response>
       }
       await env.DB.prepare('UPDATE auth_otps SET consumed = 1 WHERE id = ?').bind(row.id).run();
       return json({ success: true, verificationId: row.id });
-    } catch {
+    } catch (error) {
+      console.error('OTP verify failed', error);
       return json({ success: false, error: 'Verification failed' }, 400);
     }
   }

@@ -1,13 +1,30 @@
 import { Env } from '../types';
-import { hashPassword, verifyPassword } from './password';
+import { verifyPassword } from './password';
 import { sendTransactional } from '../email';
 
 export async function hashOtp(code: string): Promise<string> {
-  return hashPassword(code);
+  // OTPs are short-lived and single-use. A compact digest avoids the heavy
+  // PIN-hashing work during a second Worker request immediately after send.
+  const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(code)));
+  return `sha256:${Array.from(new Uint8Array(bytes), (b) => b.toString(16).padStart(2, '0')).join('')}`;
 }
 
 export async function matchOtp(code: string, stored: string): Promise<boolean> {
-  return verifyPassword(code, stored);
+  if (stored.startsWith('sha256:')) {
+    const expected = await hashOtp(code);
+    const a = new TextEncoder().encode(expected.slice(7));
+    const b = new TextEncoder().encode(stored.slice(7));
+    if (a.length !== b.length) return false;
+    let mismatch = 0;
+    for (let i = 0; i < a.length; i++) mismatch |= a[i] ^ b[i];
+    return mismatch === 0;
+  }
+  // Backwards compatibility for OTPs issued before the lightweight format.
+  try {
+    return await verifyPassword(code, stored);
+  } catch {
+    return false;
+  }
 }
 
 export function randomOtp(): string {
