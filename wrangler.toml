@@ -61,8 +61,8 @@ crons = ["*/15 * * * *"]
 # 3) pgwalo.com is onboarded as a sending domain. Then `npm run deploy`.
 # Sending to arbitrary recipients needs the Workers Paid plan.
 #
-# [[send_email]]
-# name = "EMAIL"
+[[send_email]]
+name = "EMAIL"
 
 # Alternative sender with no MX change: wrangler secret put RESEND_API_KEY
 #
