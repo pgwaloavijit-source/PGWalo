@@ -220,11 +220,18 @@ export async function authHandler(request: Request, env: Env): Promise<Response>
       const row = await env.DB.prepare(
         'SELECT id, target, code_hash, expires_at, consumed FROM auth_otps WHERE id = ?'
       ).bind(body.otpId).first<{ id: string; target: string; code_hash: string; expires_at: number; consumed: number }>();
-      if (!row || row.consumed || row.expires_at < Date.now()) {
+      // consumed=1 means the email was verified but registration may not have
+      // completed yet. Treat that state as idempotently verified so a lost
+      // browser response does not force the user to request another code.
+      // consumed=2 is the terminal state after account creation.
+      if (!row || row.consumed === 2 || row.expires_at < Date.now()) {
         return json({ success: false, error: 'Code expired. Request a new one.' }, 400);
       }
       if (!(await matchOtp(body.code, row.code_hash))) {
         return json({ success: false, error: 'Incorrect code.' }, 400);
+      }
+      if (row.consumed === 1) {
+        return json({ success: true, verificationId: row.id });
       }
       try {
         await env.DB.prepare('UPDATE auth_otps SET consumed = 1 WHERE id = ?').bind(row.id).run();
