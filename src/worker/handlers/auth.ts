@@ -177,6 +177,9 @@ export async function authHandler(request: Request, env: Env): Promise<Response>
         return json({ success: false, error: 'Enter a valid Indian mobile and email so we can send a code.' }, 400);
       }
       const email = body.email.trim().toLowerCase();
+      if (env.ENVIRONMENT === 'production' && email.endsWith('@e2e.pgwalo.test')) {
+        return json({ success: false, error: 'Automated test accounts must use the staging environment.' }, 400);
+      }
       const phone = normalizePhone(body.phone);
       const purpose = body.purpose === 'login' ? 'login' : 'signup';
       const code = randomOtp();
@@ -535,6 +538,9 @@ export async function authHandler(request: Request, env: Env): Promise<Response>
 
       const phone = normalizePhone(body.phone);
       const email = body.email.trim().toLowerCase();
+      if (env.ENVIRONMENT === 'production' && email.endsWith('@e2e.pgwalo.test')) {
+        return json({ success: false, error: 'Automated test accounts must use the staging environment.' }, 400);
+      }
       const target = `${phone}|${email}`;
       const kvVerificationId = body.verificationId.startsWith('kv:') ? body.verificationId.slice(3) : '';
       let otp: { id: string; target: string; consumed: number; expires_at: number } | null = null;

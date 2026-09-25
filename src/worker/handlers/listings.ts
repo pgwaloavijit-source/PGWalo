@@ -88,9 +88,13 @@ export async function listingsHandler(request: Request, env: Env): Promise<Respo
     const limit = Number.isFinite(requestedLimit) ? Math.min(Math.max(Math.floor(requestedLimit), 1), 1000) : 500;
     const columns = await env.DB.prepare('PRAGMA table_info(properties)').all<{ name: string }>()
       .then(({ results }) => new Set((results || []).map((c) => c.name)));
+    // Never expose seeded/demo or automated E2E records through the public
+    // marketplace. Owners and admins can still inspect their own records in
+    // authenticated views until those records are explicitly cleaned up.
+    const syntheticGuard = `(IFNULL(owner_user_id, '') <> 'catalog-seed' AND id NOT LIKE 'prop-e2e-%')`;
     const publicCondition = columns.has('plan_expires_at')
-      ? `(status IS NULL OR status = 'Active') AND (plan_expires_at IS NULL OR julianday(plan_expires_at) > julianday('now'))`
-      : `(status IS NULL OR status = 'Active')`;
+      ? `${syntheticGuard} AND (status IS NULL OR status = 'Active') AND (plan_expires_at IS NULL OR julianday(plan_expires_at) > julianday('now'))`
+      : `${syntheticGuard} AND (status IS NULL OR status = 'Active')`;
     const conditions = [`(${publicCondition})`];
     const params: unknown[] = [];
 
