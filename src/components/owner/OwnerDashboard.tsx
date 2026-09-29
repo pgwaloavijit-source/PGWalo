@@ -1603,6 +1603,15 @@ export const OwnerDashboard: React.FC = () => {
                         className="w-full mt-0.5 px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs focus:ring-1 focus:ring-blue-600"
                       />
                     </div>
+                    <div>
+                      <label className="text-[10px] font-bold uppercase text-slate-400 block">Snacks</label>
+                      <input
+                        type="text"
+                        value={day.snacks}
+                        onChange={(e) => updateMealPlanDay(day.day, 'snacks', e.target.value)}
+                        className="w-full mt-0.5 px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs focus:ring-1 focus:ring-blue-600"
+                      />
+                    </div>
                   </div>
                 </div>
               ))}

@@ -898,7 +898,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (snapshot.users) setUsers(snapshot.users);
         if (snapshot.booking_requests) setBookingRequests((prev) => mergeBookings(prev, snapshot.booking_requests as BookingRequest[]));
         if (snapshot.leads) setLeads(snapshot.leads);
-        if (snapshot.meal_plans) setMealPlan(snapshot.meal_plans);
+    // Production accounts may legitimately have no meal_plan rows yet. Keep
+    // the seven editable day slots visible so the planner never renders as a
+    // blank page; existing saved dishes still take precedence.
+    if (snapshot.meal_plans) setMealPlan(snapshot.meal_plans.length ? snapshot.meal_plans : INITIAL_MEAL_PLAN);
         // Demo/mock rows must never survive a production hydration.
         setProperties((prev) => prev.filter((p) => !p.id.startsWith('demo-') && !['prop-1', 'prop-2', 'prop-3', 'prop-4'].includes(p.id)));
       })
