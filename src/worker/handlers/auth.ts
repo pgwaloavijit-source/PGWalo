@@ -575,6 +575,14 @@ export async function authHandler(request: Request, env: Env): Promise<Response>
         } catch {
           organizationId = env.DEFAULT_ORGANIZATION_ID || 'org-default';
         }
+      } else {
+        // Residents use the platform tenant organization. It may be absent on
+        // a fresh database after test-data cleanup, so restore the parent row
+        // before the users insert (organization_id has a foreign key).
+        await env.DB.prepare(
+          `INSERT OR IGNORE INTO organizations (id, name, owner_user_id, account_state, subscription_plan)
+           VALUES (?, 'PGWALO Tenant Network', 'superadmin', 'Trial / Pending Setup', 'Trial')`
+        ).bind(organizationId).run();
       }
       const passwordHash = await hashPassword(body.password);
       await env.DB.prepare(`
