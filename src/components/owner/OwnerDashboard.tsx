@@ -177,6 +177,7 @@ export const OwnerDashboard: React.FC = () => {
       if (room.sharingCapacity === 'Single') roomType = 'Single';
       else if (room.sharingCapacity === 'Triple') roomType = 'Triple';
       else if (room.sharingCapacity === '4 Sharing') roomType = 'Four';
+      else if (room.sharingCapacity === 'Custom' && room.customType?.trim()) roomType = room.customType.trim() as RoomSharingType;
       else roomType = 'Double';
 
       const firstBed = room.beds?.[0];
@@ -186,7 +187,7 @@ export const OwnerDashboard: React.FC = () => {
         floor: room.floor,
         roomSize: room.roomSize,
         bedType: room.bedType,
-        customType: room.customType,
+        customType: room.customType || (!['Single', 'Double', 'Triple', 'Four'].includes(room.type) ? room.type : undefined),
         photos: room.photos || [],
         rentPerMonth: firstBed?.monthlyRent || 8000,
         deposit: firstBed?.securityDeposit || 8000,
@@ -299,11 +300,11 @@ export const OwnerDashboard: React.FC = () => {
         roomNumber: room.id,
         floor: room.floor || '1st Floor',
         roomType: room.type === 'Single' ? 'Private' : 'Shared',
-        sharingCapacity: room.type === 'Four' ? '4 Sharing' : room.type,
+        sharingCapacity: ['Single', 'Double', 'Triple', 'Four'].includes(room.type) ? (room.type === 'Four' ? '4 Sharing' : room.type) : 'Custom',
         numberOfBeds: room.totalBeds || 1,
         roomSize: room.roomSize,
         bedType: room.bedType,
-        customType: room.customType,
+        customType: room.customType || (!['Single', 'Double', 'Triple', 'Four'].includes(room.type) ? room.type : undefined),
         photos: room.photos || [],
         beds: Array.from({ length: room.totalBeds || 1 }, (_, index) => ({
           bedId: `${room.id}-${index}`,

@@ -564,7 +564,10 @@ const OwnerListingWizard: React.FC<OwnerListingWizardProps> = ({ onComplete, onC
                             <select value={room.sharingCapacity} onChange={(e) => updateRoom(i, { sharingCapacity: e.target.value, customType: e.target.value === 'Custom' ? '' : undefined })} className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs font-medium">
                               {SHARING_OPTIONS.map((type) => <option key={type}>{type}</option>)}
                             </select>
-                            {room.sharingCapacity === 'Custom' && <input required type="text" value={room.customType || ''} onChange={(e) => updateRoom(i, { customType: e.target.value })} placeholder="Enter your room type" className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs" />}
+                            {room.sharingCapacity === 'Custom' && <>
+                              <input required type="text" value={room.customType || ''} onChange={(e) => updateRoom(i, { customType: e.target.value })} placeholder="e.g. 6 Seater" className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs" />
+                              <input required type="number" min={1} max={50} value={room.numberOfBeds} onChange={(e) => updateRoom(i, { numberOfBeds: Math.max(1, Number(e.target.value) || 1) })} aria-label="Custom room capacity" placeholder="Beds / seats" className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs" />
+                            </>}
                           </label>
                           <label className="text-[10px] font-bold text-slate-500">Bed type
                             <select value={room.bedType || 'Standard'} onChange={(e) => updateRoom(i, { bedType: e.target.value })} className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs font-medium">

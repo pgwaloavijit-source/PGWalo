@@ -178,7 +178,7 @@ export interface SupportTicket {
 
 export type GenderPreference = 'Boys' | 'Girls' | 'Unisex';
 
-export type RoomSharingType = 'Single' | 'Double' | 'Triple' | 'Four';
+export type RoomSharingType = 'Single' | 'Double' | 'Triple' | 'Four' | (string & {});
 
 export interface PublicSearchCriteria {
   location?: string;
