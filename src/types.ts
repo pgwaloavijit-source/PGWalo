@@ -231,6 +231,14 @@ export interface MealPlanDay {
   snacks: string;
   dinner: string;
   specialNote?: string;
+  breakfastEnabled?: boolean;
+  lunchEnabled?: boolean;
+  snacksEnabled?: boolean;
+  dinnerEnabled?: boolean;
+  breakfastTime?: string;
+  lunchTime?: string;
+  snacksTime?: string;
+  dinnerTime?: string;
 }
 
 export interface Property {
@@ -1135,6 +1143,7 @@ export interface RoomDetail {
   bedType?: string;
   customType?: string;
   photos?: string[];
+  hasAC?: boolean;
   beds: BedDetail[];
 }
 
@@ -1252,6 +1261,7 @@ export interface OwnerListingData {
   step1: OwnerListingStep1;
   step2: OwnerListingStep2;
   step3: OwnerListingStep3;
+  meals?: MealPlanDay[];
   step4: OwnerListingStep4;
   step5: OwnerListingStep5;
   step6: OwnerListingStep6;

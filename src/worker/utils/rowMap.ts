@@ -405,6 +405,25 @@ export function rowToAttendanceRecord(row: Row) {
   };
 }
 
+export function rowToMealPlan(row: Row) {
+  return {
+    day: str(row.day, 'Monday'),
+    breakfast: str(row.breakfast),
+    lunch: str(row.lunch),
+    snacks: str(row.snacks),
+    dinner: str(row.dinner),
+    specialNote: row.special_note ? str(row.special_note) : undefined,
+    breakfastEnabled: row.breakfast_enabled === undefined ? true : Boolean(Number(row.breakfast_enabled)),
+    lunchEnabled: row.lunch_enabled === undefined ? true : Boolean(Number(row.lunch_enabled)),
+    snacksEnabled: row.snacks_enabled === undefined ? Boolean(str(row.snacks)) : Boolean(Number(row.snacks_enabled)),
+    dinnerEnabled: row.dinner_enabled === undefined ? true : Boolean(Number(row.dinner_enabled)),
+    breakfastTime: row.breakfast_time ? str(row.breakfast_time) : undefined,
+    lunchTime: row.lunch_time ? str(row.lunch_time) : undefined,
+    snacksTime: row.snacks_time ? str(row.snacks_time) : undefined,
+    dinnerTime: row.dinner_time ? str(row.dinner_time) : undefined,
+  };
+}
+
 export function rowToLead(row: Row) {
   return {
     id: str(row.id),

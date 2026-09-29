@@ -187,14 +187,14 @@ export const OwnerDashboard: React.FC = () => {
         floor: room.floor,
         roomSize: room.roomSize,
         bedType: room.bedType,
-        customType: room.customType || (!['Single', 'Double', 'Triple', 'Four'].includes(room.type) ? room.type : undefined),
+        customType: room.customType,
         photos: room.photos || [],
         rentPerMonth: firstBed?.monthlyRent || 8000,
         deposit: firstBed?.securityDeposit || 8000,
         availableBeds: (room.beds || []).filter((b) => b.status === 'Available' || b.status === 'Vacant').length,
         totalBeds: (room.beds || []).length,
         hasAttachedBath: (step3?.roomAmenities || []).some((a) => a.id === 'attached-bathroom' && a.selected),
-        hasAC: (step3?.roomAmenities || []).some((a) => a.id === 'ac' && a.selected),
+        hasAC: Boolean(room.hasAC),
         hasBalcony: (step3?.roomAmenities || []).some((a) => a.id === 'Balcony' && a.selected),
       };
     });
@@ -304,6 +304,7 @@ export const OwnerDashboard: React.FC = () => {
         numberOfBeds: room.totalBeds || 1,
         roomSize: room.roomSize,
         bedType: room.bedType,
+        hasAC: room.hasAC,
         customType: room.customType || (!['Single', 'Double', 'Triple', 'Four'].includes(room.type) ? room.type : undefined),
         photos: room.photos || [],
         beds: Array.from({ length: room.totalBeds || 1 }, (_, index) => ({

@@ -31,6 +31,7 @@ import {
   OwnerListingStep6,
   RoomDetail,
   SharingCapacity,
+  MealPlanDay,
 } from '../../types';
 
 interface OwnerListingWizardProps {
@@ -50,6 +51,7 @@ const GENDERS: OwnerListingStep1['genderOccupancy'][] = ['Boys', 'Girls', 'Unise
 const FLOOR_OPTIONS = ['Ground Floor', '1st Floor', '2nd Floor', '3rd Floor', '4th Floor', '5th Floor', '6th Floor+'];
 const BED_TYPES = ['Standard', 'Single Bed', 'Double Bed', 'Bunk Bed', 'Queen Bed'];
 const SHARING_OPTIONS: SharingCapacity[] = ['Single', 'Double', 'Triple', '4 Sharing', '5+ Sharing', 'Custom'];
+const WEEK_DAYS: MealPlanDay['day'][] = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
 const ROOM_TEMPLATES: { sharing: SharingCapacity; beds: number; rent: number; label: string }[] = [
   { sharing: 'Single', beds: 1, rent: 14000, label: 'Single' },
@@ -77,12 +79,13 @@ function makeRoom(sharing: SharingCapacity, beds: number, rent: number, roomNumb
     numberOfBeds: beds,
     bedType: sharing === 'Single' ? 'Single Bed' : 'Standard',
     photos: [],
+    hasAC: false,
     beds: makeBeds(beds, rent),
   };
 }
 
 const OwnerListingWizard: React.FC<OwnerListingWizardProps> = ({ onComplete, onCancel, initialData }) => {
-  const { currentUser, properties } = useApp();
+  const { currentUser, properties, replaceMealPlan } = useApp();
   const [step, setStep] = useState(1);
   const [publishing, setPublishing] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -92,9 +95,13 @@ const OwnerListingWizard: React.FC<OwnerListingWizardProps> = ({ onComplete, onC
     initialData?.step2 || { rooms: [makeRoom('Double', 2, 9500, '101')] }
   );
   const [step3, setStep3] = useState<OwnerListingStep3>(initialData?.step3 || getEmptyStep3());
+  const [meals, setMeals] = useState<MealPlanDay[]>(initialData?.meals || getEmptyMeals());
   const [step4, setStep4] = useState<OwnerListingStep4>(initialData?.step4 || { photos: [] });
   const [enhancingPhotos, setEnhancingPhotos] = useState(false);
   const [roomPhotoBusy, setRoomPhotoBusy] = useState<Record<number, boolean>>({});
+  const [customRoomModal, setCustomRoomModal] = useState(false);
+  const [customRoomName, setCustomRoomName] = useState('');
+  const [customRoomBeds, setCustomRoomBeds] = useState(1);
   const [step5] = useState<OwnerListingStep5>(initialData?.step5 || getEmptyStep5());
   const [step6, setStep6] = useState<OwnerListingStep6>(
     initialData?.step6 || {
@@ -145,6 +152,7 @@ const OwnerListingWizard: React.FC<OwnerListingWizardProps> = ({ onComplete, onC
       step1,
       step2,
       step3,
+      meals,
       step4,
       step5,
       step6,
@@ -155,7 +163,7 @@ const OwnerListingWizard: React.FC<OwnerListingWizardProps> = ({ onComplete, onC
       createdAt: initialData?.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     }),
-    [step1, step2, step3, step4, step5, step6, step, initialData?.createdAt]
+    [step1, step2, step3, meals, step4, step5, step6, step, initialData?.createdAt]
   );
 
   const step1Valid = Boolean(
@@ -281,6 +289,7 @@ const OwnerListingWizard: React.FC<OwnerListingWizardProps> = ({ onComplete, onC
       return;
     }
     setPublishing(true);
+    if (meals.some((meal) => meal.breakfast || meal.lunch || meal.snacks || meal.dinner)) replaceMealPlan(meals);
     let nextStep1 = step1;
     if (!step1.mapLocation) {
       const places = await searchPlaces(`${step1.fullAddress} ${step1.pincode} ${step1.city} India`);
@@ -307,10 +316,11 @@ const OwnerListingWizard: React.FC<OwnerListingWizardProps> = ({ onComplete, onC
       setStep(!step1Valid ? 1 : 2);
       return;
     }
+    if (meals.some((meal) => meal.breakfast || meal.lunch || meal.snacks || meal.dinner)) replaceMealPlan(meals);
     onComplete?.(buildListing('Payment Pending'), { payNow: false });
   };
 
-  const titles = ['Property', 'Rooms', 'Extras', 'Publish'];
+  const titles = ['Property', 'Rooms', 'Mess / Meals', 'Extras', 'Publish'];
 
   return (
     <div
@@ -318,8 +328,8 @@ const OwnerListingWizard: React.FC<OwnerListingWizardProps> = ({ onComplete, onC
       onKeyDown={(e) => {
         if (e.key !== 'Enter' || (e.target as HTMLElement).tagName === 'TEXTAREA') return;
         e.preventDefault();
-        if (step < 4 && canContinue) setStep(step + 1);
-        else if (step === 4 && !publishing && step1Valid && step2Valid) publish();
+        if (step < 5 && canContinue) setStep(step + 1);
+        else if (step === 5 && !publishing && step1Valid && step2Valid) publish();
       }}
     >
       <button
@@ -337,7 +347,7 @@ const OwnerListingWizard: React.FC<OwnerListingWizardProps> = ({ onComplete, onC
           <div className="min-w-0 flex-1">
             <p className="text-sm font-black text-slate-900 truncate">{step1.propertyName.trim() || 'List a new PG'}</p>
             <p className="text-[11px] text-slate-500">
-              Step {step} of 4 · {titles[step - 1]}
+              Step {step} of 5 · {titles[step - 1]}
             </p>
           </div>
           <button
@@ -352,9 +362,9 @@ const OwnerListingWizard: React.FC<OwnerListingWizardProps> = ({ onComplete, onC
 
         <div className="shrink-0 px-4 sm:px-5 py-2.5">
           <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden">
-            <div className="h-full bg-blue-600 rounded-full transition-all" style={{ width: `${(step / 4) * 100}%` }} />
+            <div className="h-full bg-blue-600 rounded-full transition-all" style={{ width: `${(step / 5) * 100}%` }} />
           </div>
-          <div className="mt-2 grid grid-cols-4 gap-1 text-[10px] font-bold text-center">
+          <div className="mt-2 grid grid-cols-5 gap-1 text-[10px] font-bold text-center">
             {titles.map((label, i) => (
               <button
                 key={label}
@@ -505,7 +515,7 @@ const OwnerListingWizard: React.FC<OwnerListingWizardProps> = ({ onComplete, onC
               {step === 2 && (
                 <>
                   <p className="text-xs text-slate-500">Tap a type to add a room. Edit rent if needed.</p>
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                     {ROOM_TEMPLATES.map((t) => (
                       <button
                         key={t.sharing}
@@ -518,6 +528,11 @@ const OwnerListingWizard: React.FC<OwnerListingWizardProps> = ({ onComplete, onC
                         <p className="text-[10px] text-slate-500">₹{t.rent.toLocaleString()}/bed</p>
                       </button>
                     ))}
+                    <button type="button" onClick={() => { setCustomRoomName(''); setCustomRoomBeds(1); setCustomRoomModal(true); }} className="rounded-2xl border border-dashed border-blue-300 bg-white px-2 py-3 text-center hover:bg-blue-50">
+                      <Plus className="w-4 h-4 mx-auto text-blue-600 mb-1" />
+                      <p className="text-xs font-black text-slate-900">Choose custom sharing</p>
+                      <p className="text-[10px] text-slate-500">Your name + capacity</p>
+                    </button>
                   </div>
                   <div className="space-y-2">
                     {step2.rooms.map((room, i) => (
@@ -561,25 +576,20 @@ const OwnerListingWizard: React.FC<OwnerListingWizardProps> = ({ onComplete, onC
                             <input type="text" value={room.roomSize || ''} onChange={(e) => updateRoom(i, { roomSize: e.target.value })} placeholder="e.g. 120 sq ft" className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs" />
                           </label>
                           <label className="text-[10px] font-bold text-slate-500">Room type
-                            <select value={room.sharingCapacity} onChange={(e) => updateRoom(i, { sharingCapacity: e.target.value, customType: e.target.value === 'Custom' ? '' : undefined })} className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs font-medium">
-                              {SHARING_OPTIONS.map((type) => <option key={type}>{type}</option>)}
-                            </select>
-                            {room.sharingCapacity === 'Custom' && <div className="mt-1 space-y-1.5">
-                              <span className="block text-[10px] font-semibold text-slate-400">Custom room name</span>
-                              <input required type="text" value={room.customType || ''} onChange={(e) => updateRoom(i, { customType: e.target.value })} placeholder="e.g. 6 Seater" className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs" />
-                              <span className="block text-[10px] font-semibold text-slate-400">Beds / seats</span>
-                              <input required type="number" min={1} max={50} value={room.numberOfBeds} onChange={(e) => updateRoom(i, { numberOfBeds: Math.max(1, Number(e.target.value) || 1) })} aria-label="Beds or seats in custom room" className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs" />
-                            </div>}
+                            <div className="mt-1 flex h-[34px] items-center rounded-lg border border-slate-200 bg-slate-50 px-2 text-xs font-semibold text-slate-700">{room.customType || room.sharingCapacity}</div>
                           </label>
                           <label className="text-[10px] font-bold text-slate-500">Bed type
                             <select value={room.bedType || 'Standard'} onChange={(e) => updateRoom(i, { bedType: e.target.value })} className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs font-medium">
                               {BED_TYPES.map((bedType) => <option key={bedType}>{bedType}</option>)}
                             </select>
                           </label>
+                          <label className="text-[10px] font-bold text-slate-500">AC
+                            <select value={room.hasAC ? 'Yes' : 'No'} onChange={(e) => updateRoom(i, { hasAC: e.target.value === 'Yes' })} className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs font-medium"><option>No</option><option>Yes</option></select>
+                          </label>
                           <label className="text-[10px] font-bold text-slate-500">Room photos
                             <span className="mt-1 flex items-center gap-2 rounded-lg border border-dashed border-blue-300 bg-blue-50/50 px-2 py-1.5 text-xs font-bold text-blue-700 cursor-pointer">
                               <Camera className="w-4 h-4" /> {roomPhotoBusy[i] ? 'Uploading…' : 'Add photos'}
-                              <input type="file" accept="image/*" multiple className="hidden" disabled={roomPhotoBusy[i]} onChange={(e) => { void onRoomPhotos(i, Array.from(e.target.files || []).slice(0, 6 - (room.photos || []).length)); e.currentTarget.value = ''; }} />
+                              <input type="file" accept="image/*" multiple className="hidden" disabled={roomPhotoBusy[i]} onChange={(e) => { void onRoomPhotos(i, (Array.from(e.target.files || []) as File[]).slice(0, 6 - (room.photos || []).length)); e.currentTarget.value = ''; }} />
                             </span>
                             {(room.photos || []).length > 0 && <span className="mt-1 flex gap-1 overflow-x-auto">{room.photos?.map((photo) => <img key={photo} src={photo} alt="Room preview" className="h-8 w-8 rounded object-cover" />)}</span>}
                           </label>
@@ -590,7 +600,23 @@ const OwnerListingWizard: React.FC<OwnerListingWizardProps> = ({ onComplete, onC
                 </>
               )}
 
+              {customRoomModal && step === 2 && (
+                <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/50 p-4">
+                  <div className="w-full max-w-sm rounded-3xl bg-white p-5 shadow-2xl">
+                    <h3 className="text-base font-black text-slate-900">Choose custom sharing</h3>
+                    <p className="mt-1 text-xs text-slate-500">Create a room type for this property. For example, 6 Seater or Family Room.</p>
+                    <label className="mt-4 block text-xs font-bold text-slate-600">Room type name<input autoFocus required value={customRoomName} onChange={(e) => setCustomRoomName(e.target.value)} placeholder="e.g. 6 Seater" className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm" /></label>
+                    <label className="mt-3 block text-xs font-bold text-slate-600">Number of beds / seats<input required type="number" min={1} max={50} value={customRoomBeds} onChange={(e) => setCustomRoomBeds(Math.max(1, Number(e.target.value) || 1))} className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm" /></label>
+                    <div className="mt-5 flex gap-2"><button type="button" onClick={() => setCustomRoomModal(false)} className="flex-1 rounded-xl border border-slate-200 py-2.5 text-sm font-bold text-slate-600">Cancel</button><button type="button" disabled={!customRoomName.trim()} onClick={() => { const nextRoom = makeRoom('Custom', customRoomBeds, 8000, String(101 + step2.rooms.length)); nextRoom.customType = customRoomName.trim(); setStep2({ rooms: [...step2.rooms, nextRoom] }); setCustomRoomModal(false); }} className="flex-1 rounded-xl bg-blue-600 py-2.5 text-sm font-bold text-white disabled:opacity-40">Save room type</button></div>
+                  </div>
+                </div>
+              )}
+
               {step === 3 && (
+                <MealsStep meals={meals} onChange={setMeals} />
+              )}
+
+              {step === 4 && (
                 <>
                   <p className="text-xs text-slate-500">Optional — skip anytime. Common amenities are pre-ticked.</p>
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
@@ -718,7 +744,7 @@ const OwnerListingWizard: React.FC<OwnerListingWizardProps> = ({ onComplete, onC
                 </>
               )}
 
-              {step === 4 && (
+              {step === 5 && (
                 <>
                   <div className="rounded-2xl bg-blue-50 border border-blue-100 p-4">
                     <p className="text-sm font-black text-slate-900">{step1.propertyName || 'Untitled PG'}</p>
@@ -804,7 +830,7 @@ const OwnerListingWizard: React.FC<OwnerListingWizardProps> = ({ onComplete, onC
               {publishing ? 'Publishing...' : 'Pay & publish listing'}
             </button>
           )}
-          {step === 4 && (
+          {step === 5 && (
             <button
               type="button"
               disabled={publishing || !step1Valid || !step2Valid}
@@ -822,6 +848,42 @@ const OwnerListingWizard: React.FC<OwnerListingWizardProps> = ({ onComplete, onC
 
 const inputClass =
   'w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-sm font-medium text-slate-900 outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent';
+
+const MealsStep: React.FC<{ meals: MealPlanDay[]; onChange: (meals: MealPlanDay[]) => void }> = ({ meals, onChange }) => {
+  const update = (day: MealPlanDay['day'], patch: Partial<MealPlanDay>) => onChange(meals.map((item) => item.day === day ? { ...item, ...patch } : item));
+  return (
+    <div className="space-y-4">
+      <div>
+        <h3 className="text-base font-black text-slate-900">Mess / Meals</h3>
+        <p className="text-xs text-slate-500 mt-1">Choose which meals are served each day, set timings, and add the menu.</p>
+      </div>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        {meals.map((meal) => (
+          <section key={meal.day} className="rounded-2xl border border-slate-200 bg-white p-3 space-y-3">
+            <div className="flex items-center justify-between"><h4 className="font-black text-sm text-slate-900">{meal.day}</h4><span className="text-[10px] text-slate-400">Select meals below</span></div>
+            {([
+              ['breakfast', 'Breakfast', 'breakfastEnabled', 'breakfastTime'],
+              ['lunch', 'Lunch', 'lunchEnabled', 'lunchTime'],
+              ['snacks', 'Snacks', 'snacksEnabled', 'snacksTime'],
+              ['dinner', 'Dinner', 'dinnerEnabled', 'dinnerTime'],
+            ] as const).map(([field, label, enabledField, timeField]) => {
+              const enabled = meal[enabledField] ?? (field !== 'snacks');
+              return <div key={field} className={`rounded-xl border p-2.5 ${enabled ? 'border-blue-100 bg-blue-50/30' : 'border-slate-100 bg-slate-50'}`}>
+                <div className="flex items-center gap-2">
+                  <input type="checkbox" checked={enabled} onChange={(e) => update(meal.day, { [enabledField]: e.target.checked })} className="h-4 w-4 accent-blue-600" />
+                  <span className="text-xs font-bold text-slate-800 flex-1">{label}</span>
+                  {enabled && <input type="time" value={meal[timeField] || ''} onChange={(e) => update(meal.day, { [timeField]: e.target.value })} className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px]" />}
+                </div>
+                {enabled && <input type="text" value={meal[field]} onChange={(e) => update(meal.day, { [field]: e.target.value })} placeholder={`Add ${label.toLowerCase()} menu`} className="mt-2 w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs" />}
+              </div>;
+            })}
+            <input type="text" value={meal.specialNote || ''} onChange={(e) => update(meal.day, { specialNote: e.target.value })} placeholder="Special note (optional)" className="w-full rounded-lg border border-slate-200 px-2.5 py-2 text-xs" />
+          </section>
+        ))}
+      </div>
+    </div>
+  );
+};
 
 const Field: React.FC<{ label: string; required?: boolean; children: React.ReactNode }> = ({ label, required, children }) => (
   <label className="block">
@@ -868,6 +930,15 @@ function getEmptyStep3(): OwnerListingStep3 {
     optionalCharges: [],
     otherServices: [],
   };
+}
+
+function getEmptyMeals(): MealPlanDay[] {
+  return WEEK_DAYS.map((day) => ({
+    day,
+    breakfast: '', lunch: '', snacks: '', dinner: '',
+    breakfastEnabled: true, lunchEnabled: true, snacksEnabled: false, dinnerEnabled: true,
+    breakfastTime: '08:00', lunchTime: '13:00', snacksTime: '17:00', dinnerTime: '20:00',
+  }));
 }
 
 function getEmptyStep5(): OwnerListingStep5 {

@@ -21,6 +21,7 @@ import {
   rowToMaintenanceTicket,
   rowToStaffMember,
   rowToAttendanceRecord,
+  rowToMealPlan,
   rowToLead,
   rowToUserAccount,
   sanitizeRow,
@@ -76,6 +77,7 @@ const ROW_MAPPERS: Record<string, (row: Record<string, unknown>) => unknown> = {
   maintenance_tickets: rowToMaintenanceTicket,
   staff_members: rowToStaffMember,
   attendance_records: rowToAttendanceRecord,
+  meal_plans: rowToMealPlan,
   leads: rowToLead,
   users: rowToUserAccount,
 };

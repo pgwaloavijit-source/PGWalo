@@ -282,7 +282,8 @@ interface AppContextType {
   addTask: (task: Omit<StaffTask, 'id' | 'completed'>) => void;
   addBroadcast: (broadcast: Omit<BroadcastNotification, 'id' | 'timestamp'>) => void;
   markNotificationsRead: (ids?: string[]) => void;
-  updateMealPlanDay: (day: MealPlanDay['day'], field: keyof MealPlanDay, value: string) => void;
+  updateMealPlanDay: (day: MealPlanDay['day'], field: keyof MealPlanDay, value: string | boolean) => void;
+  replaceMealPlan: (meals: MealPlanDay[]) => void;
   sendChatMessage: (text: string, isOwner: boolean) => void;
   addMaintenanceTicket: (ticket: Omit<MaintenanceTicket, 'id' | 'createdAt' | 'status'>) => void;
   updateTicketStatus: (
@@ -3794,7 +3795,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setBroadcasts((prev) => [newB, ...prev]);
   };
 
-  const updateMealPlanDay = (day: MealPlanDay['day'], field: keyof MealPlanDay, value: string) => {
+  const updateMealPlanDay = (day: MealPlanDay['day'], field: keyof MealPlanDay, value: string | boolean) => {
     setMealPlan((prev) =>
       prev.map((m) => (m.day === day ? { ...m, [field]: value } : m))
     );
@@ -3894,6 +3895,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
     return { ok: true, id: newTicket.id };
   };
+
+  const replaceMealPlan = (meals: MealPlanDay[]) => setMealPlan(meals);
 
   const updateSupportTicket = (ticketId: string, status: SupportTicketStatus, adminNote?: string, assignedTo?: string) => {
     setSupportTickets((prev) => prev.map((ticket) => ticket.id === ticketId
@@ -4160,6 +4163,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         addBroadcast,
         markNotificationsRead,
         updateMealPlanDay,
+        replaceMealPlan,
         sendChatMessage,
         addMaintenanceTicket,
         updateTicketStatus,
