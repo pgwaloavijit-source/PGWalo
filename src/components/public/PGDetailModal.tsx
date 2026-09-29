@@ -84,6 +84,8 @@ export const PGDetailModal: React.FC<{
         existing.availableBeds += room.availableBeds || 0;
         existing.totalBeds += room.totalBeds || room.availableBeds || 0;
         existing.rentPerMonth = Math.min(existing.rentPerMonth || room.rentPerMonth || 0, room.rentPerMonth || 0);
+        existing.floor = existing.floor === room.floor ? existing.floor : 'Multiple floors';
+        existing.amenities = Array.from(new Set([...(existing.amenities || []), ...(room.amenities || [])]));
         existing.deposit = Math.min(existing.deposit || room.deposit || 0, room.deposit || 0);
       } else {
         byType.set(room.type, { ...room });
@@ -521,6 +523,10 @@ export const PGDetailModal: React.FC<{
                   </div>
                   <div className="space-y-1 text-[11px] text-slate-600 border-t border-slate-100 pt-2 mb-3">
                     <p>Security Deposit: ₹{(room.deposit ?? (room as { securityDeposit?: number }).securityDeposit ?? 0).toLocaleString()}</p>
+                    {room.floor && <p>Floor: {room.floor}</p>}
+                    {room.roomSize && <p>Room size: {room.roomSize}</p>}
+                    {room.bedType && <p>Bed type: {room.bedType}</p>}
+                    {(room.amenities || []).length > 0 && <p>Amenities: {room.amenities.join(', ')}</p>}
                     <p>Electricity: Rs {property.electricityRatePerUnit || 8.5}/unit</p>
                     <p>Tax: {property.taxPercent || 0}% if applicable</p>
                     <p>Notice Period: {property.noticePeriodDays || 30} days</p>

@@ -637,7 +637,7 @@ export const SearchPage: React.FC<{
                               key={room.id}
                               className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 text-[10px] font-medium"
                             >
-                              {room.type}: ₹{(room.rentPerMonth ?? 0).toLocaleString()}
+                              {room.type}: ₹{(room.rentPerMonth ?? 0).toLocaleString()}{room.floor ? ` · ${room.floor}` : ''}
                             </span>
                           ))}
                         </div>

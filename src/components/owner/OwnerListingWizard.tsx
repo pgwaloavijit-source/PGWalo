@@ -47,6 +47,9 @@ const DEFAULT_CITIES = ['Bengaluru', 'Mumbai', 'Delhi', 'Pune', 'Hyderabad', 'Ch
 const DEFAULT_STATES = ['Karnataka', 'Maharashtra', 'Delhi', 'Uttar Pradesh', 'Telangana', 'Tamil Nadu', 'West Bengal', 'Gujarat'];
 const COUNTRIES = ['India'];
 const GENDERS: OwnerListingStep1['genderOccupancy'][] = ['Boys', 'Girls', 'Unisex / Co-ed'];
+const FLOOR_OPTIONS = ['Ground Floor', '1st Floor', '2nd Floor', '3rd Floor', '4th Floor', '5th Floor', '6th Floor+'];
+const BED_TYPES = ['Standard', 'Single Bed', 'Double Bed', 'Bunk Bed', 'Queen Bed'];
+const ROOM_AMENITIES = ['Attached bathroom', 'AC', 'Balcony', 'Study table', 'Wardrobe'];
 
 const ROOM_TEMPLATES: { sharing: SharingCapacity; beds: number; rent: number; label: string }[] = [
   { sharing: 'Single', beds: 1, rent: 14000, label: 'Single' },
@@ -72,6 +75,8 @@ function makeRoom(sharing: SharingCapacity, beds: number, rent: number, roomNumb
     roomType: sharing === 'Single' ? 'Private' : 'Shared',
     sharingCapacity: sharing,
     numberOfBeds: beds,
+    bedType: sharing === 'Single' ? 'Single Bed' : 'Standard',
+    amenities: [],
     beds: makeBeds(beds, rent),
   };
 }
@@ -497,7 +502,7 @@ const OwnerListingWizard: React.FC<OwnerListingWizardProps> = ({ onComplete, onC
                   </div>
                   <div className="space-y-2">
                     {step2.rooms.map((room, i) => (
-                      <div key={`${room.roomNumber}-${i}`} className="rounded-2xl border border-slate-200 p-3 flex items-center gap-3">
+                      <div key={`${room.roomNumber}-${i}`} className="rounded-2xl border border-slate-200 p-3 flex flex-wrap items-center gap-3">
                         <div className="flex-1 min-w-0">
                           <input
                             value={room.roomNumber}
@@ -527,6 +532,26 @@ const OwnerListingWizard: React.FC<OwnerListingWizardProps> = ({ onComplete, onC
                             <X className="w-4 h-4" />
                           </button>
                         )}
+                        <div className="w-full grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-slate-100">
+                          <label className="text-[10px] font-bold text-slate-500">Floor
+                            <select value={room.floor || ''} onChange={(e) => updateRoom(i, { floor: e.target.value })} className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs font-medium">
+                              <option value="">Select floor</option>{FLOOR_OPTIONS.map((floor) => <option key={floor}>{floor}</option>)}
+                            </select>
+                          </label>
+                          <label className="text-[10px] font-bold text-slate-500">Room size
+                            <input type="text" value={room.roomSize || ''} onChange={(e) => updateRoom(i, { roomSize: e.target.value })} placeholder="e.g. 120 sq ft" className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs" />
+                          </label>
+                          <label className="text-[10px] font-bold text-slate-500">Bed type
+                            <select value={room.bedType || 'Standard'} onChange={(e) => updateRoom(i, { bedType: e.target.value })} className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs font-medium">
+                              {BED_TYPES.map((bedType) => <option key={bedType}>{bedType}</option>)}
+                            </select>
+                          </label>
+                          <label className="text-[10px] font-bold text-slate-500">Room amenities
+                            <select multiple value={room.amenities || []} onChange={(e) => updateRoom(i, { amenities: Array.from(e.target.selectedOptions, (option) => option.value) })} className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1 text-xs min-h-[46px]">
+                              {ROOM_AMENITIES.map((amenity) => <option key={amenity}>{amenity}</option>)}
+                            </select>
+                          </label>
+                        </div>
                       </div>
                     ))}
                   </div>

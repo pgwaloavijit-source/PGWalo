@@ -193,6 +193,10 @@ export interface PublicSearchCriteria {
 export interface RoomOption {
   id: string;
   type: RoomSharingType;
+  floor?: string;
+  roomSize?: string;
+  bedType?: string;
+  amenities?: string[];
   rentPerMonth: number;
   deposit: number;
   availableBeds: number;
@@ -1127,6 +1131,7 @@ export interface RoomDetail {
   sharingCapacity: SharingCapacity;
   numberOfBeds: number;
   roomSize?: string;
+  bedType?: string;
   amenities?: string[];
   beds: BedDetail[];
 }

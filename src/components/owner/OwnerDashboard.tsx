@@ -183,6 +183,10 @@ export const OwnerDashboard: React.FC = () => {
       return {
         id: room.roomNumber || `room-${Math.random().toString(36).slice(2, 8)}`,
         type: roomType,
+        floor: room.floor,
+        roomSize: room.roomSize,
+        bedType: room.bedType,
+        amenities: room.amenities || [],
         rentPerMonth: firstBed?.monthlyRent || 8000,
         deposit: firstBed?.securityDeposit || 8000,
         availableBeds: (room.beds || []).filter((b) => b.status === 'Available' || b.status === 'Vacant').length,
@@ -292,10 +296,13 @@ export const OwnerDashboard: React.FC = () => {
     step2: {
       rooms: (property.rooms || []).map((room) => ({
         roomNumber: room.id,
-        floor: '1st Floor',
+        floor: room.floor || '1st Floor',
         roomType: room.type === 'Single' ? 'Private' : 'Shared',
         sharingCapacity: room.type === 'Four' ? '4 Sharing' : room.type,
         numberOfBeds: room.totalBeds || 1,
+        roomSize: room.roomSize,
+        bedType: room.bedType,
+        amenities: room.amenities || [],
         beds: Array.from({ length: room.totalBeds || 1 }, (_, index) => ({
           bedId: `${room.id}-${index}`,
           bedName: `Bed ${String.fromCharCode(65 + index)}`,

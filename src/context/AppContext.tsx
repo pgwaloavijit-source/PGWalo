@@ -2614,14 +2614,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const letters = ['A', 'B', 'C', 'D', 'E', 'F'];
     const generatedBeds: Bed[] = (created.rooms || []).flatMap((room, roomIndex) => {
       const count = Math.max(room.totalBeds || room.availableBeds || 1, 1);
-      const roomNumber = String(100 + (roomIndex + 1));
+      const roomNumber = room.id || String(100 + (roomIndex + 1));
       return Array.from({ length: count }, (_, i) => ({
         id: `bed-${created.id}-${room.id}-${i}`,
         bedNumber: `${roomNumber}-${letters[i] || i + 1}`,
         roomId: room.id,
         roomNumber,
         propertyId: created.id,
-        floor: roomIndex + 1,
+        floor: room.floor || roomIndex + 1,
         sharingType: room.type,
         status: 'Available' as const,
         monthlyRent: room.rentPerMonth,
