@@ -47,6 +47,7 @@ export const SearchPage: React.FC<{
   const [selectedArea, setSelectedArea] = useState<string>('All');
   const [selectedGender, setSelectedGender] = useState<GenderPreference | 'All'>(initialCriteria.type || 'All');
   const [selectedRoomType, setSelectedRoomType] = useState<RoomSharingType | 'All'>('All');
+  const roomTypeOptions = useMemo(() => Array.from(new Set(['Single', 'Double', 'Triple', 'Four', ...catalog.flatMap((property) => (property.rooms || []).map((room) => room.type))])), [catalog]);
   const [selectedMoveInDate, setSelectedMoveInDate] = useState(initialCriteria.moveInDate || '');
   const [maxPrice, setMaxPrice] = useState<number>(50000);
   const [selectedAmenities, setSelectedAmenities] = useState<string[]>([]);
@@ -426,7 +427,7 @@ export const SearchPage: React.FC<{
                   Room Sharing
                 </label>
                 <div className="grid grid-cols-2 gap-1.5">
-                  {(['All', 'Single', 'Double', 'Triple'] as const).map((r) => (
+                  {(['All', ...roomTypeOptions] as const).map((r) => (
                     <button
                       key={r}
                       onClick={() => setSelectedRoomType(r)}

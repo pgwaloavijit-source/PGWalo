@@ -34,6 +34,7 @@ const STAGES: { key: LeadStage; label: string; color: string }[] = [
 export const LeadFunnelTab: React.FC = () => {
   const { addLead, updateLeadStage, addResident, updateBedStatus, logAuditEvent } = useApp();
   const { leads, beds, properties } = useOwnerScope();
+  const roomTypeOptions = Array.from(new Set(['Single', 'Double', 'Triple', ...properties.flatMap((property) => (property.rooms || []).map((room) => room.customType || room.type))]));
 
   const [showAddLeadModal, setShowAddLeadModal] = useState(false);
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
@@ -311,9 +312,7 @@ export const LeadFunnelTab: React.FC = () => {
                     onChange={(e) => setNewRoomType(e.target.value as RoomSharingType)}
                     className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs focus:ring-2 focus:ring-blue-600 outline-hidden"
                   >
-                    <option value="Single">Single Private</option>
-                    <option value="Double">Double Sharing</option>
-                    <option value="Triple">Triple Sharing</option>
+                    {roomTypeOptions.map((roomType) => <option key={roomType} value={roomType}>{roomType} Sharing</option>)}
                   </select>
                 </div>
                 <div>
