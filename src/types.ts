@@ -196,7 +196,8 @@ export interface RoomOption {
   floor?: string;
   roomSize?: string;
   bedType?: string;
-  amenities?: string[];
+  customType?: string;
+  photos?: string[];
   rentPerMonth: number;
   deposit: number;
   availableBeds: number;
@@ -1132,7 +1133,8 @@ export interface RoomDetail {
   numberOfBeds: number;
   roomSize?: string;
   bedType?: string;
-  amenities?: string[];
+  customType?: string;
+  photos?: string[];
   beds: BedDetail[];
 }
 

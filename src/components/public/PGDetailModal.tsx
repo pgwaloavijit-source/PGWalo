@@ -85,7 +85,7 @@ export const PGDetailModal: React.FC<{
         existing.totalBeds += room.totalBeds || room.availableBeds || 0;
         existing.rentPerMonth = Math.min(existing.rentPerMonth || room.rentPerMonth || 0, room.rentPerMonth || 0);
         existing.floor = existing.floor === room.floor ? existing.floor : 'Multiple floors';
-        existing.amenities = Array.from(new Set([...(existing.amenities || []), ...(room.amenities || [])]));
+        existing.photos = Array.from(new Set([...(existing.photos || []), ...(room.photos || [])]));
         existing.deposit = Math.min(existing.deposit || room.deposit || 0, room.deposit || 0);
       } else {
         byType.set(room.type, { ...room });
@@ -507,8 +507,9 @@ export const PGDetailModal: React.FC<{
                       : 'border-slate-200 hover:border-blue-400 hover:bg-blue-50/30 bg-white cursor-pointer'
                   }`}
                 >
+                  {room.photos?.length ? <ListingImage src={room.photos[0]} images={room.photos} alt={`${room.customType || room.type} room`} className="mb-3 h-28 w-full rounded-xl" /> : null}
                   <div className="flex items-center justify-between mb-2">
-                    <span className="font-black text-slate-900 text-sm">{room.type} Sharing</span>
+                    <span className="font-black text-slate-900 text-sm">{room.customType || room.type} Sharing</span>
                     <span
                       className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
                         room.availableBeds > 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
@@ -526,7 +527,6 @@ export const PGDetailModal: React.FC<{
                     {room.floor && <p>Floor: {room.floor}</p>}
                     {room.roomSize && <p>Room size: {room.roomSize}</p>}
                     {room.bedType && <p>Bed type: {room.bedType}</p>}
-                    {(room.amenities || []).length > 0 && <p>Amenities: {room.amenities.join(', ')}</p>}
                     <p>Electricity: Rs {property.electricityRatePerUnit || 8.5}/unit</p>
                     <p>Tax: {property.taxPercent || 0}% if applicable</p>
                     <p>Notice Period: {property.noticePeriodDays || 30} days</p>

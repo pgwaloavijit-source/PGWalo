@@ -49,7 +49,7 @@ const COUNTRIES = ['India'];
 const GENDERS: OwnerListingStep1['genderOccupancy'][] = ['Boys', 'Girls', 'Unisex / Co-ed'];
 const FLOOR_OPTIONS = ['Ground Floor', '1st Floor', '2nd Floor', '3rd Floor', '4th Floor', '5th Floor', '6th Floor+'];
 const BED_TYPES = ['Standard', 'Single Bed', 'Double Bed', 'Bunk Bed', 'Queen Bed'];
-const ROOM_AMENITIES = ['Attached bathroom', 'AC', 'Balcony', 'Study table', 'Wardrobe'];
+const SHARING_OPTIONS: SharingCapacity[] = ['Single', 'Double', 'Triple', '4 Sharing', '5+ Sharing', 'Custom'];
 
 const ROOM_TEMPLATES: { sharing: SharingCapacity; beds: number; rent: number; label: string }[] = [
   { sharing: 'Single', beds: 1, rent: 14000, label: 'Single' },
@@ -76,7 +76,7 @@ function makeRoom(sharing: SharingCapacity, beds: number, rent: number, roomNumb
     sharingCapacity: sharing,
     numberOfBeds: beds,
     bedType: sharing === 'Single' ? 'Single Bed' : 'Standard',
-    amenities: [],
+    photos: [],
     beds: makeBeds(beds, rent),
   };
 }
@@ -94,6 +94,7 @@ const OwnerListingWizard: React.FC<OwnerListingWizardProps> = ({ onComplete, onC
   const [step3, setStep3] = useState<OwnerListingStep3>(initialData?.step3 || getEmptyStep3());
   const [step4, setStep4] = useState<OwnerListingStep4>(initialData?.step4 || { photos: [] });
   const [enhancingPhotos, setEnhancingPhotos] = useState(false);
+  const [roomPhotoBusy, setRoomPhotoBusy] = useState<Record<number, boolean>>({});
   const [step5] = useState<OwnerListingStep5>(initialData?.step5 || getEmptyStep5());
   const [step6, setStep6] = useState<OwnerListingStep6>(
     initialData?.step6 || {
@@ -195,6 +196,24 @@ const OwnerListingWizard: React.FC<OwnerListingWizardProps> = ({ onComplete, onC
           : room
       ),
     });
+  };
+
+  const onRoomPhotos = async (index: number, files: File[]) => {
+    setRoomPhotoBusy((prev) => ({ ...prev, [index]: true }));
+    try {
+      const room = step2.rooms[index];
+      const photos = [...(room.photos || [])];
+      for (const file of files) {
+        const normalized = await normalizeListingPhoto(file);
+        let url = normalized.dataUrl;
+        const uploaded = await uploadListingPhoto(normalized.blob, 'Bedroom');
+        if (uploaded.url || uploaded.dataUrl) url = uploaded.url || uploaded.dataUrl || url;
+        photos.push(url);
+      }
+      updateRoom(index, { photos: photos.slice(0, 6) });
+    } finally {
+      setRoomPhotoBusy((prev) => ({ ...prev, [index]: false }));
+    }
   };
 
   const toggleAmenity = (id: string) => {
@@ -532,7 +551,7 @@ const OwnerListingWizard: React.FC<OwnerListingWizardProps> = ({ onComplete, onC
                             <X className="w-4 h-4" />
                           </button>
                         )}
-                        <div className="w-full grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-slate-100">
+                        <div className="w-full grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 pt-2 border-t border-slate-100">
                           <label className="text-[10px] font-bold text-slate-500">Floor
                             <select value={room.floor || ''} onChange={(e) => updateRoom(i, { floor: e.target.value })} className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs font-medium">
                               <option value="">Select floor</option>{FLOOR_OPTIONS.map((floor) => <option key={floor}>{floor}</option>)}
@@ -541,15 +560,23 @@ const OwnerListingWizard: React.FC<OwnerListingWizardProps> = ({ onComplete, onC
                           <label className="text-[10px] font-bold text-slate-500">Room size
                             <input type="text" value={room.roomSize || ''} onChange={(e) => updateRoom(i, { roomSize: e.target.value })} placeholder="e.g. 120 sq ft" className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs" />
                           </label>
+                          <label className="text-[10px] font-bold text-slate-500">Room type
+                            <select value={room.sharingCapacity} onChange={(e) => updateRoom(i, { sharingCapacity: e.target.value, customType: e.target.value === 'Custom' ? (room.customType || '') : undefined })} className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs font-medium">
+                              {SHARING_OPTIONS.map((type) => <option key={type}>{type}</option>)}
+                            </select>
+                            {room.sharingCapacity === 'Custom' && <input type="text" value={room.customType || ''} onChange={(e) => updateRoom(i, { customType: e.target.value })} placeholder="e.g. Executive 6-bed" className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs" />}
+                          </label>
                           <label className="text-[10px] font-bold text-slate-500">Bed type
                             <select value={room.bedType || 'Standard'} onChange={(e) => updateRoom(i, { bedType: e.target.value })} className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs font-medium">
                               {BED_TYPES.map((bedType) => <option key={bedType}>{bedType}</option>)}
                             </select>
                           </label>
-                          <label className="text-[10px] font-bold text-slate-500">Room amenities
-                            <select multiple value={room.amenities || []} onChange={(e) => updateRoom(i, { amenities: Array.from(e.target.selectedOptions, (option) => option.value) })} className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1 text-xs min-h-[46px]">
-                              {ROOM_AMENITIES.map((amenity) => <option key={amenity}>{amenity}</option>)}
-                            </select>
+                          <label className="text-[10px] font-bold text-slate-500">Room photos
+                            <span className="mt-1 flex items-center gap-2 rounded-lg border border-dashed border-blue-300 bg-blue-50/50 px-2 py-1.5 text-xs font-bold text-blue-700 cursor-pointer">
+                              <Camera className="w-4 h-4" /> {roomPhotoBusy[i] ? 'Uploading…' : 'Add photos'}
+                              <input type="file" accept="image/*" multiple className="hidden" disabled={roomPhotoBusy[i]} onChange={(e) => { void onRoomPhotos(i, Array.from(e.target.files || []).slice(0, 6 - (room.photos || []).length)); e.currentTarget.value = ''; }} />
+                            </span>
+                            {(room.photos || []).length > 0 && <span className="mt-1 flex gap-1 overflow-x-auto">{room.photos?.map((photo) => <img key={photo} src={photo} alt="Room preview" className="h-8 w-8 rounded object-cover" />)}</span>}
                           </label>
                         </div>
                       </div>
