@@ -290,7 +290,7 @@ interface AppContextType {
     status: MaintenanceTicket['status'],
     extra?: { assignedStaffName?: string; resolutionNotes?: string; cost?: number }
   ) => void;
-  createSupportTicket: (ticket: Omit<SupportTicket, 'id' | 'requesterId' | 'requesterName' | 'requesterRole' | 'status' | 'createdAt' | 'updatedAt'>) => void;
+  createSupportTicket: (ticket: Omit<SupportTicket, 'id' | 'requesterId' | 'requesterName' | 'requesterRole' | 'status' | 'createdAt' | 'updatedAt'>) => Promise<{ ok: boolean; id?: string }>;
   updateSupportTicket: (ticketId: string, status: SupportTicketStatus, adminNote?: string, assignedTo?: string) => void;
   addSupportTicketReply: (ticketId: string, body: string) => void;
   updateUserAccountStatus: (userId: string, status: NonNullable<UserAccount['status']>) => void;
@@ -888,21 +888,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           );
         }
         if (snapshot.support_tickets) setSupportTickets(snapshot.support_tickets);
-        if (snapshot.staff_members?.length) {
+        if (snapshot.staff_members) {
           // Staff dashboards match the signed-in user by phone, so a genuine
           // staff account in a fresh browser needs these rows to recognise
           // their property and shift.
-          setStaff((prev) => {
-            const byId = new Map<string, StaffMember>(prev.map((s) => [s.id, s] as [string, StaffMember]));
-            for (const serverStaff of snapshot.staff_members as StaffMember[]) {
-              byId.set(serverStaff.id, serverStaff);
-            }
-            return Array.from(byId.values());
-          });
+          setStaff(snapshot.staff_members as StaffMember[]);
         }
-        if (snapshot.attendance_records?.length) setAttendance(snapshot.attendance_records as AttendanceRecord[]);
+        if (snapshot.attendance_records) setAttendance(snapshot.attendance_records as AttendanceRecord[]);
         if (snapshot.users) setUsers(snapshot.users);
         if (snapshot.booking_requests) setBookingRequests((prev) => mergeBookings(prev, snapshot.booking_requests as BookingRequest[]));
+        if (snapshot.leads) setLeads(snapshot.leads);
+        if (snapshot.meal_plans) setMealPlan(snapshot.meal_plans);
         // Demo/mock rows must never survive a production hydration.
         setProperties((prev) => prev.filter((p) => !p.id.startsWith('demo-') && !['prop-1', 'prop-2', 'prop-3', 'prop-4'].includes(p.id)));
       })
@@ -1292,6 +1288,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           // including the resident's — could ever receive it.
           rent_agreements: agreements,
           broadcast_notifications: broadcasts,
+          leads,
+          staff_members: staff,
+          attendance_records: attendance,
+          meal_plans: mealPlan,
         },
         currentUser?.organizationId || DEFAULT_ORGANIZATION_ID
       ).catch((error) => {
@@ -1318,6 +1318,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     checkouts,
     agreements,
     broadcasts,
+    leads,
+    staff,
+    attendance,
+    mealPlan,
   ]);
 
   const hasPermission = (permission: PermissionKey) =>
@@ -3848,8 +3852,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  const createSupportTicket = (ticket: Omit<SupportTicket, 'id' | 'requesterId' | 'requesterName' | 'requesterRole' | 'status' | 'createdAt' | 'updatedAt'>) => {
-    if (!currentUser) return;
+  const createSupportTicket = async (ticket: Omit<SupportTicket, 'id' | 'requesterId' | 'requesterName' | 'requesterRole' | 'status' | 'createdAt' | 'updatedAt'>) => {
+    if (!currentUser) return { ok: false };
     const now = new Date().toISOString();
     const newTicket: SupportTicket = {
       ...ticket,
@@ -3875,16 +3879,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       dedupeKey: `support-raised-${newTicket.id}`,
     });
     if (isProductionApiEnabled() && getAuthToken()) {
-      void postSupportTicket(newTicket).then((result) => {
-        if (result.ok && result.id && result.id !== newTicket.id) {
+      const result = await postSupportTicket(newTicket);
+      if (result.ok && result.id && result.id !== newTicket.id) {
           // The Worker kept its own id — re-key the local copy so replies match.
           setSupportTickets((prev) =>
             prev.map((t) => (t.id === newTicket.id ? { ...t, id: result.id as string } : t))
           );
         }
-        if (!result.ok) console.warn('[support] ticket could not be persisted to the database');
-      });
+      if (!result.ok) console.warn('[support] ticket could not be persisted to the database');
+      return result.ok ? { ok: true, id: result.id || newTicket.id } : { ok: false, id: newTicket.id };
     }
+    return { ok: true, id: newTicket.id };
   };
 
   const updateSupportTicket = (ticketId: string, status: SupportTicketStatus, adminNote?: string, assignedTo?: string) => {

@@ -522,6 +522,7 @@ export const LandingPage: React.FC<{
                   <div className="relative h-48 overflow-hidden bg-slate-100">
                     <ListingImage
                       src={pg.coverImage}
+                      images={pg.galleryImages}
                       alt={pg.name}
                       className="w-full h-full group-hover:scale-105 transition-transform duration-300"
                     />

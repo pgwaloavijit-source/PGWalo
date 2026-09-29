@@ -1091,7 +1091,7 @@ export interface CheckoutSettlement {
 export type PropertyType = 'PG' | 'Hostel' | 'Co-Living' | 'Rental Rooms' | 'Apartment';
 export type GenderOccupancy = 'Boys' | 'Girls' | 'Unisex / Co-ed';
 export type RoomType = 'Private' | 'Shared' | 'Dormitory';
-export type SharingCapacity = 'Single' | 'Double' | 'Triple' | '4 Sharing' | '5+ Sharing';
+export type SharingCapacity = 'Single' | 'Double' | 'Triple' | '4 Sharing' | '5+ Sharing' | (string & {});
 export type PhotoCategory = 'Exterior' | 'Bedroom' | 'Bathroom' | 'Kitchen' | 'Dining' | 'Common Area' | 'Amenities';
 export type VerificationStatus = 'Pending' | 'Under Review' | 'Verified' | 'Rejected';
 export type ListingStatus = 'Draft' | 'Pending Review' | 'Payment Pending' | 'Published' | 'Archived';
@@ -1126,6 +1126,8 @@ export interface RoomDetail {
   roomType: RoomType;
   sharingCapacity: SharingCapacity;
   numberOfBeds: number;
+  roomSize?: string;
+  amenities?: string[];
   beds: BedDetail[];
 }
 

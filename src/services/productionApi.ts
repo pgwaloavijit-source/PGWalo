@@ -23,6 +23,8 @@ import {
   UserAccount,
   UserRole,
   MaintenanceTicket,
+  Lead,
+  MealPlanDay,
 } from '../types';
 import { DEFAULT_ORGANIZATION_ID } from '../domain/productionWorkflow';
 
@@ -49,6 +51,8 @@ export interface ProductionSnapshot {
   attendance_records?: AttendanceRecord[];
   maintenance_tickets?: MaintenanceTicket[];
   users?: UserAccount[];
+  leads?: Lead[];
+  meal_plans?: MealPlanDay[];
 }
 
 import { apiUrl as sharedApiUrl } from './apiBase';

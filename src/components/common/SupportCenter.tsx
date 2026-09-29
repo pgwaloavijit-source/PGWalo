@@ -11,6 +11,8 @@ export const SupportCenter: React.FC = () => {
   const [imageUrl, setImageUrl] = useState('');
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [confirmation, setConfirmation] = useState<string | null>(null);
   const isAdmin = currentUser?.role === 'superadmin' || currentUser?.role === 'admin';
   const visibleTickets = isAdmin ? supportTickets : supportTickets.filter((ticket) => ticket.requesterId === currentUser?.id);
 
@@ -35,24 +37,32 @@ export const SupportCenter: React.FC = () => {
     }
   };
 
-  const submit = (event: React.FormEvent) => {
+  const submit = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!title.trim() || !description.trim()) return;
+    if (!title.trim() || !description.trim() || submitting) return;
+    setSubmitting(true);
+    setConfirmation(null);
     // Property-related issues carry the resident's property so the worker
     // routes them to the property's owner; everything else stays in the
     // PGWalo superadmin queue.
     const isPropertyIssue = type === 'Room allocation' || type === 'Agreement';
-    createSupportTicket({
+    const result = await createSupportTicket({
       type,
       title: title.trim(),
       description: description.trim(),
       imageUrl: imageUrl || undefined,
       propertyId: isPropertyIssue ? currentResident?.propertyId : undefined,
     });
-    setTitle('');
-    setDescription('');
-    setImageUrl('');
-    setUploadError('');
+    setSubmitting(false);
+    if (result.ok) {
+      setConfirmation(`Ticket submitted successfully${result.id ? ` · ID: ${result.id}` : ''}`);
+      setTitle('');
+      setDescription('');
+      setImageUrl('');
+      setUploadError('');
+    } else {
+      setConfirmation('Ticket could not be saved. Please try again.');
+    }
   };
 
   return (
@@ -63,6 +73,7 @@ export const SupportCenter: React.FC = () => {
       </div>
       {!isAdmin && (
         <form onSubmit={submit} className="bg-white rounded-2xl border border-slate-200 p-5 space-y-3">
+          {confirmation && <div role="status" className={`rounded-xl px-3 py-2 text-xs font-bold ${confirmation.startsWith('Ticket submitted') ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>{confirmation}</div>}
           <div className="flex items-center gap-2 font-bold text-slate-900"><LifeBuoy className="w-5 h-5 text-indigo-600" /> Raise a query</div>
           <div className="grid sm:grid-cols-2 gap-3">
             <select value={type} onChange={(e) => setType(e.target.value)} className="rounded-xl border border-slate-200 px-3 py-2 text-sm">
@@ -101,10 +112,10 @@ export const SupportCenter: React.FC = () => {
           </div>
 
           <button
-            disabled={uploading}
+            disabled={uploading || submitting}
             className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-60"
           >
-            <Send className="w-4 h-4" /> Submit ticket
+            {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />} {submitting ? 'Submitting…' : 'Submit ticket'}
           </button>
         </form>
       )}

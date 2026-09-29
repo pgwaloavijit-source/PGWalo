@@ -9,7 +9,7 @@ interface Step2RoomsPricingProps {
 }
 
 const ROOM_TYPES: RoomType[] = ['Private', 'Shared', 'Dormitory'];
-const SHARING_OPTIONS: SharingCapacity[] = ['Single', 'Double', 'Triple', '4 Sharing', '5+ Sharing'];
+const SHARING_OPTIONS: SharingCapacity[] = ['Single', 'Double', 'Triple', '4 Sharing', '5+ Sharing', 'Custom'];
 const FLOORS = ['Ground Floor', '1st Floor', '2nd Floor', '3rd Floor', '4th Floor', '5th Floor', '6th Floor+'];
 
 const Step2RoomsPricing: React.FC<Step2RoomsPricingProps> = ({ data, onDataChange, onValidationChange }) => {
@@ -171,7 +171,8 @@ const Step2RoomsPricing: React.FC<Step2RoomsPricingProps> = ({ data, onDataChang
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Start Room</label>
                 <input
-                  type="text"
+                  type="number"
+                  inputMode="numeric"
                   value={bulkConfig.startRoom}
                   onChange={(e) => setBulkConfig({ ...bulkConfig, startRoom: e.target.value })}
                   placeholder="101"
@@ -181,7 +182,8 @@ const Step2RoomsPricing: React.FC<Step2RoomsPricingProps> = ({ data, onDataChang
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">End Room</label>
                 <input
-                  type="text"
+                  type="number"
+                  inputMode="numeric"
                   value={bulkConfig.endRoom}
                   onChange={(e) => setBulkConfig({ ...bulkConfig, endRoom: e.target.value })}
                   placeholder="110"
@@ -297,7 +299,8 @@ const Step2RoomsPricing: React.FC<Step2RoomsPricingProps> = ({ data, onDataChang
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Room Number *</label>
                 <input
-                  type="text"
+                  type="number"
+                  inputMode="numeric"
                   value={room.roomNumber}
                   onChange={(e) => updateRoom(roomIndex, 'roomNumber', e.target.value)}
                   placeholder="101"
@@ -334,6 +337,18 @@ const Step2RoomsPricing: React.FC<Step2RoomsPricingProps> = ({ data, onDataChang
                   {SHARING_OPTIONS.map(option => <option key={option} value={option}>{option}</option>)}
                 </select>
               </div>
+              {room.sharingCapacity === 'Custom' && (
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Custom sharing label</label>
+                  <input
+                    type="text"
+                    value={room.roomSize || ''}
+                    onChange={(e) => updateRoom(roomIndex, 'roomSize', e.target.value)}
+                    placeholder="e.g. 6-Bed / 8-Bed"
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 focus:ring-2 focus:ring-blue-500 outline-none"
+                  />
+                </div>
+              )}
             </div>
 
             <div className="mb-4">

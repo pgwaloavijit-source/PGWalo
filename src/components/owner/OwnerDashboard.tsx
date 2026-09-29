@@ -67,6 +67,7 @@ import { takePendingPayOrder } from '../../utils/payLink';
 import { fireEmailEvent } from '../../services/emailEvents';
 import { useOwnerScope, ownsProperty } from '../../utils/ownership';
 import { AMENITIES, amenityLabel, normalizeAmenities } from '../../utils/amenities';
+import { rolesOf } from '../../domain/staffOps';
 
 export const OwnerDashboard: React.FC = () => {
   const {
@@ -76,6 +77,7 @@ export const OwnerDashboard: React.FC = () => {
     approveBookingRequest,
     rejectBookingRequest,
     addStaffMember,
+    updateStaffMember,
     deleteStaffMember,
     toggleStaffClockIn,
     broadcasts,
@@ -377,6 +379,12 @@ export const OwnerDashboard: React.FC = () => {
   const [staffCredentials, setStaffCredentials] = useState<{ name: string; phone: string; pin: string; staffRole: string } | null>(null);
   const [staffFormError, setStaffFormError] = useState('');
   const [newStaffShift, setNewStaffShift] = useState('Morning (6 AM - 2 PM)');
+  const [editingStaff, setEditingStaff] = useState<StaffMember | null>(null);
+  const [editStaffName, setEditStaffName] = useState('');
+  const [editStaffPhone, setEditStaffPhone] = useState('');
+  const [editStaffRole, setEditStaffRole] = useState<StaffMember['role']>('Housekeeping');
+  const [editStaffRoles, setEditStaffRoles] = useState<string[]>([]);
+  const [editStaffShift, setEditStaffShift] = useState<StaffMember['shift']>('Morning (6 AM - 2 PM)');
 
   // Broadcast Form State
   const [broadcastTitle, setBroadcastTitle] = useState('');
@@ -1388,7 +1396,7 @@ export const OwnerDashboard: React.FC = () => {
                         <div>
                           <h3 className="font-extrabold text-sm text-slate-900">{s.name}</h3>
                           <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-blue-50 text-blue-800 mt-0.5">
-                            {s.role}
+                            {rolesOf(s).join(' + ')}
                           </span>
                           <p className="text-[10px] text-slate-400 mt-0.5">
                             {properties.find((p) => p.id === s.propertyId)?.name || 'Unassigned PG'}
@@ -1423,7 +1431,7 @@ export const OwnerDashboard: React.FC = () => {
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-2 pt-1">
+                    <div className="grid grid-cols-3 gap-2 pt-1">
                       <button
                         onClick={() => toggleStaffClockIn(s.id)}
                         className={`py-2 px-3 rounded-xl text-xs font-bold transition border flex items-center justify-center gap-1 ${
@@ -1436,6 +1444,19 @@ export const OwnerDashboard: React.FC = () => {
                         <span>{isCheckedIn ? 'Log Clock Out' : 'Log Clock In'}</span>
                       </button>
 
+                      <button
+                        onClick={() => {
+                          setEditingStaff(s);
+                          setEditStaffName(s.name);
+                          setEditStaffPhone(s.phone.replace(/\D/g, '').slice(-10));
+                          setEditStaffRole(s.role);
+                          setEditStaffRoles(s.roles || []);
+                          setEditStaffShift(s.shift);
+                        }}
+                        className="py-2 px-3 rounded-xl text-xs font-bold transition border border-blue-200 text-blue-700 bg-blue-50 hover:bg-blue-100"
+                      >
+                        <Pencil className="w-3.5 h-3.5 inline mr-1" />Edit
+                      </button>
                       <button
                         onClick={() => {
                           if (confirm(`Remove staff member ${s.name}?`)) {
@@ -2166,6 +2187,24 @@ export const OwnerDashboard: React.FC = () => {
           </div>
         </div>
       )}
+      {editingStaff && (
+        <div className="owner-modal-backdrop fixed inset-0 z-[1100] bg-slate-900/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-4">
+          <form onSubmit={(e) => { e.preventDefault(); updateStaffMember(editingStaff.id, { name: editStaffName.trim(), phone: editStaffPhone, role: editStaffRole, roles: Array.from(new Set([editStaffRole, ...editStaffRoles])), shift: editStaffShift }); setEditingStaff(null); }} className="bg-white rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-4">
+            <div className="flex items-center justify-between"><h3 className="font-black text-slate-900">Edit staff member</h3><button type="button" onClick={() => setEditingStaff(null)} className="text-slate-400">✕</button></div>
+            <input required value={editStaffName} onChange={(e) => setEditStaffName(e.target.value)} placeholder="Full name" className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm" />
+            <input required inputMode="numeric" value={editStaffPhone} onChange={(e) => setEditStaffPhone(e.target.value.replace(/\D/g, '').slice(0, 10))} placeholder="10-digit mobile" className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm" />
+            <select value={editStaffRole} onChange={(e) => setEditStaffRole(e.target.value as StaffMember['role'])} className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm">
+              {['Housekeeping', 'Mess Cook', 'Security Guard', 'Manager', 'Electrician'].map((role) => <option key={role}>{role}</option>)}
+            </select>
+            <select value={editStaffShift} onChange={(e) => setEditStaffShift(e.target.value as StaffMember['shift'])} className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm">
+              <option>Morning (6 AM - 2 PM)</option><option>Evening (2 PM - 10 PM)</option><option>Night (10 PM - 6 AM)</option>
+            </select>
+            <div className="flex flex-wrap gap-1.5">{['Housekeeping', 'Mess Cook', 'Electrician', 'Security Guard', 'Manager', 'Caretaker'].map((role) => { const selected = editStaffRoles.includes(role); return <button type="button" key={role} onClick={() => setEditStaffRoles((prev) => selected ? prev.filter((r) => r !== role) : [...prev, role])} className={`px-2.5 py-1.5 rounded-xl text-[11px] font-bold border ${selected ? 'bg-blue-600 text-white border-blue-600' : 'border-slate-200 text-slate-600'}`}>{selected ? '✓ ' : ''}{role}</button>; })}</div>
+            <div className="flex gap-2"><button type="button" onClick={() => setEditingStaff(null)} className="flex-1 py-2.5 rounded-xl border border-slate-200 font-bold text-sm">Cancel</button><button type="submit" className="flex-1 py-2.5 rounded-xl bg-blue-600 text-white font-bold text-sm">Save changes</button></div>
+          </form>
+        </div>
+      )}
+
       {/* Publishing plans + payment checkout ("Pay & publish") */}
       {payTarget && (
         <PublishPlanModal

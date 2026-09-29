@@ -16,7 +16,9 @@ import {
   ChevronRight,
   MessageSquare,
   Search,
+  Download,
 } from 'lucide-react';
+import * as XLSX from 'xlsx';
 
 const STAGES: { key: LeadStage; label: string; color: string }[] = [
   { key: 'New Lead', label: 'New Inquiries', color: 'border-blue-400 bg-blue-50/40 text-blue-900' },
@@ -44,8 +46,28 @@ export const LeadFunnelTab: React.FC = () => {
   const [newSource, setNewSource] = useState<'Website' | 'WhatsApp' | 'Walk-in' | 'Referral' | 'Google Search'>('Website');
   const [newRoomType, setNewRoomType] = useState<RoomSharingType>('Double');
   const [newBudget, setNewBudget] = useState(12000);
-  const [newMoveInDate, setNewMoveInDate] = useState('2026-09-15');
+  const today = new Date().toISOString().split('T')[0];
+  const [newMoveInDate, setNewMoveInDate] = useState(today);
   const [newNotes, setNewNotes] = useState('Looking for quiet room with high-speed internet');
+
+  const exportLeads = () => {
+    const rows = leads.map((lead) => ({
+      Name: lead.name,
+      Phone: lead.phone,
+      Email: lead.email,
+      Property: lead.propertyName || '',
+      Stage: lead.stage,
+      Source: lead.source,
+      'Room preference': lead.roomTypePreference,
+      'Budget max': lead.budgetMax || lead.budget || '',
+      'Move-in date': lead.expectedMoveInDate || lead.preferredMoveIn || '',
+      'Last follow-up': lead.lastFollowUp || '',
+      Notes: lead.notes || '',
+    }));
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(rows), 'Leads');
+    XLSX.writeFile(workbook, `pgwalo-leads-${new Date().toISOString().slice(0, 10)}.xlsx`);
+  };
 
   const handleCreateLead = (e: React.FormEvent) => {
     e.preventDefault();
@@ -130,13 +152,11 @@ export const LeadFunnelTab: React.FC = () => {
           </p>
         </div>
 
-        <button
-          onClick={() => setShowAddLeadModal(true)}
-          className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-md shadow-blue-500/20 flex items-center gap-1.5 self-start"
-        >
-          <Plus className="w-4 h-4" />
-          Capture New Lead
-        </button>
+        <div className="flex items-center gap-2 self-start">
+          <span className="px-3 py-2 rounded-xl bg-slate-100 text-slate-700 text-xs font-black">{leads.length} leads</span>
+          <button onClick={exportLeads} disabled={!leads.length} className="px-3 py-2.5 rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-50 disabled:opacity-40 text-xs font-bold flex items-center gap-1.5"><Download className="w-4 h-4" /> Export Excel</button>
+          <button onClick={() => setShowAddLeadModal(true)} className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-md shadow-blue-500/20 flex items-center gap-1.5"><Plus className="w-4 h-4" /> Capture New Lead</button>
+        </div>
       </div>
 
       {/* Kanban Pipeline Board */}
@@ -315,6 +335,7 @@ export const LeadFunnelTab: React.FC = () => {
                 </label>
                 <input
                   type="date"
+                  min={today}
                   value={newMoveInDate}
                   onChange={(e) => setNewMoveInDate(e.target.value)}
                   className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs focus:ring-2 focus:ring-blue-600 outline-hidden"

@@ -372,12 +372,14 @@ export function rowToBroadcastNotification(row: Row) {
 }
 
 export function rowToStaffMember(row: Row) {
+  const roles = parseJson<unknown[]>(row.roles, []);
   return {
     id: str(row.id),
     ownerUserId: row.owner_user_id ? str(row.owner_user_id) : undefined,
     organizationId: row.organization_id ? str(row.organization_id) : undefined,
     name: str(row.name),
     role: str(row.role, 'Housekeeping'),
+    roles: Array.isArray(roles) ? roles.map((role) => str(role)).filter(Boolean) : undefined,
     phone: str(row.phone),
     avatar: row.avatar ? str(row.avatar) : '',
     propertyId: str(row.property_id),
@@ -400,6 +402,28 @@ export function rowToAttendanceRecord(row: Row) {
     type: str(row.type, 'Present'),
     status: str(row.status, 'On-Time'),
     notes: row.notes ? str(row.notes) : undefined,
+  };
+}
+
+export function rowToLead(row: Row) {
+  return {
+    id: str(row.id),
+    name: str(row.name),
+    phone: str(row.phone),
+    email: str(row.email),
+    propertyId: row.property_id ? str(row.property_id) : undefined,
+    propertyName: row.property_name ? str(row.property_name) : undefined,
+    roomTypePreference: str(row.room_type_preference, 'Double'),
+    budgetMax: num(row.budget_max),
+    budget: num(row.budget),
+    preferredMoveIn: row.preferred_move_in ? str(row.preferred_move_in) : undefined,
+    expectedMoveInDate: str(row.expected_move_in_date),
+    stage: str(row.stage, 'New Lead'),
+    source: str(row.source, 'Website'),
+    assignedTo: row.assigned_to ? str(row.assigned_to) : undefined,
+    notes: str(row.notes),
+    createdAt: str(row.created_at),
+    lastFollowUp: str(row.last_follow_up),
   };
 }
 

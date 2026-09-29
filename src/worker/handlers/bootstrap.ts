@@ -21,6 +21,7 @@ import {
   rowToMaintenanceTicket,
   rowToStaffMember,
   rowToAttendanceRecord,
+  rowToLead,
   rowToUserAccount,
   sanitizeRow,
 } from '../utils/rowMap';
@@ -75,6 +76,7 @@ const ROW_MAPPERS: Record<string, (row: Record<string, unknown>) => unknown> = {
   maintenance_tickets: rowToMaintenanceTicket,
   staff_members: rowToStaffMember,
   attendance_records: rowToAttendanceRecord,
+  leads: rowToLead,
   users: rowToUserAccount,
 };
 
@@ -259,12 +261,16 @@ export async function bootstrapHandler(request: Request, env: Env, user: User): 
       const body = await request.json() as Record<string, unknown>;
       const platformAdmin = isPlatformAdmin(user.role);
 
+      // Staff and leads are organization-owned collections, so an owner's
+      // snapshot is authoritative for them. meal_plans is currently a
+      // global table without organization_id and must remain upsert-only.
+      const syncable = new Set(['staff_members', 'leads']);
       const payload = (Object.entries(body) as [string, unknown][]).filter(
         ([table, rows]) =>
           ALL_TABLES.includes(table) &&
           table !== 'audit_logs' &&
           Array.isArray(rows) &&
-          rows.length > 0
+          (rows.length > 0 || (user.role === 'owner' && syncable.has(table)))
       ) as [string, Record<string, unknown>[]][];
 
       if (!payload.length) {
@@ -274,6 +280,21 @@ export async function bootstrapHandler(request: Request, env: Env, user: User): 
       }
 
       payload.sort((a, b) => writeRank(a[0]) - writeRank(b[0]));
+
+      // Owner-managed collections are authoritative in the owner's browser.
+      // Remove rows no longer present so deleted staff/leads do not return on
+      // the next refresh. History tables such as attendance are append-only.
+      for (const [table, rows] of payload) {
+        if (user.role !== 'owner' || !syncable.has(table)) continue;
+        const ids = rows.map((row) => String(row.id || '')).filter(Boolean);
+        const params: unknown[] = [organizationId];
+        let query = `DELETE FROM ${table} WHERE organization_id = ?`;
+        if (ids.length) {
+          query += ` AND id NOT IN (${ids.map(() => '?').join(',')})`;
+          params.push(...ids);
+        }
+        await env.DB.prepare(query).bind(...params).run();
+      }
 
       // Resolve each table's real columns first. The client sends camelCase
       // objects that carry fields with no column at all (`listingStatus`,
