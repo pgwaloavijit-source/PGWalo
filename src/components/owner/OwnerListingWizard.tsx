@@ -166,7 +166,7 @@ const OwnerListingWizard: React.FC<OwnerListingWizardProps> = ({ onComplete, onC
       step1.country &&
       step1.fullAddress.trim()
   );
-  const step2Valid = step2.rooms.length > 0 && step2.rooms.every((r) => r.roomNumber.trim() && r.beds.every((b) => b.monthlyRent > 0));
+  const step2Valid = step2.rooms.length > 0 && step2.rooms.every((r) => r.roomNumber.trim() && (r.sharingCapacity !== 'Custom' || Boolean(r.customType?.trim())) && r.beds.every((b) => b.monthlyRent > 0));
   const canContinue = step === 1 ? step1Valid : step === 2 ? step2Valid : true;
   const startingRent = Math.min(...step2.rooms.flatMap((r) => r.beds.map((b) => b.monthlyRent)).concat([9500]));
 
@@ -561,10 +561,10 @@ const OwnerListingWizard: React.FC<OwnerListingWizardProps> = ({ onComplete, onC
                             <input type="text" value={room.roomSize || ''} onChange={(e) => updateRoom(i, { roomSize: e.target.value })} placeholder="e.g. 120 sq ft" className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs" />
                           </label>
                           <label className="text-[10px] font-bold text-slate-500">Room type
-                            <select value={room.sharingCapacity} onChange={(e) => updateRoom(i, { sharingCapacity: e.target.value, customType: e.target.value === 'Custom' ? (room.customType || '') : undefined })} className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs font-medium">
+                            <select value={room.sharingCapacity} onChange={(e) => updateRoom(i, { sharingCapacity: e.target.value, customType: e.target.value === 'Custom' ? '' : undefined })} className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs font-medium">
                               {SHARING_OPTIONS.map((type) => <option key={type}>{type}</option>)}
                             </select>
-                            {room.sharingCapacity === 'Custom' && <input type="text" value={room.customType || ''} onChange={(e) => updateRoom(i, { customType: e.target.value })} placeholder="e.g. Executive 6-bed" className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs" />}
+                            {room.sharingCapacity === 'Custom' && <input required type="text" value={room.customType || ''} onChange={(e) => updateRoom(i, { customType: e.target.value })} placeholder="Enter your room type" className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs" />}
                           </label>
                           <label className="text-[10px] font-bold text-slate-500">Bed type
                             <select value={room.bedType || 'Standard'} onChange={(e) => updateRoom(i, { bedType: e.target.value })} className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs font-medium">
