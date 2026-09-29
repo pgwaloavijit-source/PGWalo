@@ -261,7 +261,7 @@ export const OwnerDashboard: React.FC = () => {
                        step5?.noticePeriod === '30 Days' ? 30 :
                        step5?.noticePeriod === '60 Days' ? 60 : 30,
       gateClosingTime: step5?.curfewTime || '11:00 PM',
-      foodIncluded: Boolean(step3?.foodAvailable),
+      foodIncluded: Boolean(listingData.mealsEnabled ?? step3?.foodAvailable),
       foodIncludedInRate: Boolean(step3?.foodIncludedInRate),
       electricityRatePerUnit: step3?.electricityRatePerUnit || 0,
       taxPercent: step3?.taxPercent || 0,
@@ -2269,7 +2269,7 @@ export const OwnerDashboard: React.FC = () => {
       {/* Owner Listing Wizard */}
       {showListingWizard && (
         <OwnerListingWizard
-          initialData={editingProperty ? propertyToListingData(editingProperty) : undefined}
+          initialData={editingProperty ? { ...propertyToListingData(editingProperty), meals: mealPlan, mealsEnabled: Boolean(editingProperty.foodIncluded) } : undefined}
           onCancel={() => {
             setShowListingWizard(false);
             setEditingProperty(null);

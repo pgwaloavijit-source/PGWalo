@@ -1262,6 +1262,7 @@ export interface OwnerListingData {
   step2: OwnerListingStep2;
   step3: OwnerListingStep3;
   meals?: MealPlanDay[];
+  mealsEnabled?: boolean;
   step4: OwnerListingStep4;
   step5: OwnerListingStep5;
   step6: OwnerListingStep6;

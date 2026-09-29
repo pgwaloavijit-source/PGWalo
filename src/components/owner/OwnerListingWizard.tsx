@@ -96,6 +96,7 @@ const OwnerListingWizard: React.FC<OwnerListingWizardProps> = ({ onComplete, onC
   );
   const [step3, setStep3] = useState<OwnerListingStep3>(initialData?.step3 || getEmptyStep3());
   const [meals, setMeals] = useState<MealPlanDay[]>(initialData?.meals || getEmptyMeals());
+  const [mealsEnabled, setMealsEnabled] = useState(Boolean(initialData?.mealsEnabled));
   const [step4, setStep4] = useState<OwnerListingStep4>(initialData?.step4 || { photos: [] });
   const [enhancingPhotos, setEnhancingPhotos] = useState(false);
   const [roomPhotoBusy, setRoomPhotoBusy] = useState<Record<number, boolean>>({});
@@ -153,6 +154,7 @@ const OwnerListingWizard: React.FC<OwnerListingWizardProps> = ({ onComplete, onC
       step2,
       step3,
       meals,
+      mealsEnabled,
       step4,
       step5,
       step6,
@@ -163,7 +165,7 @@ const OwnerListingWizard: React.FC<OwnerListingWizardProps> = ({ onComplete, onC
       createdAt: initialData?.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     }),
-    [step1, step2, step3, meals, step4, step5, step6, step, initialData?.createdAt]
+    [step1, step2, step3, meals, mealsEnabled, step4, step5, step6, step, initialData?.createdAt]
   );
 
   const step1Valid = Boolean(
@@ -289,7 +291,7 @@ const OwnerListingWizard: React.FC<OwnerListingWizardProps> = ({ onComplete, onC
       return;
     }
     setPublishing(true);
-    if (meals.some((meal) => meal.breakfast || meal.lunch || meal.snacks || meal.dinner)) replaceMealPlan(meals);
+    if (mealsEnabled) replaceMealPlan(meals);
     let nextStep1 = step1;
     if (!step1.mapLocation) {
       const places = await searchPlaces(`${step1.fullAddress} ${step1.pincode} ${step1.city} India`);
@@ -316,7 +318,7 @@ const OwnerListingWizard: React.FC<OwnerListingWizardProps> = ({ onComplete, onC
       setStep(!step1Valid ? 1 : 2);
       return;
     }
-    if (meals.some((meal) => meal.breakfast || meal.lunch || meal.snacks || meal.dinner)) replaceMealPlan(meals);
+    if (mealsEnabled) replaceMealPlan(meals);
     onComplete?.(buildListing('Payment Pending'), { payNow: false });
   };
 
@@ -613,7 +615,7 @@ const OwnerListingWizard: React.FC<OwnerListingWizardProps> = ({ onComplete, onC
               )}
 
               {step === 3 && (
-                <MealsStep meals={meals} onChange={setMeals} />
+                <MealsStep enabled={mealsEnabled} onEnabledChange={setMealsEnabled} meals={meals} onChange={setMeals} />
               )}
 
               {step === 4 && (
@@ -849,7 +851,7 @@ const OwnerListingWizard: React.FC<OwnerListingWizardProps> = ({ onComplete, onC
 const inputClass =
   'w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-sm font-medium text-slate-900 outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent';
 
-const MealsStep: React.FC<{ meals: MealPlanDay[]; onChange: (meals: MealPlanDay[]) => void }> = ({ meals, onChange }) => {
+const MealsStep: React.FC<{ enabled: boolean; onEnabledChange: (enabled: boolean) => void; meals: MealPlanDay[]; onChange: (meals: MealPlanDay[]) => void }> = ({ enabled, onEnabledChange, meals, onChange }) => {
   const update = (day: MealPlanDay['day'], patch: Partial<MealPlanDay>) => onChange(meals.map((item) => item.day === day ? { ...item, ...patch } : item));
   return (
     <div className="space-y-4">
@@ -857,7 +859,8 @@ const MealsStep: React.FC<{ meals: MealPlanDay[]; onChange: (meals: MealPlanDay[
         <h3 className="text-base font-black text-slate-900">Mess / Meals</h3>
         <p className="text-xs text-slate-500 mt-1">Choose which meals are served each day, set timings, and add the menu.</p>
       </div>
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+      <label className="flex items-center justify-between rounded-2xl border border-blue-100 bg-blue-50 p-4 text-sm font-bold text-slate-800"><span>Does this property serve meals?</span><input type="checkbox" checked={enabled} onChange={(e) => onEnabledChange(e.target.checked)} className="h-5 w-5 accent-blue-600" /></label>
+      {enabled && <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
         {meals.map((meal) => (
           <section key={meal.day} className="rounded-2xl border border-slate-200 bg-white p-3 space-y-3">
             <div className="flex items-center justify-between"><h4 className="font-black text-sm text-slate-900">{meal.day}</h4><span className="text-[10px] text-slate-400">Select meals below</span></div>
@@ -880,7 +883,7 @@ const MealsStep: React.FC<{ meals: MealPlanDay[]; onChange: (meals: MealPlanDay[
             <input type="text" value={meal.specialNote || ''} onChange={(e) => update(meal.day, { specialNote: e.target.value })} placeholder="Special note (optional)" className="w-full rounded-lg border border-slate-200 px-2.5 py-2 text-xs" />
           </section>
         ))}
-      </div>
+      </div>}
     </div>
   );
 };

@@ -527,6 +527,7 @@ export const PGDetailModal: React.FC<{
                     {room.floor && <p>Floor: {room.floor}</p>}
                     {room.roomSize && <p>Room size: {room.roomSize}</p>}
                     {room.bedType && <p>Bed type: {room.bedType}</p>}
+                    <p>Air conditioning: {room.hasAC ? 'AC room' : 'Fan-cooled room'}</p>
                     <p>Electricity: Rs {property.electricityRatePerUnit || 8.5}/unit</p>
                     <p>Tax: {property.taxPercent || 0}% if applicable</p>
                     <p>Notice Period: {property.noticePeriodDays || 30} days</p>

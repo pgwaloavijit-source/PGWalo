@@ -1564,38 +1564,38 @@ export const ResidentDashboard: React.FC = () => {
                   <span className="text-xs font-bold text-blue-200 uppercase tracking-wider">Mess Today</span>
                   <h2 className="text-2xl font-black mt-1">{todaysMeal.day}’s Meal Schedule</h2>
                   <p className="text-xs text-blue-100 mt-1">
-                    Breakfast (7:30 - 10:00 AM) • Lunch (12:30 - 2:30 PM) • Dinner (8:00 - 10:30 PM)
+                    {todaysMeal.breakfastEnabled !== false && `Breakfast ${todaysMeal.breakfastTime ? `(${todaysMeal.breakfastTime})` : ''}`} {todaysMeal.lunchEnabled !== false && `• Lunch ${todaysMeal.lunchTime ? `(${todaysMeal.lunchTime})` : ''}`} {todaysMeal.dinnerEnabled !== false && `• Dinner ${todaysMeal.dinnerTime ? `(${todaysMeal.dinnerTime})` : ''}`}
                   </p>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-2xs space-y-2">
+                  {todaysMeal.breakfastEnabled !== false && <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-2xs space-y-2">
                     <span className="text-[11px] font-bold uppercase text-amber-700 bg-amber-50 px-2.5 py-1 rounded-lg">
                       Morning Breakfast
                     </span>
-                    <p className="text-sm font-bold text-slate-900 mt-2">{todaysMeal.breakfast}</p>
-                  </div>
+                    <p className="text-sm font-bold text-slate-900 mt-2">{todaysMeal.breakfast || 'Menu not added yet'}</p>
+                  </div>}
 
-                  <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-2xs space-y-2">
+                  {todaysMeal.lunchEnabled !== false && <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-2xs space-y-2">
                     <span className="text-[11px] font-bold uppercase text-blue-700 bg-blue-50 px-2.5 py-1 rounded-lg">
                       Homely Lunch
                     </span>
-                    <p className="text-sm font-bold text-slate-900 mt-2">{todaysMeal.lunch}</p>
-                  </div>
+                    <p className="text-sm font-bold text-slate-900 mt-2">{todaysMeal.lunch || 'Lunch not provided'}</p>
+                  </div>}
 
-                  <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-2xs space-y-2">
+                  {todaysMeal.snacksEnabled && <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-2xs space-y-2">
                     <span className="text-[11px] font-bold uppercase text-indigo-700 bg-indigo-50 px-2.5 py-1 rounded-lg">
                       Evening Snacks & Chai
                     </span>
-                    <p className="text-sm font-bold text-slate-900 mt-2">{todaysMeal.snacks}</p>
-                  </div>
+                    <p className="text-sm font-bold text-slate-900 mt-2">{todaysMeal.snacks || 'Snacks not provided'}</p>
+                  </div>}
 
-                  <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-2xs space-y-2">
+                  {todaysMeal.dinnerEnabled !== false && <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-2xs space-y-2">
                     <span className="text-[11px] font-bold uppercase text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg">
                       Warm Dinner
                     </span>
-                    <p className="text-sm font-bold text-slate-900 mt-2">{todaysMeal.dinner}</p>
-                  </div>
+                    <p className="text-sm font-bold text-slate-900 mt-2">{todaysMeal.dinner || 'Dinner not provided'}</p>
+                  </div>}
                 </div>
               </div>
             )}
